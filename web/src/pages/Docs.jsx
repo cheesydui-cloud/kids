@@ -288,7 +288,7 @@ function DocEditor({ doc, onCancel, onSaved }) {
               value={content}
               onChange={e => setContent(e.target.value)}
               onPaste={onPaste}
-              placeholder={'用 Markdown 编写教程…\n\n# 标题\n\n正文段落\n\n- 列表项\n\n![说明](图片地址)\n'}
+              placeholder={'用 Markdown 编写教程…\n\n# 标题\n\n正文段落\n\n- 列表项\n\n命令用三个反引号包起来，预览里是黑底框，可一键复制：\n\n```bash\ncurl -fsSL https://example.com/install.sh | bash\n```\n\n![说明](图片地址)\n'}
               spellCheck={false}
             />
           ) : (

@@ -61,23 +61,33 @@ func targetAddr(r nft.Rule) string {
 	return net.JoinHostPort(r.DestIP, strconv.Itoa(r.DestPort))
 }
 
-// setKeepAlive enables TCP keepalive on c when it is a TCP connection; it is a
-// no-op for any other conn type (e.g. test pipes).
-func setKeepAlive(c net.Conn) {
-	if tcp, ok := c.(*net.TCPConn); ok {
-		_ = tcp.SetKeepAlive(true)
-		_ = tcp.SetKeepAlivePeriod(keepAlivePeriod)
+// tuneRelayConn applies the socket options every userspace hop needs:
+// keepalive so a vanished peer unblocks the copy, and TCP_NODELAY so Nagle
+// cannot sit on a 64KB proxy write for a delayed-ACK RTT. No-op for non-TCP
+// conns (test pipes).
+func tuneRelayConn(c net.Conn) {
+	tcp, ok := c.(*net.TCPConn)
+	if !ok {
+		return
 	}
+	_ = tcp.SetKeepAlive(true)
+	_ = tcp.SetKeepAlivePeriod(keepAlivePeriod)
+	_ = tcp.SetNoDelay(true)
 }
 
+// setKeepAlive is kept as an alias so existing call sites and tests that only
+// care about keepalive keep compiling; it now also disables Nagle.
+func setKeepAlive(c net.Conn) { tuneRelayConn(c) }
+
 // dialUpstream is the single entry point for opening an upstream leg, so every
-// pooled or on-demand connection gets the same dial timeout and keepalive.
+// pooled or on-demand connection gets the same dial timeout, keepalive, and
+// TCP_NODELAY.
 func dialUpstream(addr string) (net.Conn, error) {
 	c, err := net.DialTimeout("tcp", addr, dialTimeout)
 	if err != nil {
 		return nil, err
 	}
-	setKeepAlive(c)
+	tuneRelayConn(c)
 	return c, nil
 }
 

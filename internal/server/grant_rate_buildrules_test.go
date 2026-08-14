@@ -8,16 +8,17 @@ import (
 	"nft/internal/nft"
 )
 
-// The grant's rate limit reaches the data plane: every rule priced by the
-// grant carries the shaping group + Mbps rate, the legacy Mbps mirror, and
-// is forced onto userspace so the shared token bucket actually runs.
-// Ownerless rules stay unshaped.
-func TestGrantRateLimitPropagatesToRules(t *testing.T) {
+// Rate limits are retired: leftover grant / profile Mbps must not shape
+// traffic or force TCP onto userspace.
+func TestGrantRateLimitDoesNotShapeRules(t *testing.T) {
 	d := openDB(t)
 	uid, _ := loginAsUser(t, d, 10)
 	n, _ := db.CreateNode(d, "rl-node", "https://p", "s")
 	db.GrantNode(d, uid, n.ID, 10, 0)
 	if _, err := d.Exec(`UPDATE user_nodes SET rate_limit_mbytes=10 WHERE user_id=? AND node_id=?`, uid, n.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec(`UPDATE users SET speed_limit_mbytes=5 WHERE id=?`, uid); err != nil {
 		t.Fatal(err)
 	}
 	owned, _ := createStandaloneRuleHop(t, d, n.ID, "tcp", 0, "10.0.0.9", 9000, sql.NullInt64{Int64: uid, Valid: true})
@@ -31,15 +32,11 @@ func TestGrantRateLimitPropagatesToRules(t *testing.T) {
 		switch r.RuleID {
 		case owned:
 			foundOwned = true
-			if r.ShapeGroup <= 0 || r.RateMBytes != 10 {
-				t.Errorf("owned rule shape = group %d rate %d, want positive group rate 10", r.ShapeGroup, r.RateMBytes)
+			if r.ShapeGroup != 0 || r.RateMBytes != 0 || r.BandwidthMbps != 0 {
+				t.Errorf("owned rule must be unshaped after rate-limit removal, got %+v", r)
 			}
-			// Rate value is Mbps; legacy mirror is the same number.
-			if r.BandwidthMbps != 10 {
-				t.Errorf("legacy mirror = %d Mbit, want 10", r.BandwidthMbps)
-			}
-			if r.Mode != nft.ModeUserspace {
-				t.Errorf("shaped TCP rule mode = %q, want userspace for shared-bucket enforcement", r.Mode)
+			if r.Mode == nft.ModeUserspace {
+				t.Errorf("owned TCP rule mode = %q, leftover rate must not force userspace", r.Mode)
 			}
 		case orphan:
 			foundOrphan = true
@@ -53,12 +50,8 @@ func TestGrantRateLimitPropagatesToRules(t *testing.T) {
 	}
 }
 
-// A chain rule's grant lives on the rule's panel node (the composite the
-// rule was created on), not on the physical nodes the chain hops through —
-// those intermediate nodes carry no grant of their own. buildRules must key
-// GrantShapes off the rule's own node_id, not each rule_hop's node_id, or a
-// composite chain silently loses its rate limit on every hop it pushes to.
-func TestGrantRateLimitPropagatesToCompositeChainHops(t *testing.T) {
+// A leftover composite grant rate must not stamp shape fields onto physical hops.
+func TestGrantRateLimitDoesNotPropagateToCompositeChainHops(t *testing.T) {
 	d := openDB(t)
 	a, _ := db.CreateNode(d, "hk", "https://p", "ta")
 	b, _ := db.CreateNode(d, "jp", "https://p", "tb")
@@ -67,8 +60,6 @@ func TestGrantRateLimitPropagatesToCompositeChainHops(t *testing.T) {
 	comp := makeComposite(t, d, "chain", a.ID, b.ID)
 
 	uid, _ := loginAsUser(t, d, 10)
-	// Grant only the composite (the panel node the rule belongs to); the
-	// physical hop nodes are never granted directly.
 	_ = db.GrantNode(d, uid, comp.ID, 10, 0)
 	if _, err := d.Exec(`UPDATE user_nodes SET rate_limit_mbytes=10 WHERE user_id=? AND node_id=?`, uid, comp.ID); err != nil {
 		t.Fatal(err)
@@ -106,8 +97,9 @@ func TestGrantRateLimitPropagatesToCompositeChainHops(t *testing.T) {
 				continue
 			}
 			found = true
-			if r.ShapeGroup <= 0 || r.RateMBytes != 10 {
-				t.Errorf("node %d (%s): rule shape = group %d rate %d, want positive group rate 10", phys.ID, phys.Name, r.ShapeGroup, r.RateMBytes)
+			if r.ShapeGroup != 0 || r.RateMBytes != 0 || r.Mode != nft.ModeKernel {
+				t.Errorf("node %d (%s): leftover grant must not shape hop, got group %d rate %d mode %q",
+					phys.ID, phys.Name, r.ShapeGroup, r.RateMBytes, r.Mode)
 			}
 		}
 		if !found {
@@ -116,56 +108,14 @@ func TestGrantRateLimitPropagatesToCompositeChainHops(t *testing.T) {
 	}
 }
 
-// Shape fields are data plane state: changing the rate must change the rev so
-// reconnecting agents are not skipped by the rev short-circuit.
+// Shape fields are still data plane state: changing them must change the rev so
+// reconnecting agents are not skipped by the rev short-circuit (e.g. when an
+// older panel that still shaped reconnects to one that does not).
 func TestComputeRevIncludesShapeFields(t *testing.T) {
 	base := []nft.Rule{{Proto: "tcp", SrcPort: 1, DestIP: "1.1.1.1", DestPort: 1}}
 	shaped := []nft.Rule{{Proto: "tcp", SrcPort: 1, DestIP: "1.1.1.1", DestPort: 1, ShapeGroup: 3, RateMBytes: 10}}
 	if computeRev(base) == computeRev(shaped) {
 		t.Fatal("rev must differ when shape fields differ")
-	}
-}
-
-// A profile-level speed_limit_mbytes must shape the owner's rules even when the
-// per-node grant rate is 0 (or the grant is missing entirely). Per-grant rates
-// still win when set.
-func TestGlobalSpeedLimitFallbackInBuildRules(t *testing.T) {
-	d := openDB(t)
-	uid, _ := loginAsUser(t, d, 10)
-	if _, err := d.Exec(`UPDATE users SET speed_limit_mbytes=5 WHERE id=?`, uid); err != nil {
-		t.Fatal(err)
-	}
-	n, _ := db.CreateNode(d, "global-rl", "https://p", "s")
-	// Grant with rate 0: still provides a shape group, rate comes from profile.
-	if err := db.GrantNode(d, uid, n.ID, 10, 0); err != nil {
-		t.Fatal(err)
-	}
-	owned, _ := createStandaloneRuleHop(t, d, n.ID, "tcp", 0, "10.0.0.9", 9000, sql.NullInt64{Int64: uid, Valid: true})
-
-	rules := buildRules(d, mustActiveHops(t, d, n.ID))
-	var found bool
-	for _, r := range rules {
-		if r.RuleID != owned {
-			continue
-		}
-		found = true
-		if r.RateMBytes != 5 || r.ShapeGroup <= 0 {
-			t.Fatalf("global fallback shape = group %d rate %d, want rate 5 with group", r.ShapeGroup, r.RateMBytes)
-		}
-	}
-	if !found {
-		t.Fatal("owned rule missing from built set")
-	}
-
-	// Explicit per-node rate overrides the profile default.
-	if _, err := d.Exec(`UPDATE user_nodes SET rate_limit_mbytes=12 WHERE user_id=? AND node_id=?`, uid, n.ID); err != nil {
-		t.Fatal(err)
-	}
-	rules = buildRules(d, mustActiveHops(t, d, n.ID))
-	for _, r := range rules {
-		if r.RuleID == owned && r.RateMBytes != 12 {
-			t.Fatalf("per-grant rate should win: got %d", r.RateMBytes)
-		}
 	}
 }
 

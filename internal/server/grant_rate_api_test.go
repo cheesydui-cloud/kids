@@ -10,7 +10,7 @@ import (
 	"nft/internal/db"
 )
 
-func TestAPISetPerNodeRateLimit(t *testing.T) {
+func TestAPISetPerNodeRateLimitRemoved(t *testing.T) {
 	d := openDB(t)
 	uid, _ := loginAsUser(t, d, 10)
 	n, _ := db.CreateNode(d, "rlnode", "", "")
@@ -24,36 +24,13 @@ func TestAPISetPerNodeRateLimit(t *testing.T) {
 	req.AddCookie(adminCookie)
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	if ct := rec.Header().Get("Content-Type"); ct == "application/json" {
+		t.Fatalf("want removed rate-limit endpoint to fall through to non-JSON response, got Content-Type %q body %s", ct, rec.Body.String())
 	}
 
 	g, _ := db.GetNodeGrant(d, uid, n.ID)
-	if g.RateLimitMBytes != 10 {
-		t.Fatalf("want 10, got %d", g.RateLimitMBytes)
-	}
-
-	// negative is rejected
-	body, _ = json.Marshal(map[string]any{"rate_limit_mbytes": -1})
-	req = newTestRequest("POST", "/api/users/"+itoa(uid)+"/nodes/"+itoa(n.ID)+"/rate-limit", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(adminCookie)
-	rec = httptest.NewRecorder()
-	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("negative rate: want 400, got %d", rec.Code)
-	}
-
-	// Missing grant must not report success.
-	other, _ := db.CreateNode(d, "no-grant", "", "")
-	body, _ = json.Marshal(map[string]any{"rate_limit_mbytes": 3})
-	req = newTestRequest("POST", "/api/users/"+itoa(uid)+"/nodes/"+itoa(other.ID)+"/rate-limit", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(adminCookie)
-	rec = httptest.NewRecorder()
-	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("missing grant: want 404, got %d body %s", rec.Code, rec.Body.String())
+	if g.RateLimitMBytes != 0 {
+		t.Fatalf("removed endpoint must not write leftover Mbps, got %d", g.RateLimitMBytes)
 	}
 }
 
@@ -76,7 +53,7 @@ func TestAPIRuleBandwidthEndpointRemoved(t *testing.T) {
 	}
 }
 
-func TestAPIBatchApplyGrantsRateLimit(t *testing.T) {
+func TestAPIBatchApplyGrantsIgnoresRateLimit(t *testing.T) {
 	d := openDB(t)
 	uid, _ := loginAsUser(t, d, 10)
 	n, _ := db.CreateNode(d, "rlbatch", "", "")
@@ -102,7 +79,10 @@ func TestAPIBatchApplyGrantsRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.RateLimitMBytes != 7 {
-		t.Fatalf("want 7, got %d", g.RateLimitMBytes)
+	if g.RateLimitMBytes != 0 {
+		t.Fatalf("batch-apply must ignore leftover rate_limit_mbytes, got %d", g.RateLimitMBytes)
+	}
+	if g.MaxForwards != 5 {
+		t.Fatalf("want max_forwards 5, got %d", g.MaxForwards)
 	}
 }

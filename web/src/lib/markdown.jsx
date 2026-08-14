@@ -2,6 +2,25 @@
    Supports: headings, paragraphs, lists, code, blockquote, links, images, hr, bold/italic/code.
    No raw HTML. Unsafe schemes on links/images are blocked. */
 
+import { useState } from 'react'
+import { copyToClipboard } from './clipboard'
+
+function CodeBlock({ code, lang }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    copyToClipboard(code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
+  return (
+    <div className="md-cmd">
+      <button type="button" className="md-cmd-copy" onClick={copy}>{copied ? '已复制' : '复制'}</button>
+      <pre className="md-pre" data-lang={lang || undefined}><code>{code}</code></pre>
+    </div>
+  )
+}
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -108,11 +127,7 @@ export function Markdown({ source, className = '' }) {
         i++
       }
       if (i < lines.length) i++ // closing fence
-      out.push(
-        <pre key={`code${key++}`} className="md-pre" data-lang={lang || undefined}>
-          <code>{codeLines.join('\n')}</code>
-        </pre>
-      )
+      out.push(<CodeBlock key={`code${key++}`} lang={lang} code={codeLines.join('\n')} />)
       continue
     }
 

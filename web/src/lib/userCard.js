@@ -39,7 +39,6 @@ export function buildUserCardText({
   const trafficLine = fmtTrafficGB(Math.round(used * rate), quota)
   const maxFwd = user.max_forwards > 0 ? String(user.max_forwards) : '不限'
   const ruleCount = Array.isArray(rules) ? rules.length : (user.rule_count || 0)
-  const speed = user.speed_limit_mbytes > 0 ? `${user.speed_limit_mbytes} Mbps` : '不限'
 
   const lines = [
     `【${brand}】账号信息`,
@@ -51,7 +50,6 @@ export function buildUserCardText({
     `到期时间：${expiresLine}`,
     `流量配额：${trafficLine}`,
     `规则：${ruleCount} / ${maxFwd}`,
-    `限速：${speed}`,
   ]
 
   if (user.disabled) {

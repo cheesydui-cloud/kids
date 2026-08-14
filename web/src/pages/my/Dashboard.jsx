@@ -156,7 +156,7 @@ export default function MyDashboard() {
           {/* Desktop table */}
           {!isMobile && <TableBox>
           <table className="tbl">
-            <thead><tr><th>节点</th>{show_rate && <th>倍率</th>}<th>状态</th><th>限速</th><th>本节点上限</th></tr></thead>
+            <thead><tr><th>节点</th>{show_rate && <th>倍率</th>}<th>状态</th><th>本节点上限</th></tr></thead>
             <tbody>
               {orderedNodes.map((n, i) => {
                 const g = grantByNode[n.id]
@@ -175,7 +175,6 @@ export default function MyDashboard() {
                     </td>
                     {show_rate && <td><Badge color="blue">×{n.rate_multiplier ?? 1}</Badge>{n.unidirectional && <Badge color="amber" className="ml-1">单向</Badge>}</td>}
                     <td><NodeOnline node={n} /></td>
-                    <td className="font-mono text-xs">{g?.rate_limit_mbytes > 0 ? `${g.rate_limit_mbytes} Mbps` : '不限'}</td>
                     <td className="font-mono">{g?.max_forwards ?? '--'}</td>
                   </tr>
                 )
@@ -199,10 +198,6 @@ export default function MyDashboard() {
                   <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
                     {show_rate && <Badge color="blue">×{n.rate_multiplier ?? 1}</Badge>}
                     {n.unidirectional && <Badge color="amber">单向</Badge>}
-                    {g?.rate_limit_mbytes > 0 && <>
-                      <span className="text-ink-mut">·</span>
-                      <span className="font-mono">{g.rate_limit_mbytes} Mbps</span>
-                    </>}
                   </div>
                 </div>
               )

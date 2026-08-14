@@ -194,7 +194,34 @@ func TestDialUpstream_EnablesKeepAlive(t *testing.T) {
 	}); cerr != nil {
 		t.Fatal(cerr)
 	}
-	if on == 0 {
-		t.Fatal("SO_KEEPALIVE not enabled on upstream dial")
+		if on == 0 {
+			t.Fatal("SO_KEEPALIVE not enabled on upstream dial")
+		}
 	}
-}
+
+	// Userspace hops are a byte-copying proxy: Nagle + delayed ACK adds a
+	// full RTT of stall on small writes. Dialed legs must disable it.
+	func TestDialUpstream_DisablesNagle(t *testing.T) {
+		addr, stop := localTCPServer(t)
+		defer stop()
+
+		c, err := dialUpstream(addr)
+		if err != nil {
+			t.Fatalf("dialUpstream: %v", err)
+		}
+		defer c.Close()
+
+		rc, err := c.(*net.TCPConn).SyscallConn()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var nodelay int
+		if cerr := rc.Control(func(fd uintptr) {
+			nodelay, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_NODELAY)
+		}); cerr != nil {
+			t.Fatal(cerr)
+		}
+		if nodelay == 0 {
+			t.Fatal("TCP_NODELAY not set on upstream dial")
+		}
+	}

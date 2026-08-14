@@ -766,19 +766,42 @@ html, body {
 }
 .md-quote .md-p { margin-bottom: 0.4em; }
 .md-quote .md-p:last-child { margin-bottom: 0; }
-.md-pre {
+.md-cmd {
+  position: relative;
   margin: 0 0 1em;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--color-line);
-  background: color-mix(in srgb, var(--color-raised) 80%, #0f172a 6%);
-  overflow-x: auto;
+}
+.md-cmd-copy {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
   font-size: 12.5px;
-  line-height: 1.55;
+  font-weight: 600;
+  color: #a0a4b0;
+  background: #2a2a3c;
+  border: 1px solid #3a3a4c;
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.md-cmd-copy:hover { background: #33334a; }
+.md-pre {
+  margin: 0;
+  padding: 18px 20px;
+  padding-right: 88px;
+  border-radius: 10px;
+  border: 1px solid #2a2a3c;
+  background: #1e1e2e;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .md-pre code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--color-ink);
+  color: #e8ecf3;
   background: none;
   padding: 0;
   border: 0;

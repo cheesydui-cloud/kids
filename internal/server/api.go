@@ -2602,7 +2602,6 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		Role              string `json:"role"`
 		MaxForwards       int    `json:"max_forwards"`
 		TrafficQuotaBytes int64  `json:"traffic_quota_bytes"`
-		SpeedLimitMBytes  int    `json:"speed_limit_mbytes"`
 		ExpiresAt         string `json:"expires_at"`
 		LandingSubURL     string `json:"landing_sub_url"`
 		AdminNote         string `json:"admin_note"`
@@ -2638,8 +2637,8 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	if maxFwd <= 0 {
 		maxFwd = 100
 	}
-	if _, err := s.DB.Exec(`UPDATE users SET max_forwards=?, traffic_quota_bytes=?, speed_limit_mbytes=? WHERE id=?`,
-		maxFwd, body.TrafficQuotaBytes, body.SpeedLimitMBytes, id); err != nil {
+	if _, err := s.DB.Exec(`UPDATE users SET max_forwards=?, traffic_quota_bytes=? WHERE id=?`,
+		maxFwd, body.TrafficQuotaBytes, id); err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -2893,7 +2892,6 @@ func (s *Server) apiUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 		MaxForwards      int     `json:"max_forwards"`
 		TrafficQuotaGB   float64 `json:"traffic_quota_gb"`
 		TrafficResetDays int     `json:"traffic_reset_days"`
-		SpeedLimitMBytes int     `json:"speed_limit_mbytes"`
 		AdminNote        string  `json:"admin_note"`
 		BillingRate      float64 `json:"billing_rate"`
 	}
@@ -2912,10 +2910,6 @@ func (s *Server) apiUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.TrafficResetDays < 0 {
 		jsonErr(w, http.StatusBadRequest, "天数无效")
-		return
-	}
-	if body.SpeedLimitMBytes < 0 {
-		jsonErr(w, http.StatusBadRequest, "限速不能为负")
 		return
 	}
 
@@ -2940,8 +2934,8 @@ func (s *Server) apiUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 		billingRate = 1.0
 	}
 	if _, err := s.DB.Exec(
-		`UPDATE users SET expires_at=?, max_forwards=?, traffic_quota_bytes=?, traffic_reset_days=?, speed_limit_mbytes=?, admin_note=?, billing_rate=? WHERE id=?`,
-		expiresAt, body.MaxForwards, trafficQuotaBytes, body.TrafficResetDays, body.SpeedLimitMBytes, strings.TrimSpace(body.AdminNote), billingRate, id,
+		`UPDATE users SET expires_at=?, max_forwards=?, traffic_quota_bytes=?, traffic_reset_days=?, admin_note=?, billing_rate=? WHERE id=?`,
+		expiresAt, body.MaxForwards, trafficQuotaBytes, body.TrafficResetDays, strings.TrimSpace(body.AdminNote), billingRate, id,
 	); err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -3882,51 +3876,6 @@ func (s *Server) apiSetPerNodeQuota(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true})
 }
 
-// apiSetPerNodeRateLimit sets the grant's shared rate limit (MB/s, 0 =
-// unlimited) and re-dispatches every node carrying the grant's rule hops so
-// the data plane picks up the new shaping.
-func (s *Server) apiSetPerNodeRateLimit(w http.ResponseWriter, r *http.Request) {
-	u := userFromCtx(r.Context())
-	userID, err := urlParamInt64(r, "id")
-	if err != nil {
-		jsonErr(w, http.StatusBadRequest, "bad id")
-		return
-	}
-	nodeID, err := urlParamInt64(r, "nodeID")
-	if err != nil {
-		jsonErr(w, http.StatusBadRequest, "bad node id")
-		return
-	}
-	var body struct {
-		RateLimitMBytes int64 `json:"rate_limit_mbytes"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		jsonErr(w, http.StatusBadRequest, "请求格式错误")
-		return
-	}
-	if body.RateLimitMBytes < 0 {
-		jsonErr(w, http.StatusBadRequest, "限速不能为负")
-		return
-	}
-	res, err := s.DB.Exec(`UPDATE user_nodes SET rate_limit_mbytes=? WHERE user_id=? AND node_id=?`,
-		body.RateLimitMBytes, userID, nodeID)
-	if err != nil {
-		jsonErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		jsonErr(w, http.StatusNotFound, "该用户未授权此节点")
-		return
-	}
-	affected, _ := db.RulesAffectedByNode(s.DB, userID, nodeID)
-	for _, n := range affected {
-		_ = s.dispatchToNode(n)
-	}
-	db.WriteAudit(s.DB, u.ID, "user.set_node_rate_limit", strconv.FormatInt(userID, 10),
-		fmt.Sprintf("node=%d mbytes=%d", nodeID, body.RateLimitMBytes))
-	jsonOK(w, map[string]any{"ok": true})
-}
-
 func (s *Server) apiResetPerNodeTraffic(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	userID, err := urlParamInt64(r, "id")
@@ -4083,7 +4032,6 @@ func (s *Server) apiBatchApplyGrants(w http.ResponseWriter, r *http.Request) {
 			NodeName          string `json:"node_name"`
 			MaxForwards       int    `json:"max_forwards"`
 			TrafficQuotaBytes int64  `json:"traffic_quota_bytes"`
-			RateLimitMBytes   int64  `json:"rate_limit_mbytes"`
 		} `json:"grants"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
@@ -4125,21 +4073,13 @@ func (s *Server) apiBatchApplyGrants(w http.ResponseWriter, r *http.Request) {
 				jsonErr(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			mb := g.RateLimitMBytes
-			if mb < 0 {
-				mb = 0
-			}
-			if _, err := s.DB.Exec(`UPDATE user_nodes SET rate_limit_mbytes=? WHERE user_id=? AND node_id=?`, mb, uid, nid); err != nil {
-				jsonErr(w, http.StatusInternalServerError, err.Error())
-				return
-			}
 			db.WriteAudit(s.DB, u.ID, "user.grant_node", strconv.FormatInt(uid, 10), strconv.FormatInt(nid, 10))
 			granted++
 		}
 	}
 
-	// batch grants usually precede rule creation (no-op fanout), but changing
-	// an existing grant's rate limit must take effect on already-active rules.
+	// batch grants usually precede rule creation (no-op fanout), but
+	// changing an existing grant's quota must still fan out.
 	affected := map[int64]bool{}
 	for _, g := range body.Grants {
 		nid, ok := nameToID[g.NodeName]

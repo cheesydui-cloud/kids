@@ -139,11 +139,6 @@ export default function UserDetail() {
       value: expiresAt ? fmtDate(expiresAt) : '永不过期',
       tone: exp?.color === 'red' ? 'tone-danger' : exp?.color === 'gray' ? 'tone-warn' : 'tone-ok',
     },
-    user.speed_limit_mbytes > 0 ? {
-      label: '限速',
-      value: `${user.speed_limit_mbytes} Mbps`,
-      tone: 'tone-violet',
-    } : null,
   ].filter(Boolean) : []
 
   const tabs = [{ id: 'overview', label: '概览' }]
@@ -305,7 +300,7 @@ export default function UserDetail() {
           <div className="detail-panel-header">
             <div>
               <h3 className="detail-panel-title">可编辑配置</h3>
-              <div className="detail-panel-sub">到期、配额、限速与备注</div>
+              <div className="detail-panel-sub">到期、配额与备注</div>
             </div>
           </div>
           <div className="detail-panel-body">
@@ -317,7 +312,6 @@ export default function UserDetail() {
               resetDays={user.traffic_reset_days}
               adminNote={user.admin_note || ''}
               billingRate={user.billing_rate}
-              speedLimitMBytes={user.speed_limit_mbytes || 0}
               onDone={load}
             />
           </div>
@@ -331,7 +325,6 @@ export default function UserDetail() {
           grants={grants}
           allNodes={all_nodes}
           allUsers={allUsers}
-          userSpeedLimitMBytes={user.speed_limit_mbytes || 0}
           onDone={load}
           embedded
         />

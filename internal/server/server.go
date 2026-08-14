@@ -506,7 +506,6 @@ func buildRules(d *sql.DB, ruleHops []*db.RuleHop) []nft.Rule {
 	if users == nil {
 		users = map[int64]*db.User{}
 	}
-	shapes, _ := db.GrantShapes(d)
 
 	ruleIDSet := map[int64]bool{}
 	for _, rh := range ruleHops {
@@ -537,61 +536,6 @@ func buildRules(d *sql.DB, ruleHops []*db.RuleHop) []nft.Rule {
 			if r.OwnerID.Valid {
 				if u := users[r.OwnerID.Int64]; u != nil {
 					rule.OwnerName = u.Username
-				}
-				// Shaping follows the rule owner's grant for the segment this hop
-				// belongs to. The hop's via_node_id is the logical segment node
-				// (e.g. the composite node ID for composite expansions), while the
-				// hop's own node_id is the physical node running the forwarding.
-				// Try via_node_id first, then the physical hop node, then the rule's
-				// entry node — so grants on any layer activate the shared bucket.
-				//
-				// Per-grant rate wins; when it is 0/missing, fall back to the user's
-				// global speed_limit_mbytes so a profile-level cap still shapes
-				// every hop of the owner's rules.
-				var shapeGrant *db.GrantShape
-				candidates := [...]int64{rh.ViaNodeID, rh.NodeID, r.NodeID}
-				for _, nid := range candidates {
-					if gs, ok := shapes[[2]int64{r.OwnerID.Int64, nid}]; ok {
-						shapeGrant = &gs
-						break
-					}
-				}
-				rate := 0
-				grantID := int64(0)
-				if shapeGrant != nil {
-					rate = int(shapeGrant.RateLimitMBytes)
-					grantID = shapeGrant.GrantID
-				}
-				if rate <= 0 {
-					if u := users[r.OwnerID.Int64]; u != nil && u.SpeedLimitMBytes > 0 {
-						rate = u.SpeedLimitMBytes
-						// No per-node grant row: use a stable synthetic group in the
-						// high half of the 16-bit mark space so all of this owner's
-						// hops share one bucket without colliding with ordinary
-						// SQLite rowids that typically sit well below 0x8000.
-						if grantID <= 0 {
-							grantID = 0x8000 + (r.OwnerID.Int64 & 0x7FFF)
-						}
-					}
-				}
-				if rate > 0 && grantID > 0 {
-					rule.ShapeGroup = grantID
-					// RateMBytes is the historical wire name; the value is
-					// Mbps (10 ≈ "10M" on a residential line). All of this
-					// owner's rules that match the same grant share one
-					// ShapeGroup bucket on the agent.
-					rule.RateMBytes = rate
-					// Legacy per-rule mirror for pre-group agents (Mbps).
-					rule.BandwidthMbps = rate
-					// Shared grant caps are enforced by the userspace token
-					// bucket. Kernel+tc is best-effort (iface detection,
-					// CAP_NET_ADMIN) and often degrades silently — force TCP
-					// onto userspace so concurrent rules of the same grant
-					// share one real bucket end-to-end.
-					switch rule.Proto {
-					case "tcp", "tcp+udp":
-						rule.Mode = nft.ModeUserspace
-					}
 				}
 			}
 		}
@@ -718,7 +662,6 @@ func (s *Server) Router() http.Handler {
 			r.Post("/users/{id}/reset-days", s.apiSetResetDays)
 			r.Post("/users/{id}/nodes/{nodeID}/max-forwards", s.apiSetPerNodeMaxForwards)
 			r.Post("/users/{id}/nodes/{nodeID}/quota", s.apiSetPerNodeQuota)
-			r.Post("/users/{id}/nodes/{nodeID}/rate-limit", s.apiSetPerNodeRateLimit)
 			r.Post("/users/{id}/nodes/{nodeID}/reset-traffic", s.apiResetPerNodeTraffic)
 			r.Get("/users/{id}/landing-exits", s.apiListUserLandingExits)
 			r.Post("/users/{id}/landing-exits/quota", s.apiSetLandingExitQuota)
