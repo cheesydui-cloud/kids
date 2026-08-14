@@ -9,6 +9,45 @@
 
 ---
 
+## v0.1.1 — 2026-08-14
+
+安装体验与发布产物加固。固定一键安装命令不变，默认仍拉 latest。
+
+### 新增
+
+- 官方预编译同时提供 **linux/amd64** 与 **linux/arm64**
+- `install.sh` 按本机架构自动选择对应二进制
+- 安装前自动检测并安装缺失依赖（`curl` / `nftables` / `iproute2`，Debian/Ubuntu）
+
+### 修复
+
+- 精简 VPS 没有 `sudo` 时，安装命令不再依赖 `sudo`（用 root 直接跑 `bash`）
+- 面板二进制默认监听地址与安装脚本对齐为 `:7788`，避免手跑 `nft-server` 和一键安装端口不一致
+
+### 改进
+
+- 下载 GitHub 产物增加重试与连接超时，弱网更稳
+- 面板从 GitHub 拉取 agent 升级包时限制体积，避免异常响应撑爆内存
+- 增加 GitHub Actions CI（`go vet` + `go test`），发版必须带 CHANGELOG 详情
+
+### 升级注意
+
+- 已安装机器直接跑固定命令升级即可：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+- 新安装仍用：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
+```
+
+- 需要 systemd；非 Debian 系统请先自行安装 nftables / iproute2 / curl
+
+---
+
 ## v0.1.0 — 2026-08-14
 
 首发版本。把 nft-server / nft-agent 源码、固定一键安装脚本和 linux/amd64 预编译产物发布到 [cheesydui-cloud/kids](https://github.com/cheesydui-cloud/kids)。

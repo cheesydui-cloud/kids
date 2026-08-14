@@ -26,8 +26,9 @@ import (
 // release version from the GitHub release once, caches it on disk, and lets
 // nodes pull it over HTTP (/v1/binary) so they never reach GitHub themselves.
 const (
-		agentRepo      = "cheesydui-cloud/kids"
+	agentRepo      = "cheesydui-cloud/kids"
 	agentCacheRoot = "/var/lib/nft/agent-cache"
+	maxAgentBytes  = 64 << 20
 )
 
 // agentArtifact is the nft-agent binary the panel would push: the asset for the
@@ -149,7 +150,14 @@ func httpGetBytes(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAgentBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("GET %s: %w", url, err)
+	}
+	if int64(len(data)) > maxAgentBytes {
+		return nil, fmt.Errorf("GET %s: body exceeds %d bytes", url, maxAgentBytes)
+	}
+	return data, nil
 }
 
 // normalizePanelBaseURL turns a stored panel_url into an absolute base the agent

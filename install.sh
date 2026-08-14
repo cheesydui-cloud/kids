@@ -409,20 +409,53 @@ write_agent_identity() {
   printf '%s' "$sha" >"$ETC_DIR/agent.sha"
 }
 
-# Download one release asset through the proxy and strong-verify it against the
-# release's SHA256SUMS. Echoes the verified sha256 hex on success.
-#   $1 = base URL (releases/download root), $2 = asset name, $3 = dest path
-#   $4 = "strict" to hard-fail when SHA256SUMS is unavailable (binaries), or
-#        "soft" to warn and skip (legacy tolerance for optional fetches)
-fetch_and_verify() {
+# HOST_GOARCH is linux GOARCH for this machine (amd64 / arm64).
+HOST_GOARCH=""
+
+detect_arch() {
+  local m
+  m="$(uname -m)"
+  case "$m" in
+    x86_64|amd64) HOST_GOARCH=amd64 ;;
+    aarch64|arm64) HOST_GOARCH=arm64 ;;
+    *) die "不支持的架构: $m（当前提供 linux/amd64 与 linux/arm64）" ;;
+  esac
+}
+
+# Release assets are named nft-{server,agent}-linux-$GOARCH. Older v0.1.0
+# published unsuffixed names; try those as a last-resort fallback on amd64.
+asset_candidates() {
+  local kind="$1"
+  echo "${kind}-linux-${HOST_GOARCH}"
+  if [[ "$HOST_GOARCH" == "amd64" ]]; then
+    echo "$kind"
+  fi
+}
+
+ensure_runtime_deps() {
+  local need=()
+  command -v curl >/dev/null 2>&1 || need+=(curl)
+  command -v nft >/dev/null 2>&1 || need+=(nftables)
+  command -v tc >/dev/null 2>&1 || need+=(iproute2)
+  command -v systemctl >/dev/null 2>&1 || die "需要 systemd（未找到 systemctl）"
+  [[ ${#need[@]} -eq 0 ]] && return 0
+  if command -v apt-get >/dev/null 2>&1; then
+    note "安装缺失依赖: ${need[*]}"
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${need[@]}" \
+      || die "自动安装依赖失败: ${need[*]}"
+    return 0
+  fi
+  die "缺少依赖: ${need[*]}。请先用系统包管理器安装后再跑本脚本"
+}
+
+# Verify dest against SHA256SUMS for $asset. Echoes the file sha256 hex.
+verify_asset() {
   local base="$1" asset="$2" dest="$3" strictness="${4:-strict}"
-  curl -fL --progress-bar "$base/$asset" -o "$dest" \
-    || die "下载失败: $base/$asset"
   local ddir
   ddir="$(dirname "$dest")"
-  if curl -fLs "$base/SHA256SUMS" -o "$ddir/SHA256SUMS" 2>/dev/null; then
-    # Verification chatter must go to stderr — stdout carries only the hash the
-    # caller captures into the identity file.
+  if curl -fLs --retry 5 --retry-delay 2 --connect-timeout 20 \
+      "$base/SHA256SUMS" -o "$ddir/SHA256SUMS" 2>/dev/null; then
     (cd "$ddir" && grep -E "  $asset\$" SHA256SUMS | sha256sum -c - >&2) \
       || die "sha256 校验失败: $asset"
   elif [[ "$strictness" == "strict" ]]; then
@@ -431,6 +464,30 @@ fetch_and_verify() {
     echo "    (SHA256SUMS 不可用，跳过校验)" >&2
   fi
   sha256sum "$dest" | awk '{print $1}'
+}
+
+# Download one release asset through the proxy and strong-verify it.
+fetch_and_verify() {
+  local base="$1" asset="$2" dest="$3" strictness="${4:-strict}"
+  curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
+    "$base/$asset" -o "$dest" \
+    || die "下载失败: $base/$asset"
+  verify_asset "$base" "$asset" "$dest" "$strictness"
+}
+
+# Download nft-server / nft-agent for this host arch, trying suffixed names first.
+download_role_binary() {
+  local base="$1" kind="$2" dest="$3"
+  local name
+  for name in $(asset_candidates "$kind"); do
+    note "    尝试 $name ..."
+    if curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
+         "$base/$name" -o "$dest"; then
+      verify_asset "$base" "$name" "$dest" strict
+      return 0
+    fi
+  done
+  die "下载失败: 未找到 $kind（linux-$HOST_GOARCH）。请确认已发布对应架构的 release 产物"
 }
 
 rollback_update() {
@@ -470,10 +527,10 @@ do_update() {
   local tag agent_sha
   tag="$(resolve_release_tag)"
 
-  note "[1/5] 下载二进制 ($tag) ..."
-  agent_sha="$(fetch_and_verify "$base" nft-agent "$_update_tmp/nft-agent" strict)"
+  note "[1/5] 下载二进制 ($tag / linux-$HOST_GOARCH) ..."
+  agent_sha="$(download_role_binary "$base" nft-agent "$_update_tmp/nft-agent")"
   if [[ "$want_server" -eq 1 ]]; then
-    fetch_and_verify "$base" nft-server "$_update_tmp/nft-server" strict >/dev/null
+    download_role_binary "$base" nft-server "$_update_tmp/nft-server" >/dev/null
   fi
 
   # No product-side arch probe here. The host arch is already gated by the
@@ -659,12 +716,7 @@ normalize_gh_proxy
 
 [[ $EUID -eq 0 ]] || die "请以 root 运行。精简系统往往没有 sudo，直接 root 执行即可：bash $0 ..."
 
-# 架构检测
-arch=$(uname -m)
-case "$arch" in
-  x86_64|amd64) ;;
-  *) die "目前仅 amd64 二进制可用（当前: $arch）。请等待后续 release 或自行交叉编译。" ;;
-esac
+detect_arch
 
 # Mode selection (interactive when no TTY arg).
 if [[ -z "$mode" ]]; then
@@ -759,6 +811,7 @@ fi
 
 # Update is its own code path: no role unit changes, only binary swap.
 if [[ "$mode" == "update" ]]; then
+  ensure_runtime_deps
   if [[ -n "${NFTF_RELEASE_BASE_URL:-}" ]]; then
     base="$NFTF_RELEASE_BASE_URL"
   elif [[ "$RELEASE" == "latest" ]]; then
@@ -772,6 +825,7 @@ fi
 
 # All install modes need binaries + the daemon unit. Resolve the release base,
 # download/verify the role's binaries, then layer the role-specific unit on top.
+ensure_runtime_deps
 remove_legacy_units
 
 if [[ -n "${NFTF_RELEASE_BASE_URL:-}" ]]; then
@@ -789,11 +843,11 @@ release_tag="$(resolve_release_tag)"
 
 # Every role installs nft-agent (the node daemon + TUI); only server adds the
 # panel binary on top.
-note "[1/3] 下载 nft-agent ($RELEASE) ..."
-agent_sha="$(fetch_and_verify "$base" nft-agent "$tmp/nft-agent" strict)"
+note "[1/3] 下载 nft-agent ($RELEASE / linux-$HOST_GOARCH) ..."
+agent_sha="$(download_role_binary "$base" nft-agent "$tmp/nft-agent")"
 if [[ "$mode" == "server" ]]; then
-  note "      下载 nft-server ($RELEASE) ..."
-  fetch_and_verify "$base" nft-server "$tmp/nft-server" strict >/dev/null
+  note "      下载 nft-server ($RELEASE / linux-$HOST_GOARCH) ..."
+  download_role_binary "$base" nft-server "$tmp/nft-server" >/dev/null
 fi
 
 note "[2/3] 安装到 $INSTALL_DIR ..."

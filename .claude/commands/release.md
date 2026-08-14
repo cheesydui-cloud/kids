@@ -67,7 +67,7 @@ Tag message 用英文单行。推送 `v*` tag 后，GitHub Actions 会：
 
 1. 从 `CHANGELOG.md` 抽出该版本全文作为 Release notes（缺章节或过短则构建失败）
 2. 编译 linux/amd64 二进制
-3. 把 `nft-server`、`nft-agent`、`SHA256SUMS`、`install.sh`、`CHANGELOG.md` 一并上传到该版本 Release
+3. 把带架构后缀的二进制、兼容旧脚本的无后缀 amd64 副本、`SHA256SUMS`、`install.sh`、`CHANGELOG.md` 一并上传
 
 ## 本地补发（无 Actions 时）
 
@@ -103,7 +103,7 @@ upgrade 脚本会自动：下载 latest → sha256 校验 → 备份 → 原子�
 ## 验证
 
 - Release 页面正文与 `CHANGELOG.md` 该版本章节一致
-- assets 含 `nft-server`、`nft-agent`、`SHA256SUMS`、`install.sh`、`CHANGELOG.md`
+- assets 含 `nft-server-linux-{amd64,arm64}`、`nft-agent-linux-{amd64,arm64}`、无后缀 amd64 副本、`SHA256SUMS`、`install.sh`、`CHANGELOG.md`
 - 部署输出含 `sha256: OK`、`Update 完成`
 
 ## 约束

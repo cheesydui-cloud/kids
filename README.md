@@ -2,7 +2,7 @@
 
 基于 nftables 的轻量多节点端口转发平台。**两个二进制（`nft-server` + `nft-agent`），零外部依赖**——面板管理多节点并推送规则，节点 agent 反向连入面板，节点零端口暴露。支持内核态 DNAT 与用户态 split-TCP 逐跳混用、多租户配额、组合节点自动编排多跳链路。
 
-当前版本：**v0.1.0**（下面这条安装命令固定不变，永远装最新版）  
+当前版本：**v0.1.1**（下面这条安装命令固定不变，永远装最新版）  
 仓库：https://github.com/cheesydui-cloud/kids
 
 > 衍生自 [xjetry/nft-forward](https://github.com/xjetry/nft-forward)，以 MIT 许可证发布（见 [LICENSE](./LICENSE)）。
@@ -11,7 +11,7 @@
 
 ## 一键安装（固定命令）
 
-仅支持 **amd64 Linux**，需要 **root + nftables**。
+支持 **linux/amd64** 与 **linux/arm64**，需要 **root + systemd**。脚本会自动安装缺失的 `nftables` / `iproute2` / `curl`（Debian/Ubuntu）。
 
 这条 URL 钉在 `main/install.sh`，**以后发 v0.2.0、v1.0.0 都不用改命令**。脚本会自动拉 GitHub Releases 的 **latest** 二进制。
 
@@ -200,7 +200,7 @@ nft-agent daemon --connect wss://panel/v1/agents \
     --panel-token-file /etc/nft/panel.token
                                agent 模式：反向连入面板
 
-nft-server [--addr :8080] [--db PATH]
+nft-server [--addr :7788] [--db PATH]
                                Web 面板
 nft-server --reset-admin-password <newpw>
                                重置 admin 密码
@@ -291,4 +291,4 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
 - 限速仅 egress 方向
 - 面板单实例（SQLite）
 - WSS 不内置 TLS，需反代做 TLS 终结
-- 官方预编译二进制目前仅 linux/amd64
+- 官方预编译二进制目前仅 linux/amd64 与 linux/arm64

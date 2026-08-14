@@ -1,7 +1,9 @@
 # compiled binaries / release artifacts
 /build/
-nft-server
-nft-server-*
+/nft-server
+/nft-server-*
+/nft-agent
+/nft-agent-*
 
 # git worktrees managed by the dev workflow
 /.worktrees/
