@@ -2,7 +2,7 @@
 
 基于 nftables 的轻量多节点端口转发平台。**两个二进制（`nft-server` + `nft-agent`），零外部依赖**——面板管理多节点并推送规则，节点 agent 反向连入面板，节点零端口暴露。支持内核态 DNAT 与用户态 split-TCP 逐跳混用、多租户配额、组合节点自动编排多跳链路。
 
-当前版本：**v0.1.7**（下面这条安装命令固定不变，永远装最新版）  
+当前版本：**v0.1.8**（下面这条安装命令固定不变，永远装最新版）  
 仓库：https://github.com/cheesydui-cloud/kids
 
 > 衍生自 [xjetry/nft-forward](https://github.com/xjetry/nft-forward)，以 MIT 许可证发布（见 [LICENSE](./LICENSE)）。
@@ -183,7 +183,7 @@ agent 反向 WebSocket 连入面板，节点无需对公网开放管理端口。
 | `--addr ADDR` | 面板监听地址，默认 `:7788` |
 | `--panel-url URL` | agent 连接的面板地址 |
 | `--token TOKEN` | agent bearer token |
-| `--port-range START-END` | 中继端口范围，默认 `10001-20000` |
+| `--port-range START-END` | 中继端口范围，默认 `10001-60000` |
 | `--relay-host HOST` | 声明数据面 IPv4 |
 | `--relay-host-v6 HOST` | 声明数据面 IPv6 |
 | `--release VER` | 指定 GitHub release tag，默认 latest |

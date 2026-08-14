@@ -72,7 +72,7 @@ func runDaemon(args []string) int {
 	fs.StringVar(&iface, "iface", "", "tc data-plane iface (auto-detect if empty)")
 	fs.StringVar(&connectURL, "connect", "", "panel WebSocket URL (e.g. wss://panel/v1/agents); empty = tui/standalone mode")
 	fs.StringVar(&panelTokenFile, "panel-token-file", "/etc/nft/panel.token", "bearer token file (required when --connect is set)")
-	fs.StringVar(&portRange, "port-range", "", "端口范围（如 10001-20000），上报给面板")
+	fs.StringVar(&portRange, "port-range", "", "端口范围（如 10001-60000），上报给面板")
 	fs.StringVar(&relayHost, "relay-host", "", "显式声明数据面 IPv4 地址/域名，覆盖面板的自动识别（用于双出口等场景）")
 	fs.StringVar(&relayHostV6, "relay-host-v6", "", "显式声明数据面 IPv6 地址，覆盖面板的自动识别")
 	fs.BoolVar(&allowInsecure, "insecure-connect", false, "允许明文 ws:// 控制信道（仅本地测试；生产必须用 wss://）")

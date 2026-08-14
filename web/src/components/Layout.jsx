@@ -21,6 +21,7 @@ export function useToast() { return useContext(ToastCtx) }
 export function UserProvider({ children }) {
   const [user, setUser] = useState(undefined) // undefined = loading, null = not logged in
   const [panelName, setPanelName] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
   const [version, setVersion] = useState('')
   const [toasts, setToasts] = useState([])
   const idRef = useRef(0)
@@ -31,6 +32,7 @@ export function UserProvider({ children }) {
       const data = await api.get('/me')
       setUser(data?.user ?? null)
       setPanelName(data?.panel_name || '')
+      setLogoUrl(data?.logo_url || '')
       setVersion(data?.version || '')
       return data
     } catch {
@@ -44,13 +46,28 @@ export function UserProvider({ children }) {
     api.get('/branding').then(d => {
       const name = (d?.panel_name || '').trim()
       if (name) setPanelName(name)
+      if (d?.logo_url) setLogoUrl(d.logo_url)
     }).catch(() => {})
   }, [])
 
-  // Keep browser tab title in sync with panel_name globally (login + after login).
+  // Keep browser tab title + favicon in sync with 系统设置 (login + after login).
   useEffect(() => {
     if (panelName) document.title = panelName
   }, [panelName])
+  useEffect(() => {
+    const href = logoUrl || '/favicon.svg'
+    const apply = (rel) => {
+      let el = document.querySelector(`link[rel="${rel}"]`)
+      if (!el) {
+        el = document.createElement('link')
+        el.rel = rel
+        document.head.appendChild(el)
+      }
+      el.href = href
+    }
+    apply('icon')
+    apply('apple-touch-icon')
+  }, [logoUrl])
 
   useEffect(() => { refreshUser() }, [refreshUser])
 
@@ -81,11 +98,12 @@ export function UserProvider({ children }) {
     if (!data) return
     if (data.user !== undefined) setUser(data.user)
     if (data.panel_name !== undefined) setPanelName(data.panel_name || '')
+    if (data.logo_url !== undefined) setLogoUrl(data.logo_url || '')
     if (data.version !== undefined) setVersion(data.version || '')
   }, [])
 
   return (
-    <UserCtx.Provider value={{ user, setUser, panelName, version, refreshUser, applySession }}>
+    <UserCtx.Provider value={{ user, setUser, panelName, logoUrl, setLogoUrl, version, refreshUser, applySession }}>
       <ToastCtx.Provider value={toast}>
         {children}
         {/* Toast stack */}
@@ -108,7 +126,7 @@ export function UserProvider({ children }) {
 
 /* ---------- Layout (sidebar + content) ---------- */
 export function Layout({ children }) {
-  const { user, panelName, version } = useUser()
+  const { user, panelName, logoUrl, version } = useUser()
   const navigate = useNavigate()
   const [sideOpen, setSideOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('nf-sidebar') === '1')
@@ -169,7 +187,7 @@ export function Layout({ children }) {
             <div className="w-[42px] h-[42px] rounded-[14px] flex-none grid place-items-center text-white shadow-[0_10px_24px_-8px_rgba(16,185,129,0.65)] ring-1 ring-white/25"
               title={collapsed && isAdmin && version ? version : undefined}
               style={{ background: 'linear-gradient(145deg, #10b981 0%, #14b8a6 52%, #0d9488 100%)' }}>
-              <BrandMark />
+              <BrandMark src={logoUrl} />
             </div>
             {!collapsed && <div className="min-w-0">
               <div className="text-[15.5px] font-bold tracking-tight sb-text truncate">{panelName || 'nft'}</div>

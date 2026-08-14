@@ -22,7 +22,7 @@ type DBTX interface {
 // DefaultPortRange is the fallback chain-hop port range when a node has no
 // explicit port_range. The start/end port picker lives in internal/portutil so
 // the daemon can allocate ports without importing this sqlite-backed package.
-const DefaultPortRange = "10001-20000"
+const DefaultPortRange = "10001-60000"
 
 // ParsePortRange parses a composite port spec like "10001-19999,23333,40000-42000"
 // into individual (start, end) segments. A single port becomes (p, p).

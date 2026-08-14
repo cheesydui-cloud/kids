@@ -278,7 +278,7 @@ kids 固定一键安装/卸载/升级脚本（nft-server 面板 + nft-agent 节�
 选项 / 环境变量:
   --panel-url URL  (PANEL_URL)    agent 连向的 panel 地址（http(s)://… 或 ws(s)://…）
   --token TOKEN    (AGENT_TOKEN)   agent bearer token（agent 模式必填）
-  --port-range R                   agent 占用的中继端口范围，格式 START-END（默认 10001-20000）
+  --port-range R                   agent 占用的中继端口范围，格式 START-END（默认 10001-60000）
   --relay-host HOST                agent 数据面 IPv4 地址/域名声明，覆盖面板自动识别（双出口中转机场景）
   --relay-host-v6 HOST             agent 数据面 IPv6 地址声明，覆盖面板自动识别
   --addr ADDR      (PANEL_ADDR)    server 监听地址；默认 :7788
@@ -342,14 +342,20 @@ looks_like_installer() {
 }
 
 persist_script() {
-  if curl -fsSL "$(script_url)" -o "$tmp/upgrade.sh" 2>/dev/null; then
-    if looks_like_installer "$tmp/upgrade.sh"; then
-      install -m 0755 "$tmp/upgrade.sh" "$SCRIPT_PATH"
+  # Use a private temp dir so this still works after the binary cache ($tmp)
+  # has already been wiped. Never write into a deleted/empty $tmp.
+  local stmp
+  stmp="$(mktemp -d)"
+  if curl -fsSL "$(script_url)" -o "$stmp/upgrade.sh" 2>/dev/null; then
+    if looks_like_installer "$stmp/upgrade.sh"; then
+      install -m 0755 "$stmp/upgrade.sh" "$SCRIPT_PATH"
       note "升级脚本已保存到 $SCRIPT_PATH（后续升级: nft-upgrade）"
     else
       warn "下载的 install.sh 内容异常（疑似错误页/截断），已跳过保存升级脚本"
     fi
   fi
+  rm -rf "$stmp"
+  note "已清除升级脚本下载缓存"
 }
 
 do_update_script() {
@@ -364,8 +370,44 @@ do_update_script() {
     die "下载的 install.sh 内容异常（疑似错误页/截断），拒绝覆盖 $SCRIPT_PATH"
   fi
   install -m 0755 "$stmp/upgrade.sh" "$SCRIPT_PATH"
+  note "清除临时下载 $stmp ..."
   rm -rf "$stmp"
+  note "已清除临时目录: $stmp"
+  cleanup_bootstrap_script
   ok "升级脚本已更新: $SCRIPT_PATH"
+}
+
+# One-shot bootstrap cleanup: when the operator ran a downloaded install.sh
+# (curl | bash, or a temp copy under /tmp), remove that file after a successful
+# install/update so leftover scripts don't sit on the VPS. Never touch the
+# persisted upgrade wrapper at $SCRIPT_PATH (/usr/local/sbin/nft-upgrade).
+cleanup_bootstrap_script() {
+  local self=""
+  if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    self="${BASH_SOURCE[0]}"
+  elif [[ -n "${0:-}" && "$0" != "bash" && "$0" != "-bash" && "$0" != "sh" ]]; then
+    self="$0"
+  fi
+  [[ -n "$self" && -f "$self" ]] || return 0
+  local abs="$self"
+  if command -v realpath >/dev/null 2>&1; then
+    abs="$(realpath "$self" 2>/dev/null || echo "$self")"
+  elif [[ "$self" != /* ]]; then
+    abs="$(pwd)/$self"
+  fi
+  if [[ "$abs" == "$SCRIPT_PATH" || "$abs" == "$ETC_DIR"/* ]]; then
+    return 0
+  fi
+  case "$abs" in
+    /tmp/*|/var/tmp/*|/dev/shm/*)
+      rm -f -- "$abs" 2>/dev/null && note "已清除临时安装脚本: $abs" || true
+      ;;
+    */install.sh|*/install-*.sh)
+      if [[ "$abs" != /usr/* && "$abs" != /bin/* && "$abs" != /sbin/* && "$abs" != /lib/* ]]; then
+        rm -f -- "$abs" 2>/dev/null && note "已清除安装脚本: $abs" || true
+      fi
+      ;;
+  esac
 }
 
 # Resolve "latest" to the concrete tag so identity files record a real version
@@ -633,9 +675,17 @@ do_update() {
   [[ "$ok_count" -eq 1 ]] || rollback_update
 
   # ---- 成功收尾 ----
-  trap 'rm -rf "$_update_tmp"' EXIT
+  note "清除临时下载与备份 ..."
   trap - ERR INT TERM
+  if [[ -n "${_update_tmp:-}" && -d "$_update_tmp" ]]; then
+    rm -rf "$_update_tmp"
+    note "已清除临时目录: $_update_tmp"
+  fi
+  _update_tmp=""
+  trap - EXIT
   rm -f "$INSTALL_DIR/nft-agent.bak" "$INSTALL_DIR/nft-server.bak"
+  note "已清除 $INSTALL_DIR/*.bak"
+  cleanup_bootstrap_script
   ok "===== Update 完成 ====="
   echo "版本标签:       $tag"
   echo "nft-agent sha256: $agent_sha"
@@ -895,7 +945,7 @@ release_tag="$(resolve_release_tag)"
 # Every role installs nft-agent (the node daemon + TUI); only server adds the
 # panel binary on top. Agent mode prefers the panel's /v1/binary so the node
 # never talks to GitHub.
-note "[1/3] 下载 nft-agent ($RELEASE / linux-$HOST_GOARCH) ..."
+note "[1/4] 下载 nft-agent ($RELEASE / linux-$HOST_GOARCH) ..."
 if [[ "$mode" == "agent" && -n "${panel_url:-}" ]]; then
   agent_sha="$(download_agent_from_panel "$tmp/nft-agent" "$panel_url")"
 else
@@ -906,7 +956,7 @@ if [[ "$mode" == "server" ]]; then
   download_role_binary "$base" nft-server "$tmp/nft-server" >/dev/null
 fi
 
-note "[2/3] 安装到 $INSTALL_DIR ..."
+note "[2/4] 安装到 $INSTALL_DIR ..."
 # Some minimal images omit /usr/local/sbin; create before install(1).
 mkdir -p "$INSTALL_DIR"
 install -m 0755 "$tmp/nft-agent" "$INSTALL_DIR/nft-agent"
@@ -914,10 +964,18 @@ if [[ "$mode" == "server" ]]; then
   install -m 0755 "$tmp/nft-server" "$INSTALL_DIR/nft-server"
 fi
 
-note "[3/3] 写入身份文件 + 持久化升级脚本/代理 ..."
+note "[3/4] 写入身份文件 + 持久化升级脚本/代理 ..."
 write_agent_identity "$release_tag" "$agent_sha"
 persist_gh_proxy
 persist_script
+note "[4/4] 清除临时脚本和下载缓存 ..."
+if [[ -n "${tmp:-}" && -d "$tmp" ]]; then
+  rm -rf "$tmp"
+  note "已清除临时目录: $tmp"
+fi
+tmp=""
+trap - EXIT
+note "已清除临时二进制缓存"
 
 primary_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 primary_ip="${primary_ip:-<本机IP>}"
@@ -1034,43 +1092,4 @@ EOF
   *) die "内部错误: 未处理的模式 $mode" ;;
 esac
 
-# One-shot bootstrap cleanup: when the operator ran a downloaded install.sh
-# (curl | bash, or a temp copy under /tmp), remove that file after a successful
-# install so credentials/URLs in shell history aren't left next to a leftover
-# script. Never touch the persisted upgrade wrapper at $SCRIPT_PATH
-# (/usr/local/sbin/nft-upgrade) — that is the intentional long-lived copy.
-cleanup_bootstrap_script() {
-  local self=""
-  if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
-    self="${BASH_SOURCE[0]}"
-  elif [[ -n "${0:-}" && "$0" != "bash" && "$0" != "-bash" && "$0" != "sh" ]]; then
-    self="$0"
-  fi
-  [[ -n "$self" && -f "$self" ]] || return 0
-  # Resolve to absolute when possible for the path checks below.
-  local abs="$self"
-  if command -v realpath >/dev/null 2>&1; then
-    abs="$(realpath "$self" 2>/dev/null || echo "$self")"
-  elif [[ "$self" != /* ]]; then
-    abs="$(pwd)/$self"
-  fi
-  # Keep the installed upgrade script and anything already under /etc/nft.
-  if [[ "$abs" == "$SCRIPT_PATH" || "$abs" == "$ETC_DIR"/* ]]; then
-    return 0
-  fi
-  # Only auto-remove common one-shot locations (tmp / home downloads / cwd copies
-  # named install.sh). Refuse to delete from package-managed paths.
-  case "$abs" in
-    /tmp/*|/var/tmp/*|/dev/shm/*)
-      rm -f -- "$abs" 2>/dev/null && note "已清除临时安装脚本: $abs" || true
-      ;;
-    */install.sh|*/install-*.sh)
-      # Home/desktop copies used once for bootstrap — remove after success.
-      # Skip if the file is the upgrade wrapper path (already guarded above).
-      if [[ "$abs" != /usr/* && "$abs" != /bin/* && "$abs" != /sbin/* && "$abs" != /lib/* ]]; then
-        rm -f -- "$abs" 2>/dev/null && note "已清除安装脚本: $abs" || true
-      fi
-      ;;
-  esac
-}
 cleanup_bootstrap_script

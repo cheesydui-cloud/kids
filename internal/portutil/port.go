@@ -9,7 +9,7 @@ import "math/rand"
 // when a node has no explicit port_range configured.
 const (
 	ChainPortMin = 10001
-	ChainPortMax = 20000
+	ChainPortMax = 60000
 )
 
 // PickFreePort returns a port in [start,end] not present in used, or 0 when the

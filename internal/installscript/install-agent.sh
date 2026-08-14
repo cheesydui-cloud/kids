@@ -108,12 +108,26 @@ if [[ ${#need[@]} -gt 0 ]]; then
 fi
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+cleanup_tmp() {
+  if [[ -n "${tmp:-}" && -d "$tmp" ]]; then
+    rm -rf "$tmp"
+    note "已清除临时目录: $tmp"
+  fi
+  # Leftover atomic-replace files from a previous failed upgrade.
+  shopt -s nullglob
+  local leftovers=(/usr/local/sbin/.nft-upgrade-* /tmp/nft-agent* /tmp/install-agent.sh)
+  shopt -u nullglob
+  if [[ ${#leftovers[@]} -gt 0 ]]; then
+    rm -f -- "${leftovers[@]}" 2>/dev/null || true
+    note "已清除残留文件: ${leftovers[*]}"
+  fi
+}
+trap 'cleanup_tmp' EXIT
 hdr="$tmp/hdr"
 bin="$tmp/nft-agent"
 url="$PANEL_URL/v1/binary?arch=$ARCH"
 
-note "[1/3] 从面板下载 nft-agent ($ARCH) ..."
+note "[1/4] 从面板下载 nft-agent ($ARCH) ..."
 note "      $url"
 curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
   "${CURL_TLS[@]}" -D "$hdr" "$url" -o "$bin" \
@@ -133,7 +147,7 @@ fi
 ver="$(awk 'BEGIN{IGNORECASE=1} /^X-Agent-Version:/{print $2}' "$hdr" | tr -d '\r' | tail -1)"
 ver="${ver:-panel}"
 
-note "[2/3] 安装到 $INSTALL_DIR ..."
+note "[2/4] 安装到 $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR" "$ETC_DIR"
 install -m 0755 "$bin" "$INSTALL_DIR/nft-agent"
 printf '%s' "$ver" >"$ETC_DIR/agent.version"
@@ -203,7 +217,7 @@ curl -fsSL ${CURL_TLS[*]+"${CURL_TLS[*]} "} $PANEL_URL/v1/install-agent | bash -
 UP
 chmod 0755 "$INSTALL_DIR/nft-upgrade"
 
-note "[3/3] 启动 nft-daemon ..."
+note "[3/4] 启动 nft-daemon ..."
 systemctl daemon-reload
 systemctl enable nft-daemon.service
 systemctl restart nft-daemon.service
@@ -213,6 +227,10 @@ if systemctl is-active --quiet nft-daemon.service; then
 else
   warn "服务未处于 active，请看日志: journalctl -u nft-daemon.service -n 80 --no-pager"
 fi
+
+note "[4/4] 清除临时脚本和下载缓存 ..."
+cleanup_tmp
+trap - EXIT
 echo "面板:     $PANEL_URL"
 echo "控制信道: $ws"
 echo "架构:     linux-$ARCH"

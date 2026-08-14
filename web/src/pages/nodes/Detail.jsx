@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { fmtTime, fmtBytes, nullStr } from '../../lib/fmt'
 import { Layout, useToast, useBlur } from '../../components/Layout'
-import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeTypeIcon, NodeStackBadge, useConfirm, Select, Modal, CopyText } from '../../components/ui'
+import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText } from '../../components/ui'
 import { TableBox } from '../../components/page'
 import { copyToClipboard } from '../../lib/clipboard'
 
@@ -42,10 +42,7 @@ export default function NodeDetail() {
   const [name, setName] = useState('')
   const [relayHost, setRelayHost] = useState('')
   const [relayHostV6, setRelayHostV6] = useState('')
-  const [portRange, setPortRange] = useState('')
-  const [rateMult, setRateMult] = useState('1')
-  const [unidirectional, setUnidirectional] = useState(false)
-  const [noDirectExit, setNoDirectExit] = useState(false)
+  const [portRange, setPortRange] = useState('10001-60000')
   const [cmdRelayHost, setCmdRelayHost] = useState('')
   const [cmdRelayHostV6, setCmdRelayHostV6] = useState('')
   // CF DNS for line entry domain (same idea as 落地仓库).
@@ -69,10 +66,7 @@ export default function NodeDetail() {
     setName(d.node?.name || '')
     setRelayHost(d.node?.relay_host || '')
     setRelayHostV6(d.node?.relay_host_v6 || '')
-    setPortRange(d.node?.port_range || '')
-    setRateMult(String(d.node?.rate_multiplier ?? 1))
-    setUnidirectional(!!d.node?.unidirectional)
-    setNoDirectExit(!!d.node?.no_direct_exit)
+    setPortRange(d.node?.port_range || '10001-60000')
     setCfSync(!!d.node?.cf_sync)
     setBackendIP(d.node?.backend_ip || '')
     setCfRecordName(d.node?.cf_record_name || '')
@@ -192,19 +186,6 @@ export default function NodeDetail() {
     e.preventDefault()
     try { await api.post(`/nodes/${id}/port-range`, { port_range: portRange }); toast('端口范围已保存'); load() } catch (err) { toast(err.message, 'error') }
   }
-  const saveRateMult = async (e) => {
-    e.preventDefault()
-    const rm = parseFloat(rateMult)
-    try { await api.post(`/nodes/${id}/rate-multiplier`, { rate_multiplier: rm >= 0 ? rm : 1 }); toast('倍率已保存'); load() } catch (err) { toast(err.message, 'error') }
-  }
-  const toggleBillingDir = async () => {
-    const next = !unidirectional
-    try { await api.post(`/nodes/${id}/unidirectional`, { unidirectional: next }); setUnidirectional(next); toast(next ? '已切换为单向计费' : '已切换为双向计费') } catch (err) { toast(err.message, 'error') }
-  }
-  const toggleNoDirectExit = async () => {
-    const next = !noDirectExit
-    try { await api.post(`/nodes/${id}/no-direct-exit`, { no_direct_exit: next }); setNoDirectExit(next); toast(next ? '已禁止直接转发' : '已允许直接转发') } catch (err) { toast(err.message, 'error') }
-  }
   const resetToken = async () => {
     if (!(await confirm({ title: '重置 Token', message: '重置后旧 Token 立即失效，正在运行的 Agent 会在下次重连时被拒绝，需用新 Token 重新配置并重装。', confirmText: '重置', danger: true }))) return
     try {
@@ -263,9 +244,9 @@ export default function NodeDetail() {
     needsInsecure = true
   }
 
-  const portRangePart = node.port_range && node.port_range !== '10001-20000'
+  const portRangePart = node.port_range && node.port_range !== '10001-60000'
     ? ` \\\n  --port-range ${node.port_range}`
-    : ''
+    : ' \\\n  --port-range 10001-60000'
   const relayHostPart = cmdRelayHost.trim() ? ` \\\n  --relay-host ${cmdRelayHost.trim()}` : ''
   const relayHostV6Part = cmdRelayHostV6.trim() ? ` \\\n  --relay-host-v6 ${cmdRelayHostV6.trim()}` : ''
   const insecurePart = needsInsecure ? ' \\\n  --insecure' : ''
@@ -345,20 +326,6 @@ export default function NodeDetail() {
                 <button type="submit" className="btn-primary flex-none px-5">保存</button>
               </form>
             </ConfigField>
-            <ConfigField label="倍率" hint="组合节点自身的计费倍率，作用于整条链路承担的流量">
-              <form onSubmit={saveRateMult} className="flex gap-2 max-w-md">
-                <input className="input-field font-mono" type="number" min="0" step="0.1" value={rateMult} onChange={e => setRateMult(e.target.value)} style={{ width: 100 }} />
-                <button type="submit" className="btn-primary flex-none px-5">保存</button>
-              </form>
-            </ConfigField>
-            <ConfigField label="直接转发" hint="禁止后本节点不能作为链尾直连目标，规则必须在其后级联线路层；对之后新建/编辑的规则生效">
-              <div className="flex items-center gap-2">
-                <button onClick={toggleNoDirectExit} className={`inline-flex items-center gap-1.5 px-3.5 py-[7px] rounded-[8px] text-[13px] font-semibold border cursor-pointer transition-colors ${noDirectExit ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}>
-                  {noDirectExit ? '禁止直接转发' : '允许直接转发'}
-                </button>
-                <span className="text-xs text-ink-mut">当前：{noDirectExit ? '禁止' : '允许'}</span>
-              </div>
-            </ConfigField>
           </section>
         ) : (
         /* ===== TWO COLUMN: 基本信息 + 安装命令 | 节点配置 ===== */
@@ -422,7 +389,6 @@ export default function NodeDetail() {
           <section className={`${card} px-[26px] py-[22px] hidden md:block`}>
             <div className="flex items-baseline gap-3 mb-3.5 flex-wrap">
               <h2 className="m-0 text-[15px] font-bold">节点安装命令</h2>
-              <span className="text-[12.5px] text-ink-mut">节点只需能访问面板。脚本和二进制都从面板下载，不经过 GitHub。</span>
             </div>
             {!panel_url_configured && (
               <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-[13px]">
@@ -459,10 +425,7 @@ export default function NodeDetail() {
               </form>
             </ConfigField>
 
-            <ConfigField
-              label="中继地址（数据面）"
-              hint={node.relay_host_declared ? '由 daemon 启动参数 --relay-host 管理，UI 不可修改；如需变更请更新节点配置后重启 daemon' : '用户/上游连这个地址。开 CF 时请填域名（灰云 A 记录），崩线后只改当前 IP 即可'}
-            >
+            <ConfigField label="中继地址（数据面）">
               <form onSubmit={saveRelay} className="flex gap-2">
                 <input className="input-field font-mono flex-1" value={relayHost} onChange={e => setRelayHost(e.target.value)} placeholder="数据面公网 IP 或域名" disabled={node.relay_host_declared} />
                 <button type="submit" className="btn-primary flex-none px-5" disabled={node.relay_host_declared}>保存</button>
@@ -470,10 +433,7 @@ export default function NodeDetail() {
             </ConfigField>
 
             {!isComposite && (
-              <ConfigField
-                label="Cloudflare DNS"
-                hint="与落地仓库相同：中继填域名后开启同步；线路崩了点「改 IP」写入新 A 记录，用户链接不用改"
-              >
+              <ConfigField label="Cloudflare DNS">
                 <form onSubmit={saveCF} className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-[13px] text-ink-soft">
@@ -533,53 +493,22 @@ export default function NodeDetail() {
               </ConfigField>
             )}
 
-            <ConfigField
-              label="IPv6 中继地址"
-              hint={node.relay_host_v6_declared ? '由 daemon 启动参数 --relay-host-v6 管理，UI 不可修改；如需变更请更新节点配置后重启 daemon' : '设置后该节点可转发 IPv6 目标，留空表示不支持 IPv6'}
-            >
+            <ConfigField label="IPv6 中继地址">
               <form onSubmit={saveRelayV6} className="flex gap-2">
                 <input className="input-field font-mono flex-1" value={relayHostV6} onChange={e => setRelayHostV6(e.target.value)} placeholder="数据面公网 IPv6 地址" disabled={node.relay_host_v6_declared} />
                 <button type="submit" className="btn-primary flex-none px-5" disabled={node.relay_host_v6_declared}>保存</button>
               </form>
             </ConfigField>
 
-            <ConfigField label="端口范围" hint="规则自动分配监听端口时从该范围中选取">
+            <ConfigField label="端口范围">
               <form onSubmit={savePortRange} className="flex gap-2">
-                <input className="input-field font-mono flex-1" value={portRange} onChange={e => setPortRange(e.target.value)} placeholder="例如 10001-19999,23333,40000-42000" />
+                <input className="input-field font-mono flex-1" value={portRange} onChange={e => setPortRange(e.target.value)} placeholder="10001-60000" />
                 <button type="submit" className="btn-primary flex-none px-5">保存</button>
               </form>
-            </ConfigField>
-
-            <ConfigField label="倍率" hint="影响该节点承担流量的计费">
-              <form onSubmit={saveRateMult} className="flex gap-2">
-                <input className="input-field font-mono" type="number" min="0" step="0.1" value={rateMult} onChange={e => setRateMult(e.target.value)} style={{ width: 100 }} />
-                <button type="submit" className="btn-primary flex-none px-5">保存</button>
-              </form>
-            </ConfigField>
-
-            <ConfigField label="计费方向" hint="单向计费只计算出站流量，双向计费计算出站+入站">
-              <div className="flex items-center gap-2">
-                <button onClick={toggleBillingDir} className={`inline-flex items-center gap-1.5 px-3.5 py-[7px] rounded-[8px] text-[13px] font-semibold border cursor-pointer transition-colors ${unidirectional ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}>
-                  {unidirectional ? '单向计费（仅出站）' : '双向计费（出站+入站）'}
-                </button>
-                <span className="text-xs text-ink-mut">当前：{unidirectional ? '单向' : '双向'}</span>
-              </div>
-            </ConfigField>
-
-            <ConfigField label="直接转发" hint="禁止后本节点不能作为链尾直连目标，规则必须在其后级联线路层；对之后新建/编辑的规则生效">
-              <div className="flex items-center gap-2">
-                <button onClick={toggleNoDirectExit} className={`inline-flex items-center gap-1.5 px-3.5 py-[7px] rounded-[8px] text-[13px] font-semibold border cursor-pointer transition-colors ${noDirectExit ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}>
-                  {noDirectExit ? '禁止直接转发' : '允许直接转发'}
-                </button>
-                <span className="text-xs text-ink-mut">当前：{noDirectExit ? '禁止' : '允许'}</span>
-              </div>
             </ConfigField>
           </section>
         </div>
         )}
-
-        {/* ===== 节点角色（含中间层的上游绑定） ===== */}
-        <RolesCard node={node} onDone={reloadSilent} />
 
         {/* ===== 组合节点跳序 — desktop only ===== */}
         {isComposite && (
@@ -876,237 +805,6 @@ function CompositeHopsCard({ nodeId, hops: initHops, singleNodes, onDone }) {
       <div className="flex items-center gap-3 pt-3">
         <button type="button" onClick={addHop} className="btn-secondary text-xs">+ 添加一跳</button>
         <button onClick={save} disabled={saving || !dirty} className="btn-primary">保存</button>
-      </div>
-    </section>
-  )
-}
-
-// A node's role bitmask controls where it can appear in a rule chain: entry
-// (bit0) lets a rule start here, via (bit1) lets other nodes bind behind it as
-// a middle layer. Both bits can be set at once; at least one must stay set or
-// the node becomes unreachable from any rule.
-//
-// Each role owns one column and one edge set. The entry column owns downstream
-// edges — nodes that cascade in behind this one, so this node is their upstream
-// — editable from here via the upstream-side API. The via column owns upstream
-// edges — nodes this one sits behind, so this node is their downstream. Each
-// editor loads lazily when its role is checked; a failed load keeps rows null
-// (nothing to save) with a retry, so one transient blip can never overwrite a
-// stored edge set with an empty one on the next save.
-function EdgeEditor({ title, hint, rows, err, onRetry, candidates, idKey, nodeById,
-                      onPick, onMode, onRemove, onAddAll, placeholder }) {
-  return (
-    <div>
-      <div className="flex items-baseline gap-2.5 mb-1.5">
-        <h3 className="m-0 text-[13.5px] font-bold">{title}</h3>
-        <span className="text-[12.5px] text-ink-mut">{rows ? `${rows.length} 条` : err ? '' : '加载中…'}</span>
-      </div>
-      <p className="text-[12.5px] text-ink-mut mb-2.5">{hint}</p>
-      {err && (
-        <div className="text-[12.5px] text-red-600 flex items-center gap-2.5">
-          已有绑定加载失败，为避免误覆盖，修好前不会保存绑定。
-          <button type="button" onClick={onRetry} className="btn-secondary text-xs">重试</button>
-        </div>
-      )}
-      {rows && (
-        <>
-          <div className="flex items-center gap-2 mb-2">
-            <Select multiple searchable className="flex-1" placeholder={placeholder}
-              value={rows.map(r => String(r[idKey]))} onChange={onPick}
-              options={candidates.map(n => ({ value: n.id, label: n.name, icon: <NodeTypeIcon type={n.node_type} /> }))} />
-            <button type="button" onClick={onAddAll} className="btn-secondary flex-none text-xs">全选</button>
-          </div>
-          {rows.length > 0 && (
-            <div className="space-y-2">
-              {rows.map((r, i) => {
-                const n = nodeById[Number(r[idKey])]
-                return (
-                  <div key={r[idKey]} className="flex items-center gap-2 bg-raised rounded-lg px-3 py-2">
-                    <NodeTypeIcon type={n?.node_type} />
-                    <span className="flex-1 min-w-0 truncate text-[13.5px]">{n?.name || `#${r[idKey]}`}</span>
-                    <Select value={r.mode} onChange={v => onMode(i, v)} style={{ width: 120 }}
-                      options={[{ value: 'kernel', label: 'kernel' }, { value: 'userspace', label: 'userspace' }]} />
-                    <button type="button" onClick={() => onRemove(i)} className="btn-danger-sm text-xs px-1.5">×</button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-function RolesCard({ node, onDone }) {
-  const [roles, setRoles] = useState(node.roles ?? 1)
-  const [saving, setSaving] = useState(false)
-  const [allNodes, setAllNodes] = useState([])
-  // Upstream edges: nodes this one sits behind (this node = downstream).
-  const [upRows, setUpRows] = useState(null)          // [{upstream_node_id, mode}]
-  const [savedUpRows, setSavedUpRows] = useState(null)
-  const [upErr, setUpErr] = useState(false)
-  // Downstream edges: nodes that cascade in behind this one (this node = upstream).
-  const [downRows, setDownRows] = useState(null)      // [{downstream_node_id, mode}]
-  const [savedDownRows, setSavedDownRows] = useState(null)
-  const [downErr, setDownErr] = useState(false)
-  const toast = useToast()
-
-  const entryChecked = (roles & 1) !== 0
-  const viaChecked = (roles & 2) !== 0
-
-  // NodeDetail stays mounted when only the :id param changes, so re-seed roles
-  // and drop both edge sets whenever the node identity changes.
-  useEffect(() => setRoles(node.roles ?? 1), [node.id, node.roles])
-  useEffect(() => {
-    setUpRows(null); setSavedUpRows(null); setUpErr(false)
-    setDownRows(null); setSavedDownRows(null); setDownErr(false)
-  }, [node.id])
-
-  // The candidate roster and both editors' name lookups share one fetch of the
-  // full node list, made once either role is checked.
-  const needNodes = entryChecked || viaChecked
-  useEffect(() => {
-    if (!needNodes) return
-    let stale = false
-    api.get('/nodes').then(d => { if (!stale) setAllNodes(d.nodes || []) }).catch(() => { if (!stale) setAllNodes([]) })
-    return () => { stale = true }
-  }, [needNodes, node.id])
-
-  // Lazy-load upstream edges when 中间层 is checked. stale drops superseded
-  // responses; an error keeps rows null so a save never overwrites stored edges.
-  useEffect(() => {
-    if (!viaChecked || upRows !== null || upErr) return
-    let stale = false
-    api.get(`/nodes/${node.id}/bindings`)
-      .then(d => {
-        if (stale) return
-        const rs = (d.bindings || []).map(b => ({ upstream_node_id: b.upstream_node_id, mode: b.mode }))
-        setUpRows(rs); setSavedUpRows(rs)
-      })
-      .catch(() => { if (!stale) setUpErr(true) })
-    return () => { stale = true }
-  }, [viaChecked, upRows, node.id, upErr])
-
-  // Lazy-load downstream edges when 入口 is checked, mirroring the upstream path.
-  useEffect(() => {
-    if (!entryChecked || downRows !== null || downErr) return
-    let stale = false
-    api.get(`/nodes/${node.id}/downstream-bindings`)
-      .then(d => {
-        if (stale) return
-        const rs = (d.bindings || []).map(b => ({ downstream_node_id: b.downstream_node_id, mode: b.mode }))
-        setDownRows(rs); setSavedDownRows(rs)
-      })
-      .catch(() => { if (!stale) setDownErr(true) })
-    return () => { stale = true }
-  }, [entryChecked, downRows, node.id, downErr])
-
-  const nodeById = Object.fromEntries(allNodes.map(n => [n.id, n]))
-  const toggle = (bit) => setRoles(r => r ^ bit)
-
-  // Upstream candidates: any other node (an upstream may be entry or via).
-  const upCandidates = allNodes.filter(n => n.id !== node.id)
-  // Downstream candidates: other nodes carrying the via role, since a downstream
-  // must be able to sit behind this one as a middle layer.
-  const downCandidates = allNodes.filter(n => n.id !== node.id && (n.roles & 2) !== 0)
-
-  const pickUp = (next) => setUpRows(rs => {
-    const keep = rs.filter(r => next.includes(String(r.upstream_node_id)))
-    const have = new Set(keep.map(r => String(r.upstream_node_id)))
-    const added = next.filter(v => !have.has(v)).map(v => ({ upstream_node_id: Number(v), mode: 'userspace' }))
-    return [...keep, ...added]
-  })
-  const setUpMode = (i, v) => setUpRows(rs => rs.map((r, j) => j === i ? { ...r, mode: v } : r))
-  const removeUp = (i) => setUpRows(rs => rs.filter((_, j) => j !== i))
-  const addAllUp = () => setUpRows(rs => upCandidates.map(n =>
-    rs.find(r => Number(r.upstream_node_id) === n.id) || { upstream_node_id: n.id, mode: 'userspace' }))
-
-  const pickDown = (next) => setDownRows(rs => {
-    const keep = rs.filter(r => next.includes(String(r.downstream_node_id)))
-    const have = new Set(keep.map(r => String(r.downstream_node_id)))
-    const added = next.filter(v => !have.has(v)).map(v => ({ downstream_node_id: Number(v), mode: 'userspace' }))
-    return [...keep, ...added]
-  })
-  const setDownMode = (i, v) => setDownRows(rs => rs.map((r, j) => j === i ? { ...r, mode: v } : r))
-  const removeDown = (i) => setDownRows(rs => rs.filter((_, j) => j !== i))
-  const addAllDown = () => setDownRows(rs => downCandidates.map(n =>
-    rs.find(r => Number(r.downstream_node_id) === n.id) || { downstream_node_id: n.id, mode: 'userspace' }))
-
-  const rolesDirty = roles !== (node.roles ?? 1)
-  const edgesDirty = (rows, saved) => rows !== null && saved !== null && (
-    rows.length !== saved.length ||
-    rows.some((r, i) => {
-      const s = saved[i]
-      return !s || JSON.stringify(r) !== JSON.stringify(s)
-    })
-  )
-  // Hidden edits are not dirty: an unchecked role's editor won't be saved.
-  const upDirty = viaChecked && edgesDirty(upRows, savedUpRows)
-  const downDirty = entryChecked && edgesDirty(downRows, savedDownRows)
-  const dirty = rolesDirty || upDirty || downDirty
-
-  // The three POSTs are not one transaction; onDone (a silent refresh) runs on
-  // failure too so the dirty baseline realigns with what actually persisted,
-  // without remounting the card and dropping the still-edited rows.
-  const save = async () => {
-    if (!roles) { toast('至少保留一个用途', 'error'); return }
-    setSaving(true)
-    try {
-      if (rolesDirty) await api.post(`/nodes/${node.id}/roles`, { roles })
-      if (upDirty) {
-        const bs = upRows.map(r => ({ upstream_node_id: Number(r.upstream_node_id), mode: r.mode }))
-        await api.post(`/nodes/${node.id}/bindings`, { bindings: bs })
-        setSavedUpRows(bs)
-      }
-      if (downDirty) {
-        const bs = downRows.map(r => ({ downstream_node_id: Number(r.downstream_node_id), mode: r.mode }))
-        await api.post(`/nodes/${node.id}/downstream-bindings`, { bindings: bs })
-        setSavedDownRows(bs)
-      }
-      toast('已保存')
-    } catch (err) { toast(err.message, 'error') } finally { setSaving(false); onDone() }
-  }
-
-  const entryCls = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700'
-  const viaCls = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700'
-  const roleBtn = (bit, label, cls) => (
-    <button type="button" onClick={() => toggle(bit)}
-      className={`px-3 py-1 text-[12.5px] font-semibold rounded-md border transition-colors ${
-        (roles & bit) !== 0 ? cls : 'bg-transparent border-line text-ink-mut/40 hover:text-ink-mut'
-      }`}>{label}</button>
-  )
-
-  return (
-    <section className={`${card} px-[26px] pt-[22px] pb-[18px]`}>
-      <div className="flex items-center gap-2 mb-1.5">
-        <h2 className="m-0 text-[15px] font-bold">节点用途</h2>
-        <button onClick={save} disabled={saving || !dirty} className="btn-primary ml-auto">保存</button>
-      </div>
-      <p className="text-[12.5px] text-ink-mut mb-3">
-        入口：可被规则选为入口，并绑定下游。中间层：可绑定到上游之后供规则级联。至少保留一个。
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-        <div className="md:pr-6 md:border-r border-line-soft">
-          <div className="flex items-center gap-1.5 mb-3">{roleBtn(1, '入口', entryCls)}</div>
-          {entryChecked && (
-            <EdgeEditor title="已绑定的下游" placeholder="选择下游节点…"
-              hint="选中的下游（须为中间层）可在选中本节点的规则里级联接入本节点之后。模式作用于衔接段；修改对此后新建的规则生效。"
-              rows={downRows} err={downErr} onRetry={() => setDownErr(false)}
-              candidates={downCandidates} idKey="downstream_node_id" nodeById={nodeById}
-              onPick={pickDown} onMode={setDownMode} onRemove={removeDown} onAddAll={addAllDown} />
-          )}
-        </div>
-        <div>
-          <div className="flex items-center gap-1.5 mb-3">{roleBtn(2, '中间层', viaCls)}</div>
-          {viaChecked && (
-            <EdgeEditor title="已绑定的上游" placeholder="选择上游节点…"
-              hint="绑定后，选中这些上游（入口或中间层）的规则可以级联接入本节点。模式作用于衔接段；修改对此后新建的规则生效。"
-              rows={upRows} err={upErr} onRetry={() => setUpErr(false)}
-              candidates={upCandidates} idKey="upstream_node_id" nodeById={nodeById}
-              onPick={pickUp} onMode={setUpMode} onRemove={removeUp} onAddAll={addAllUp} />
-          )}
-        </div>
       </div>
     </section>
   )

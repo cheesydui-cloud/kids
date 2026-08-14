@@ -11,6 +11,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [panelName, setPanelName] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
   const navigate = useNavigate()
   const { applySession, refreshUser } = useUser()
 
@@ -18,6 +19,7 @@ export default function Login() {
     api.get('/branding').then(d => {
       const name = (d?.panel_name || '').trim()
       setPanelName(name)
+      if (d?.logo_url) setLogoUrl(d.logo_url)
       if (name) document.title = name
     }).catch(() => {})
   }, [])
@@ -57,7 +59,7 @@ export default function Login() {
         <div className="flex items-center gap-3.5 mb-8">
           <div className="w-[46px] h-[46px] rounded-[14px] grid place-items-center text-white shadow-[0_10px_28px_-8px_rgba(16,185,129,0.65)] ring-1 ring-white/25"
             style={{ background: 'linear-gradient(145deg, #10b981 0%, #14b8a6 52%, #0d9488 100%)' }}>
-            <BrandMark className="w-[28px] h-[28px]" />
+            <BrandMark className="w-[28px] h-[28px]" src={logoUrl} />
           </div>
           <div className="text-[17px] font-bold tracking-tight text-ink">{panelName || 'nft'}</div>
         </div>

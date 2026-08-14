@@ -2,7 +2,10 @@
 // Sized to the golden ratio relative to the 42px badge:
 //   badge : mark ≈ φ (1.618) → mark ≈ 26px in a 42px box (viewBox scaled).
 // Arrow stroke and radius keep white glyphs large enough to read at 42px.
-export function BrandMark({ className = 'w-[26px] h-[26px]' }) {
+export function BrandMark({ className = 'w-[26px] h-[26px]', src }) {
+  if (src) {
+    return <img src={src} alt="" className={`${className} object-contain`} />
+  }
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.15" strokeLinecap="round" strokeLinejoin="round">
       <g transform="translate(12 12)" vectorEffect="non-scaling-stroke">

@@ -632,8 +632,8 @@ func (s *Server) Router() http.Handler {
 	r.Use(logRequests)
 	r.Get("/healthz", s.healthz)
 	r.HandleFunc("/v1/agents", s.Hub.ServeWS)
-		r.Get("/v1/binary", s.serveBinary)
-		r.Get("/v1/install-agent", s.serveInstallAgent)
+	r.Get("/v1/binary", s.serveBinary)
+	r.Get("/v1/install-agent", s.serveInstallAgent)
 
 	// --- JSON API ---
 	r.Route("/api", func(r chi.Router) {
@@ -641,6 +641,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/login", s.apiLogin)
 		r.Post("/logout", s.apiLogout)
 		r.Get("/branding", s.apiBranding)
+		r.Get("/branding/logo", s.apiServeBrandingLogo)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAPIAuth)
@@ -692,6 +693,8 @@ func (s *Server) Router() http.Handler {
 
 			r.Get("/settings", s.apiGetSettings)
 			r.Post("/settings", s.apiSaveSettings)
+			r.Post("/settings/logo", s.apiUploadPanelLogo)
+			r.Delete("/settings/logo", s.apiClearPanelLogo)
 			r.Post("/node-roles", s.apiSetNodeRoles)
 
 			r.Get("/rules", s.apiListRules)

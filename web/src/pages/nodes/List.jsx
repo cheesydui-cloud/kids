@@ -374,7 +374,7 @@ function AddNodeModal({ open, onClose, onDone }) {
   const [name, setName] = useState('')
   const [secret, setSecret] = useState('')
   const [portStart, setPortStart] = useState('10001')
-  const [portEnd, setPortEnd] = useState('20000')
+  const [portEnd, setPortEnd] = useState('60000')
   const [rateMult, setRateMult] = useState('1')
   const [unidirectional, setUnidirectional] = useState(false)
   const [userIds, setUserIds] = useState([])
@@ -391,14 +391,14 @@ function AddNodeModal({ open, onClose, onDone }) {
     e.preventDefault()
     setLoading(true)
     try {
-      const portRange = `${portStart || '10001'}-${portEnd || '20000'}`
+      const portRange = `${portStart || '10001'}-${portEnd || '60000'}`
       const rm = parseFloat(rateMult)
       const res = await api.post('/nodes', {
         name, secret: secret || undefined, port_range: portRange, rate_multiplier: rm >= 0 ? rm : 1, unidirectional,
         user_ids: userIds.length ? userIds.map(Number) : undefined,
       })
       toast('节点已添加')
-      setName(''); setSecret(''); setPortStart('10001'); setPortEnd('20000'); setRateMult('1'); setUnidirectional(false); setUserIds([])
+      setName(''); setSecret(''); setPortStart('10001'); setPortEnd('60000'); setRateMult('1'); setUnidirectional(false); setUserIds([])
       if (res?.secret && res?.node?.id) setCreated({ id: res.node.id, secret: res.secret })
       else if (res?.node?.id) navigate(`/nodes/${res.node.id}`)
       else onDone()
@@ -448,7 +448,7 @@ function AddNodeModal({ open, onClose, onDone }) {
           <div className="flex-1">
             <label className="text-[13px] font-semibold text-ink-soft block mb-1">结束端口</label>
             <input className="input-field w-full font-mono" type="number" min="1" max="65535"
-              value={portEnd} onChange={e => setPortEnd(e.target.value)} placeholder="20000" />
+              value={portEnd} onChange={e => setPortEnd(e.target.value)} placeholder="60000" />
           </div>
         </div>
         <div className="flex gap-3 pt-4 border-t border-line-soft">

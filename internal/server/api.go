@@ -211,10 +211,11 @@ func (s *Server) apiLogin(w http.ResponseWriter, r *http.Request) {
 	// Include panel_name/version so the SPA can brand the sidebar immediately
 	// after login without waiting for a second /me round-trip (which used to
 	// leave the brand stuck on the "nft" fallback until a full page refresh).
-	panelName, _ := db.GetSetting(s.DB, "panel_name")
+	brand := s.brandingPayload()
 	jsonOK(w, map[string]any{
 		"user":       apiUserView(u),
-		"panel_name": panelName,
+		"panel_name": brand["panel_name"],
+		"logo_url":   brand["logo_url"],
 		"version":    serverVersion(),
 	})
 }
@@ -227,14 +228,10 @@ func (s *Server) apiLogout(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true})
 }
 
-func (s *Server) apiBranding(w http.ResponseWriter, r *http.Request) {
-	panelName, _ := db.GetSetting(s.DB, "panel_name")
-	jsonOK(w, map[string]any{"panel_name": panelName})
-}
-
 func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	panelName, _ := db.GetSetting(s.DB, "panel_name")
+	brand := s.brandingPayload()
+	panelName, _ := brand["panel_name"].(string)
 	userView := apiUserFullView(u)
 	// has_landing_source drives the sidebar entries "落地节点" and "我的代理".
 	// A user who only has repo-imported exits (no subscription URL or manual
@@ -245,7 +242,7 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 			userView["has_landing_source"] = true
 		}
 	}
-	jsonOK(w, map[string]any{"user": userView, "panel_name": panelName, "version": serverVersion()})
+	jsonOK(w, map[string]any{"user": userView, "panel_name": panelName, "logo_url": brand["logo_url"], "version": serverVersion()})
 }
 
 func (s *Server) apiChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -1723,8 +1720,10 @@ func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 			cfPrefix = "****"
 		}
 	}
+	logoName, _ := db.GetSetting(s.DB, panelLogoSetting)
 	jsonOK(w, map[string]any{
 		"panel_url": panelURL, "panel_name": panelName,
+		"logo_url":          logoURLFor(logoName),
 		"show_rate_to_user": showRate == "1", "pool_size": poolSize,
 		"cf_token_configured": cfConfigured,
 		"cf_token_prefix":     cfPrefix,

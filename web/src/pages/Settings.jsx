@@ -1,12 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
-import { Layout, useToast } from '../components/Layout'
+import { Layout, useToast, useUser } from '../components/Layout'
 import { Loading } from '../components/ui'
+import { BrandMark } from '../components/BrandMark'
+
+const TABS = [
+  { id: 'panel', label: '面板' },
+  { id: 'forward', label: '转发' },
+  { id: 'cloudflare', label: 'Cloudflare' },
+]
 
 export default function Settings() {
+  const [tab, setTab] = useState('panel')
   const [form, setForm] = useState({
     panel_url: '',
     panel_name: '',
+    logo_url: '',
     show_rate_to_user: false,
     pool_size: 4,
     cf_token_configured: false,
@@ -18,8 +27,11 @@ export default function Settings() {
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [logoBusy, setLogoBusy] = useState(false)
   const [error, setError] = useState('')
+  const fileRef = useRef(null)
   const toast = useToast()
+  const { applySession, setLogoUrl } = useUser()
 
   useEffect(() => {
     api.get('/settings').then(data => {
@@ -27,6 +39,7 @@ export default function Settings() {
         ...f,
         panel_url: data.panel_url || '',
         panel_name: data.panel_name || '',
+        logo_url: data.logo_url || '',
         show_rate_to_user: !!data.show_rate_to_user,
         pool_size: data.pool_size ?? 4,
         cf_token_configured: !!data.cf_token_configured,
@@ -40,6 +53,12 @@ export default function Settings() {
   }, [])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const applyLogo = (url) => {
+    set('logo_url', url || '')
+    if (setLogoUrl) setLogoUrl(url || '')
+    applySession({ logo_url: url || '' })
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -69,11 +88,12 @@ export default function Settings() {
         body.cf_api_token = form.cf_api_token.trim()
       }
       await api.post('/settings', body)
+      applySession({ panel_name: form.panel_name })
       toast('设置已保存')
-      // reload token status without echoing secret
       const data = await api.get('/settings')
       setForm(f => ({
         ...f,
+        logo_url: data.logo_url || '',
         cf_token_configured: !!data.cf_token_configured,
         cf_token_prefix: data.cf_token_prefix || '',
         cf_api_token: '',
@@ -84,98 +104,168 @@ export default function Settings() {
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
+  const uploadLogo = async (file) => {
+    if (!file) return
+    setLogoBusy(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/settings/logo', { method: 'POST', body: fd, credentials: 'same-origin' })
+      const ct = res.headers.get('content-type') || ''
+      let data = null
+      if (ct.includes('application/json')) {
+        try { data = await res.json() } catch { data = null }
+      }
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent('nf-unauthorized'))
+        throw new Error('登录已过期，请重新登录')
+      }
+      if (!res.ok) throw new Error((data && data.error) || `上传失败（${res.status}）`)
+      applyLogo(data.logo_url || '')
+      toast('Logo 已更新')
+    } catch (err) {
+      setError(err.message)
+      toast(err.message, 'error')
+    } finally {
+      setLogoBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const clearLogo = async () => {
+    setLogoBusy(true)
+    setError('')
+    try {
+      await api.del('/settings/logo')
+      applyLogo('')
+      toast('已恢复默认 Logo')
+    } catch (err) {
+      setError(err.message)
+      toast(err.message, 'error')
+    } finally { setLogoBusy(false) }
+  }
+
   if (loading) return <Layout><Loading /></Layout>
 
   return (
     <Layout>
-      <h1 className="m-0 text-2xl font-bold text-ink mb-[22px]">系统设置</h1>
+      <h1 className="m-0 text-2xl font-bold text-ink mb-[18px]">系统设置</h1>
       <div className="card" style={{ maxWidth: 980 }}>
-        <div className="card-header"><h3 className="text-[16px] font-bold">面板信息</h3></div>
+        <div className="flex items-center gap-1 px-4 pt-3 border-b border-line-soft">
+          {TABS.map(t => (
+            <button key={t.id} type="button" onClick={() => setTab(t.id)}
+              className={`px-4 py-2.5 text-[13.5px] font-semibold border-b-2 -mb-px transition-colors ${
+                tab === t.id ? 'border-emerald-500 text-ink' : 'border-transparent text-ink-mut hover:text-ink-soft'
+              }`}>{t.label}</button>
+          ))}
+        </div>
         <div className="px-6 py-[26px]">
           {error && <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded text-red-600 text-sm">{error}</div>}
           <form onSubmit={submit}>
-            <div className="flex items-center gap-6 mb-[22px]">
-              <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">面板地址</label>
-              <div className="flex-1 max-w-[560px]">
-                <input className="input-field w-full" type="text" placeholder="http://1.2.3.4:7788 或 https://panel.example.com" value={form.panel_url} onChange={e => set('panel_url', e.target.value)} />
-                <p className="text-[12px] text-ink-mut mt-1.5 m-0">节点升级会从该地址下载 agent。请带协议（http/https）；只写 IP:端口 时保存会自动补 http://。</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-6 pb-[22px] border-b border-line-soft">
-              <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">面板名称</label>
-              <input className="input-field max-w-[560px]" type="text" placeholder="nft" value={form.panel_name} onChange={e => set('panel_name', e.target.value)} />
-            </div>
-
-            <div className="pt-[22px]">
-              <h3 className="text-[16px] font-bold text-ink mb-[22px]">转发设置</h3>
-            </div>
-
-            <div className="flex items-center gap-6 mb-[22px]">
-              <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">显示倍率</label>
-              <button type="button" role="switch" aria-checked={form.show_rate_to_user}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.show_rate_to_user ? 'bg-emerald-600' : 'bg-gray-600'}`}
-                onClick={() => set('show_rate_to_user', !form.show_rate_to_user)}>
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.show_rate_to_user ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
-              <span className="text-[13px] text-ink-mut">向普通用户展示节点/链路倍率</span>
-            </div>
-
-            <div className="flex items-center gap-6 pb-[22px] border-b border-line-soft">
-              <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">TCP 连接池</label>
-              <input className="input-field w-[100px]" type="number" min="0" max="64" value={form.pool_size} onChange={e => set('pool_size', e.target.value)} />
-              <span className="text-[13px] text-ink-mut">每端口预建立连接数（0 = 禁用，默认 4）</span>
-            </div>
-
-            <div className="pt-[22px]">
-              <h3 className="text-[16px] font-bold text-ink mb-1">Cloudflare DNS</h3>
-              <p className="text-[12px] text-ink-mut m-0 mb-[18px]">
-                用于落地仓库：目标填域名后可从 CF 拉取当前 A 记录，保存时也可把「当前 IP」写回（仅 DNS / 灰云）。Token 只存服务端，接口不回显明文。
-              </p>
-            </div>
-
-            <div className="flex items-start gap-6 mb-[22px]">
-              <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-2">API Token</label>
-              <div className="flex-1 max-w-[560px]">
-                <input
-                  className="input-field w-full font-mono text-sm"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={form.cf_token_configured ? `已配置（${form.cf_token_prefix}）· 留空不修改` : '粘贴 Zone.DNS Edit 权限的 Token'}
-                  value={form.cf_api_token}
-                  onChange={e => set('cf_api_token', e.target.value)}
-                  disabled={form.cf_clear_token}
-                />
-                <div className="flex items-center gap-3 mt-2">
-                  <label className="inline-flex items-center gap-1.5 text-[12px] text-ink-soft cursor-pointer">
-                    <input type="checkbox" className="accent-emerald-600" checked={form.cf_clear_token}
-                      onChange={e => set('cf_clear_token', e.target.checked)} />
-                    清除已保存的 Token
-                  </label>
-                  {form.cf_token_configured && !form.cf_clear_token && (
-                    <span className="text-[12px] text-emerald-600 font-semibold">已配置</span>
-                  )}
+            {tab === 'panel' && (
+              <>
+                <div className="flex items-start gap-6 mb-[22px]">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-2">面板 Logo</label>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-4">
+                      <div className="w-[52px] h-[52px] rounded-[14px] grid place-items-center text-white overflow-hidden ring-1 ring-white/25"
+                        style={{ background: 'linear-gradient(145deg, #10b981 0%, #14b8a6 52%, #0d9488 100%)' }}>
+                        <BrandMark src={form.logo_url} className="w-[30px] h-[30px]" />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" className="btn-secondary px-4" disabled={logoBusy}
+                          onClick={() => fileRef.current?.click()}>
+                          {logoBusy ? '处理中…' : '更换 Logo'}
+                        </button>
+                        {form.logo_url && (
+                          <button type="button" className="btn-secondary px-4" disabled={logoBusy} onClick={clearLogo}>
+                            恢复默认
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                      className="hidden" onChange={e => uploadLogo(e.target.files?.[0])} />
+                    <p className="text-[12px] text-ink-mut mt-2 m-0">png / jpg / svg / webp，最大 1MB。侧栏、登录页和浏览器标签会同步。</p>
+                  </div>
                 </div>
-                <p className="text-[12px] text-ink-mut mt-1.5 m-0">权限：Zone → DNS → Edit，Zone → Zone → Read；作用域限定你的域名 Zone。</p>
-              </div>
-            </div>
+                <div className="flex items-center gap-6 mb-[22px]">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">面板地址</label>
+                  <div className="flex-1 max-w-[560px]">
+                    <input className="input-field w-full" type="text" placeholder="http://1.2.3.4:7788 或 https://panel.example.com" value={form.panel_url} onChange={e => set('panel_url', e.target.value)} />
+                    <p className="text-[12px] text-ink-mut mt-1.5 m-0">节点升级会从该地址下载 agent。请带协议（http/https）；只写 IP:端口 时保存会自动补 http://。</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-6">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">面板名称</label>
+                  <input className="input-field max-w-[560px]" type="text" placeholder="nft" value={form.panel_name} onChange={e => set('panel_name', e.target.value)} />
+                </div>
+              </>
+            )}
 
-            <div className="flex items-center gap-6 mb-[22px]">
-              <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">默认 Zone</label>
-              <div className="flex-1 max-w-[560px]">
-                <input className="input-field w-full font-mono" type="text" placeholder="example.com"
-                  value={form.cf_zone_name} onChange={e => set('cf_zone_name', e.target.value)} />
-                <p className="text-[12px] text-ink-mut mt-1.5 m-0">落地条目未单独填 Zone 时使用。须与 Token 有权限的域名一致。</p>
-              </div>
-            </div>
+            {tab === 'forward' && (
+              <>
+                <div className="flex items-center gap-6 mb-[22px]">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">显示倍率</label>
+                  <button type="button" role="switch" aria-checked={form.show_rate_to_user}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.show_rate_to_user ? 'bg-emerald-600' : 'bg-gray-600'}`}
+                    onClick={() => set('show_rate_to_user', !form.show_rate_to_user)}>
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.show_rate_to_user ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                  <span className="text-[13px] text-ink-mut">向普通用户展示节点/链路倍率</span>
+                </div>
+                <div className="flex items-center gap-6">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">TCP 连接池</label>
+                  <input className="input-field w-[100px]" type="number" min="0" max="64" value={form.pool_size} onChange={e => set('pool_size', e.target.value)} />
+                  <span className="text-[13px] text-ink-mut">每端口预建立连接数（0 = 禁用，默认 4）</span>
+                </div>
+              </>
+            )}
 
-            <div className="flex items-center gap-6 pb-[22px] border-b border-line-soft">
-              <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">TTL</label>
-              <input className="input-field w-[100px]" type="number" min="1" value={form.cf_ttl}
-                onChange={e => set('cf_ttl', e.target.value)} />
-              <span className="text-[13px] text-ink-mut">秒；1 = Cloudflare Auto（推荐）</span>
-            </div>
+            {tab === 'cloudflare' && (
+              <>
+                <div className="flex items-start gap-6 mb-[22px]">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-2">API Token</label>
+                  <div className="flex-1 max-w-[560px]">
+                    <input
+                      className="input-field w-full font-mono text-sm"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={form.cf_token_configured ? `已配置（${form.cf_token_prefix}）· 留空不修改` : '粘贴 Zone.DNS Edit 权限的 Token'}
+                      value={form.cf_api_token}
+                      onChange={e => set('cf_api_token', e.target.value)}
+                      disabled={form.cf_clear_token}
+                    />
+                    <div className="flex items-center gap-3 mt-2">
+                      <label className="inline-flex items-center gap-1.5 text-[12px] text-ink-soft cursor-pointer">
+                        <input type="checkbox" className="accent-emerald-600" checked={form.cf_clear_token}
+                          onChange={e => set('cf_clear_token', e.target.checked)} />
+                        清除已保存的 Token
+                      </label>
+                      {form.cf_token_configured && !form.cf_clear_token && (
+                        <span className="text-[12px] text-emerald-600 font-semibold">已配置</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-6 mb-[22px]">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">默认 Zone</label>
+                  <div className="flex-1 max-w-[560px]">
+                    <input className="input-field w-full font-mono" type="text" placeholder="example.com"
+                      value={form.cf_zone_name} onChange={e => set('cf_zone_name', e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-6">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">TTL</label>
+                  <input className="input-field w-[100px]" type="number" min="1" value={form.cf_ttl}
+                    onChange={e => set('cf_ttl', e.target.value)} />
+                  <span className="text-[13px] text-ink-mut">秒；1 = Cloudflare Auto</span>
+                </div>
+              </>
+            )}
 
-            <div className="flex items-center gap-4 mt-[22px]">
+            <div className="flex items-center gap-4 mt-[26px] pt-[18px] border-t border-line-soft">
               <button type="submit" disabled={saving} className="btn-primary">{saving ? '保存中…' : '保存设置'}</button>
             </div>
           </form>
