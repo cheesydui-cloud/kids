@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import { Layout, useToast, useUser } from '../components/Layout'
 import { Loading } from '../components/ui'
-import { BrandMark } from '../components/BrandMark'
+import { BrandBadge } from '../components/BrandMark'
 
 const TABS = [
   { id: 'panel', label: '面板' },
@@ -55,9 +55,10 @@ export default function Settings() {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const applyLogo = (url) => {
-    set('logo_url', url || '')
-    if (setLogoUrl) setLogoUrl(url || '')
-    applySession({ logo_url: url || '' })
+    const next = url ? `${url.split('?')[0]}?t=${Date.now()}` : ''
+    set('logo_url', next)
+    if (setLogoUrl) setLogoUrl(next)
+    applySession({ logo_url: next })
   }
 
   const submit = async (e) => {
@@ -169,10 +170,7 @@ export default function Settings() {
                   <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-2">面板 Logo</label>
                   <div className="flex-1">
                     <div className="flex items-center gap-4">
-                      <div className="w-[52px] h-[52px] rounded-[14px] grid place-items-center text-white overflow-hidden ring-1 ring-white/25"
-                        style={{ background: 'linear-gradient(145deg, #10b981 0%, #14b8a6 52%, #0d9488 100%)' }}>
-                        <BrandMark src={form.logo_url} className="w-[30px] h-[30px]" />
-                      </div>
+                      <BrandBadge src={form.logo_url} size={52} markClassName="w-[30px] h-[30px]" />
                       <div className="flex flex-wrap gap-2">
                         <button type="button" className="btn-secondary px-4" disabled={logoBusy}
                           onClick={() => fileRef.current?.click()}>

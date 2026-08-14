@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useUser } from '../components/Layout'
-import { BrandMark } from '../components/BrandMark'
+import { BrandBadge } from '../components/BrandMark'
 import { clearLoginAnnouncementSession } from '../components/LoginAnnouncementModal'
 
 export default function Login() {
@@ -57,10 +57,7 @@ export default function Login() {
     <div className="login-shell">
       <div className="login-card">
         <div className="flex items-center gap-3.5 mb-8">
-          <div className="w-[46px] h-[46px] rounded-[14px] grid place-items-center text-white shadow-[0_10px_28px_-8px_rgba(16,185,129,0.65)] ring-1 ring-white/25"
-            style={{ background: 'linear-gradient(145deg, #10b981 0%, #14b8a6 52%, #0d9488 100%)' }}>
-            <BrandMark className="w-[28px] h-[28px]" src={logoUrl} />
-          </div>
+          <BrandBadge src={logoUrl} size={46} markClassName="w-[28px] h-[28px]" />
           <div className="text-[17px] font-bold tracking-tight text-ink">{panelName || 'nft'}</div>
         </div>
 

@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { resolvedDark, getStoredTheme, setStoredTheme } from '../lib/theme'
 import { hasLocalURIs, hasLocalProxies } from '../lib/landing'
 import { Loading } from './ui'
-import { BrandMark } from './BrandMark'
+import { BrandBadge } from './BrandMark'
 import { LoginAnnouncementModal, clearLoginAnnouncementSession } from './LoginAnnouncementModal'
 
 /* ---------- User context ---------- */
@@ -184,11 +184,8 @@ export function Layout({ children }) {
 
           {/* Brand */}
           <div className={`flex items-center gap-3 pt-5 pb-4 ${collapsed ? 'px-3 justify-center' : 'px-5'}`}>
-            <div className="w-[42px] h-[42px] rounded-[14px] flex-none grid place-items-center text-white shadow-[0_10px_24px_-8px_rgba(16,185,129,0.65)] ring-1 ring-white/25"
-              title={collapsed && isAdmin && version ? version : undefined}
-              style={{ background: 'linear-gradient(145deg, #10b981 0%, #14b8a6 52%, #0d9488 100%)' }}>
-              <BrandMark src={logoUrl} />
-            </div>
+            <BrandBadge src={logoUrl} size={42}
+              title={collapsed && isAdmin && version ? version : undefined} />
             {!collapsed && <div className="min-w-0">
               <div className="text-[15.5px] font-bold tracking-tight sb-text truncate">{panelName || 'nft'}</div>
               {/* Admin keeps role + version; users only see the panel name. */}
