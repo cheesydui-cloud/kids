@@ -2,24 +2,30 @@
 
 基于 nftables 的轻量多节点端口转发平台。**两个二进制（`nft-server` + `nft-agent`），零外部依赖**——面板管理多节点并推送规则，节点 agent 反向连入面板，节点零端口暴露。支持内核态 DNAT 与用户态 split-TCP 逐跳混用、多租户配额、组合节点自动编排多跳链路。
 
-当前版本：**v0.1.0**  
+当前版本：**v0.1.0**（下面这条安装命令固定不变，永远装最新版）  
 仓库：https://github.com/cheesydui-cloud/kids
 
 > 衍生自 [xjetry/nft-forward](https://github.com/xjetry/nft-forward)，以 MIT 许可证发布（见 [LICENSE](./LICENSE)）。
 
 ---
 
-## 一键安装
+## 一键安装（固定命令）
 
 仅支持 **amd64 Linux**，需要 **root + nftables**。
 
-交互式（自动选模式）：
+这条 URL 钉在 `main/install.sh`，**以后发 v0.2.0、v1.0.0 都不用改命令**。脚本会自动拉 GitHub Releases 的 **latest** 二进制。
 
 ```bash
 sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
 ```
 
-指定角色（管道模式）：
+等价写法（同样永远指向最新 release）：
+
+```bash
+curl -fsSL https://github.com/cheesydui-cloud/kids/releases/latest/download/install.sh | sudo bash
+```
+
+指定角色（管道模式，同样永远装最新版）：
 
 ```bash
 # 控制面板（默认监听 :7788）
@@ -35,6 +41,9 @@ curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.s
 
 # 单机 TUI（不装 Web 面板）
 curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s tui
+
+# 已安装机器升级到最新版
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s update
 ```
 
 国内访问 GitHub 较慢时，加镜像前缀（会持久化，后续升级自动沿用）：
@@ -44,7 +53,7 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/cheesydui-clou
   --gh-proxy https://gh-proxy.com/
 ```
 
-指定版本（本仓库首发为 `v0.1.0`）：
+只有需要钉死旧版本时才加 `--release`（一般不用）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s server --release v0.1.0

@@ -57,6 +57,7 @@ jobs:
             nft-server
             nft-agent
             SHA256SUMS
+            install.sh
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

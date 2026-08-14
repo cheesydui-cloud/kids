@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# nft 一键安装脚本
-# 从 GitHub release 下载 nft-server / nft-agent 二进制并配置 server / agent / tui / uninstall
+# kids 固定一键安装入口（URL 永不随版本变化）
+#   sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
+# 默认始终安装 GitHub Releases 的 latest 二进制；可用 --release vX.Y.Z 钉死版本。
+# 从 GitHub release 下载 nft-server / nft-agent 并配置 server / agent / tui / uninstall
 # 用法：见 --help
 
 set -euo pipefail
@@ -255,7 +257,10 @@ do_uninstall() {
 
 usage() {
   cat <<USAGE
-nft 一键安装/卸载/升级脚本（nft-server 面板 + nft-agent 节点）
+kids 固定一键安装/卸载/升级脚本（nft-server 面板 + nft-agent 节点）
+默认始终安装 GitHub Releases 的 latest，命令 URL 不随版本变化：
+
+  sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
 
 用法:
   $0 [tui|server|agent|update|update-script|uninstall|reset-password] [选项]
