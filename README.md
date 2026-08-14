@@ -16,47 +16,49 @@
 这条 URL 钉在 `main/install.sh`，**以后发 v0.2.0、v1.0.0 都不用改命令**。脚本会自动拉 GitHub Releases 的 **latest** 二进制。
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
 ```
+
+> 必须用 **root**。很多 Debian/VPS 精简镜像没有 `sudo`，已经是 `root@...#` 时不要加 `sudo`，否则会报 `sudo: command not found`，后面的 `curl: (23)` 只是连带失败。
 
 等价写法（同样永远指向最新 release）：
 
 ```bash
-curl -fsSL https://github.com/cheesydui-cloud/kids/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://github.com/cheesydui-cloud/kids/releases/latest/download/install.sh | bash
 ```
 
 指定角色（管道模式，同样永远装最新版）：
 
 ```bash
 # 控制面板（默认监听 :7788）
-curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s server
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s server
 
 # 自定义面板地址
-curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s server --addr 0.0.0.0:7788
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s server --addr 0.0.0.0:7788
 
 # 远程节点（token 在面板「节点详情」里生成）
-curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s agent \
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s agent \
   --panel-url https://panel.example.com \
   --token <hex>
 
 # 单机 TUI（不装 Web 面板）
-curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s tui
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s tui
 
 # 已安装机器升级到最新版
-curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s update
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
 ```
 
 国内访问 GitHub 较慢时，加镜像前缀（会持久化，后续升级自动沿用）：
 
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s server \
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s server \
   --gh-proxy https://gh-proxy.com/
 ```
 
 只有需要钉死旧版本时才加 `--release`（一般不用）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | sudo bash -s server --release v0.1.0
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s server --release v0.1.0
 ```
 
 ---
@@ -207,9 +209,9 @@ nft-server --reset-admin-password <newpw>
 首次启动 server 会创建 admin 账号并打印随机密码。请立刻保存；之后可用：
 
 ```bash
-sudo bash /usr/local/sbin/nft-upgrade   # 等价于 install.sh update
+bash /usr/local/sbin/nft-upgrade   # 等价于 install.sh update
 # 或
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh) reset-password
+bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh) reset-password
 ```
 
 ### 典型部署流程
@@ -235,13 +237,13 @@ sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/ma
 ### 升级 / 卸载
 
 ```bash
-sudo nft-upgrade
+nft-upgrade
 # 或指定版本
-sudo bash install.sh update --release v0.1.0
+bash install.sh update --release v0.1.0
 
-sudo bash install.sh uninstall server
-sudo bash install.sh uninstall daemon --purge
-sudo bash install.sh uninstall all
+bash install.sh uninstall server
+bash install.sh uninstall daemon --purge
+bash install.sh uninstall all
 ```
 
 升级流程：拉 release → sha256 校验 → 备份 → 原子替换 → 重启 → health-check → 失败自动回滚。

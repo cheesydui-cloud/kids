@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # kids 固定一键安装入口（URL 永不随版本变化）
-#   sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
+# 需 root。很多 VPS 精简镜像没有 sudo，请直接用 root 跑上面这条，不要加 sudo。
 # 默认始终安装 GitHub Releases 的 latest 二进制；可用 --release vX.Y.Z 钉死版本。
 # 从 GitHub release 下载 nft-server / nft-agent 并配置 server / agent / tui / uninstall
 # 用法：见 --help
@@ -212,7 +213,7 @@ do_uninstall() {
     daemon)
       if systemctl is-active --quiet nft-server.service \
          || [[ -f "$SYSTEMD_DIR/nft-server.service" ]]; then
-        die "请先卸载 server 角色：sudo $0 uninstall server"
+        die "请先卸载 server 角色：$0 uninstall server"
       fi
       systemctl disable --now nft-daemon.service 2>/dev/null || true
       rm -f "$SYSTEMD_DIR/nft-daemon.service"
@@ -260,7 +261,7 @@ usage() {
 kids 固定一键安装/卸载/升级脚本（nft-server 面板 + nft-agent 节点）
 默认始终安装 GitHub Releases 的 latest，命令 URL 不随版本变化：
 
-  sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
+  bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
 
 用法:
   $0 [tui|server|agent|update|update-script|uninstall|reset-password] [选项]
@@ -295,17 +296,17 @@ kids 固定一键安装/卸载/升级脚本（nft-server 面板 + nft-agent 节�
               daemon: nft-agent daemon [--connect …]；TUI: nft-agent
 
 示例:
-  sudo $0                                # 交互式
-  sudo $0 server --addr :9000            # 自定义面板端口
-  sudo $0 agent --panel-url https://panel.example.com --token abc...  # 远程节点
-  sudo $0 agent --panel-url https://panel.example.com --token abc... --gh-proxy https://gh-proxy.com/
-  sudo $0 update                         # 拉 latest 二进制升级
-  sudo $0 update --release v0.40.0       # 升级到指定版本
-  sudo $0 update-script                  # 更新本地升级脚本（不动二进制）
-  sudo $0 uninstall server               # 仅卸面板，保留 daemon
-  sudo $0 uninstall daemon --purge       # 完整擦除 daemon 残留
-  sudo $0 reset-password                 # 交互重置面板 admin 密码
-  sudo nft-upgrade               # 等效于 sudo $0 update（安装后可用）
+  $0                                # 交互式（需 root；精简系统没有 sudo 时直接跑）
+  $0 server --addr :9000            # 自定义面板端口
+  $0 agent --panel-url https://panel.example.com --token abc...  # 远程节点
+  $0 agent --panel-url https://panel.example.com --token abc... --gh-proxy https://gh-proxy.com/
+  $0 update                         # 拉 latest 二进制升级
+  $0 update --release v0.40.0       # 升级到指定版本
+  $0 update-script                  # 更新本地升级脚本（不动二进制）
+  $0 uninstall server               # 仅卸面板，保留 daemon
+  $0 uninstall daemon --purge       # 完整擦除 daemon 残留
+  $0 reset-password                 # 交互重置面板 admin 密码
+  nft-upgrade                       # 等效于 $0 update（安装后可用）
 USAGE
 }
 
@@ -344,7 +345,7 @@ persist_script() {
   if curl -fsSL "$(script_url)" -o "$tmp/upgrade.sh" 2>/dev/null; then
     if looks_like_installer "$tmp/upgrade.sh"; then
       install -m 0755 "$tmp/upgrade.sh" "$SCRIPT_PATH"
-      note "升级脚本已保存到 $SCRIPT_PATH（后续升级: sudo nft-upgrade）"
+      note "升级脚本已保存到 $SCRIPT_PATH（后续升级: nft-upgrade）"
     else
       warn "下载的 install.sh 内容异常（疑似错误页/截断），已跳过保存升级脚本"
     fi
@@ -656,7 +657,7 @@ if [[ -z "$GH_PROXY_EXPLICIT" && -z "${NFTF_GH_PROXY:-}" && -f "$GH_PROXY_FILE" 
 fi
 normalize_gh_proxy
 
-[[ $EUID -eq 0 ]] || die "请以 root 运行（sudo $0 ...）"
+[[ $EUID -eq 0 ]] || die "请以 root 运行。精简系统往往没有 sudo，直接 root 执行即可：bash $0 ..."
 
 # 架构检测
 arch=$(uname -m)
@@ -821,7 +822,7 @@ case "$mode" in
 
 $(ok "===== TUI 安装完成 =====")
 host daemon 已作为 systemd 服务启动：nft-daemon.service
-运行 TUI:   sudo $INSTALL_DIR/nft-agent
+运行 TUI:   $INSTALL_DIR/nft-agent
 TUI 会自动连接到上面的 daemon；规则在 daemon 重启后自动恢复。
 
 文档:  https://github.com/$REPO#readme
@@ -856,7 +857,7 @@ EOF
     else
       echo ""
       echo "非首次安装，admin 密码沿用之前设置的密码。"
-      echo "如需重置: sudo nft-upgrade reset-password"
+      echo "如需重置: nft-upgrade reset-password"
     fi
     ;;
 

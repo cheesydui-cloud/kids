@@ -39,5 +39,5 @@
 - 固定安装命令（以后任意版本都用这一条）：
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh)
 ```
