@@ -223,7 +223,6 @@ export function Layout({ children }) {
               <>
                 <NavGroup label="概况">
                   <SideLink to="/my" icon={<IconDashboard />} end>我的概览</SideLink>
-                  <SideLink to="/my/docs" icon={<IconBook />}>使用文档</SideLink>
                 </NavGroup>
                 <NavGroup label="转发">
                   <SideLink to="/my/rules" icon={<IconForwards />}>我的规则</SideLink>

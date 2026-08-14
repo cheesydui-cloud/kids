@@ -54,7 +54,7 @@ export default function UserConfigCard({ userId, expiresAt, maxForwards, quotaBy
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             {[[1,'1天'],[7,'7天'],[30,'30天'],[365,'1年']].map(([d, l]) => (
               <button key={d} type="button" onClick={() => addDays(d)}
-                className="text-[11px] px-2 py-0.5 rounded border border-line bg-surface text-ink-soft hover:border-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer">+{l}</button>
+                className="text-[11px] px-2 py-0.5 rounded-lg border-[1.5px] border-line bg-surface text-ink-soft hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)] hover:-translate-y-px transition-all cursor-pointer">+{l}</button>
             ))}
             {form.expiresAt !== initExpiry && (
               <button type="button" onClick={() => setForm(f => ({ ...f, expiresAt: initExpiry }))}

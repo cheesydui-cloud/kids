@@ -260,7 +260,7 @@ function AnnouncementArea() {
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-[16px] font-bold">公告</h3>
           {unreadCount > 0 && (
-            <button onClick={markAllRead} className="text-xs text-emerald-600 font-semibold hover:underline">全部已读</button>
+            <button onClick={markAllRead} className="text-xs link-accent hover:underline">全部已读</button>
           )}
         </div>
         {loading ? (

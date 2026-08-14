@@ -137,10 +137,10 @@ export default function Announcements() {
                         <button onClick={() => togglePin(a)} className="text-xs font-semibold text-ink-soft hover:text-ink hover:underline">
                           {pinned ? '取消置顶' : '置顶'}
                         </button>
-                        <button onClick={() => toggleLoginPopup(a)} className="text-xs font-semibold text-emerald-600 hover:underline">
+                        <button onClick={() => toggleLoginPopup(a)} className="text-xs font-semibold link-accent hover:underline">
                           {loginPopup ? '取消弹窗' : '登录弹窗'}
                         </button>
-                        <button onClick={() => { setEditAnn(a); setFormOpen(true) }} className="text-xs font-semibold text-emerald-600 hover:underline">编辑</button>
+                        <button onClick={() => { setEditAnn(a); setFormOpen(true) }} className="text-xs font-semibold link-accent hover:underline">编辑</button>
                         <button onClick={() => deleteAnn(a)} className="text-red-600 text-xs font-semibold hover:underline">删除</button>
                       </div>
                     </td>
@@ -276,8 +276,8 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
                   onClick={() => setColor(opt.value)}
                   className={`px-2.5 py-1 rounded-full text-[12px] font-semibold border transition-colors ${
                     color === opt.value
-                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                      : 'border-line text-ink-soft hover:border-ink-mut'
+                      ? 'border-[color:var(--brand-from)] bg-transparent text-[color:var(--brand-from)]'
+                      : 'border-line text-ink-soft hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)] hover:-translate-y-px'
                   }`}
                 >
                   {opt.label}
@@ -307,14 +307,14 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
                 多选用户
               </label>
               {targetMode === 'select' && selectedIds.length > 0 && (
-                <span className="text-xs text-emerald-600 font-semibold">已选 {selectedIds.length} 人</span>
+                <span className="text-xs text-[color:var(--brand-from)] font-semibold">已选 {selectedIds.length} 人</span>
               )}
             </div>
             {targetMode === 'select' && (
               <div className="border border-line rounded-lg p-3 max-h-[200px] overflow-y-auto">
                 <div className="flex items-center gap-2 mb-2">
                   <input className="input-field flex-1" placeholder="搜索用户名…" value={search} onChange={e => setSearch(e.target.value)} />
-                  <button type="button" onClick={() => setSelectedIds(filteredUsers.map(u => u.id))} className="text-xs text-emerald-600 font-semibold px-2 py-1 hover:underline whitespace-nowrap">全选</button>
+                  <button type="button" onClick={() => setSelectedIds(filteredUsers.map(u => u.id))} className="text-xs link-accent px-2 py-1 hover:underline whitespace-nowrap">全选</button>
                   <button type="button" onClick={() => setSelectedIds([])} className="text-xs text-ink-mut font-semibold px-2 py-1 hover:underline whitespace-nowrap">清空</button>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">

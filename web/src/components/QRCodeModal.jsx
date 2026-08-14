@@ -77,7 +77,7 @@ export function QRCodeButton({ text, disabled, className = '', label = '二维�
           if (onOpen) onOpen()
           setOpen(true)
         }}
-        className={className || 'text-emerald-600 text-xs font-semibold hover:underline disabled:opacity-40 disabled:cursor-not-allowed'}
+        className={className || 'link-accent text-xs hover:underline disabled:opacity-40 disabled:cursor-not-allowed'}
       >
         {label}
       </button>

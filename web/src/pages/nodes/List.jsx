@@ -184,8 +184,8 @@ export default function NodeList() {
         <div className="flex items-center flex-wrap gap-1.5 px-[22px] py-2.5 border-b border-line-soft">
           {[['single', '单点', singleNodes.length], ['composite', '组合', compositeNodes.length]].map(([key, label, n]) => (
             <button key={key} onClick={() => switchTab(key)}
-              className={`px-3.5 py-1 rounded-full text-xs border transition-colors ${
-                tab === key ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-surface text-ink-soft border-line hover:border-ink-mut'
+              className={`px-3.5 py-1 rounded-full text-xs border-[1.5px] transition-all ${
+                tab === key ? 'bg-raised text-ink border-line' : 'bg-surface text-ink-soft border-line hover:-translate-y-px hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)]'
               }`}>{label} {n}</button>
           ))}
         </div>
@@ -230,7 +230,7 @@ export default function NodeList() {
                       draggable onDragStart={() => setDragIndex(i)}>⠿</span>}#{n.id}
                   </td>
                   <td>
-                    <span className="inline-flex items-center gap-2 font-semibold text-emerald-600">
+                    <span className="inline-flex items-center gap-2 font-semibold text-[color:var(--brand-from)]">
                       <span className={`w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.18)]' : 'bg-gray-400 shadow-[0_0_0_3px_rgba(154,163,176,0.16)]'}`} />
                       {n.name}
                       {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
@@ -280,7 +280,7 @@ export default function NodeList() {
             <div className="fixed z-50 pointer-events-none flex flex-col items-end gap-1"
               style={{ left: pinMode.cx - 16, top: pinMode.cy - 18, transform: 'translateX(-100%)' }}>
               <div className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold shadow transition-colors ${
-                pinMode.zone === 'top' ? 'bg-emerald-500 text-white' : 'bg-white/90 text-emerald-400 border border-emerald-200'}`}>↑ 置顶</div>
+                pinMode.zone === 'top' ? 'bg-[color:var(--brand-from)] text-white' : 'bg-surface text-[color:var(--brand-from)] border-[1.5px] border-[color:var(--brand-from)]'}`}>↑ 置顶</div>
               <div className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold shadow transition-colors ${
                 pinMode.zone === 'bottom' ? 'bg-amber-500 text-white' : 'bg-white/90 text-amber-400 border border-amber-200'}`}>置底 ↓</div>
             </div>
@@ -291,7 +291,7 @@ export default function NodeList() {
             {filtered.map(n => (
               <Link key={n.id} to={`/nodes/${n.id}`} className="mobile-card block no-underline text-ink">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="inline-flex items-center gap-2 font-semibold text-emerald-600 flex-wrap">
+                  <span className="inline-flex items-center gap-2 font-semibold text-[color:var(--brand-from)] flex-wrap">
                     <span className={`w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'bg-green-500' : 'bg-gray-400'}`} />
                     {n.name}
                     {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
@@ -329,8 +329,8 @@ function SortArrow({ col, sort }) {
   const active = sort.col === col
   return (
     <span className="inline-flex flex-col leading-[0.55] text-[9px] ml-1">
-      <span className={active && sort.dir === 'asc' ? 'text-emerald-600' : 'text-ink-mut opacity-50'}>▲</span>
-      <span className={active && sort.dir === 'desc' ? 'text-emerald-600' : 'text-ink-mut opacity-50'}>▼</span>
+      <span className={active && sort.dir === 'asc' ? 'text-[color:var(--brand-from)]' : 'text-ink-mut opacity-50'}>▲</span>
+      <span className={active && sort.dir === 'desc' ? 'text-[color:var(--brand-from)]' : 'text-ink-mut opacity-50'}>▼</span>
     </span>
   )
 }
@@ -417,7 +417,7 @@ function AddNodeModal({ open, onClose, onDone }) {
           <label className="text-[13px] font-semibold text-ink-soft">计费方向</label>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setUnidirectional(u => !u)}
-              className={`inline-flex items-center gap-1.5 px-3.5 py-[7px] rounded-[8px] text-[13px] font-semibold border cursor-pointer transition-colors ${unidirectional ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}>
+              className={`inline-flex items-center gap-1.5 px-3.5 py-[7px] rounded-[8px] text-[13px] font-semibold border-[1.5px] cursor-pointer transition-all hover:-translate-y-px ${unidirectional ? 'bg-surface text-[#9a6b1f] border-[#d4b07a] hover:border-[#9a6b1f]' : 'bg-surface text-[#3d6b45] border-[#7d9a7a] hover:border-[#3d6b45]'}`}>
               {unidirectional ? '单向计费（仅出站）' : '双向计费（出站+入站）'}
             </button>
             <span className="text-xs text-ink-mut">当前：{unidirectional ? '单向' : '双向'}</span>

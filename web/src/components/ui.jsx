@@ -44,19 +44,19 @@ export function Confirm({ open, onClose, onConfirm, title, children }) {
 
 /* ---------- Badge ---------- */
 const badgeColors = {
-  green: 'bg-emerald-500/[.14] text-emerald-700 dark:text-emerald-300 border-emerald-500/35',
-  amber: 'bg-amber-500/[.14] text-amber-700 dark:text-amber-300 border-amber-500/35',
-  red: 'bg-rose-500/[.14] text-rose-700 dark:text-rose-300 border-rose-500/35',
-  gray: 'bg-raised text-ink-soft border-line',
-  blue: 'bg-sky-500/[.14] text-sky-700 dark:text-sky-300 border-sky-500/35',
-  violet: 'bg-violet-500/[.14] text-violet-700 dark:text-violet-300 border-violet-500/35',
-  teal: 'bg-teal-500/[.14] text-teal-700 dark:text-teal-300 border-teal-500/35',
-  cyan: 'bg-cyan-500/[.14] text-cyan-700 dark:text-cyan-300 border-cyan-500/35',
+  green: 'bg-transparent text-emerald-700 dark:text-emerald-300 border-emerald-500/55',
+  amber: 'bg-transparent text-amber-700 dark:text-amber-300 border-amber-500/55',
+  red: 'bg-transparent text-rose-700 dark:text-rose-300 border-rose-500/55',
+  gray: 'bg-transparent text-ink-soft border-line',
+  blue: 'bg-transparent text-sky-700 dark:text-sky-300 border-sky-500/55',
+  violet: 'bg-transparent text-violet-700 dark:text-violet-300 border-violet-500/55',
+  teal: 'bg-transparent text-teal-700 dark:text-teal-300 border-teal-500/55',
+  cyan: 'bg-transparent text-cyan-700 dark:text-cyan-300 border-cyan-500/55',
 }
 export function Badge({ color = 'gray', className = '', children, ...rest }) {
   // Forward ...rest (notably title) so hovering a status badge can reveal detail
   // like a node's last_error — previously these props were silently dropped.
-  return <span {...rest} className={`inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11.5px] font-semibold border backdrop-blur-[2px] ${badgeColors[color] || badgeColors.gray} ${className}`}>{children}</span>
+  return <span {...rest} className={`inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11.5px] font-semibold border-[1.5px] ${badgeColors[color] || badgeColors.gray} ${className}`}>{children}</span>
 }
 
 /* ---------- NodeTypeBadge ---------- */
@@ -199,7 +199,7 @@ export function ErrorState({ title = '加载失败', desc, onRetry }) {
 export function Loading() {
   return (
     <div className="flex items-center justify-center py-20">
-      <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+      <div className="w-6 h-6 border-2 border-[color:var(--brand-from)] border-t-transparent rounded-full animate-spin" />
     </div>
   )
 }
@@ -293,7 +293,7 @@ export function ProbeButton({ target, nodeId, disabled = false, disabledTitle = 
     <span className="inline-flex items-center gap-2">
       <button type="button" onClick={probe} disabled={disabled || busy}
         title={disabled ? (disabledTitle || '请先选择入口与出口') : undefined}
-        className="text-[11px] px-2 py-0.5 rounded border border-line bg-surface text-ink-soft hover:border-emerald-500 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:text-ink-soft">
+        className="text-[11px] px-2 py-0.5 rounded-lg border-[1.5px] border-line bg-surface text-ink-soft hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)] hover:-translate-y-px disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:text-ink-soft disabled:hover:translate-y-0">
         {busy ? <Spinner className="w-3 h-3" /> : '测试'}
       </button>
       {state === 'ok' && <span className="text-[11px] text-green-700 font-semibold">{result}</span>}
@@ -349,7 +349,7 @@ export function ProbeChainButton({ chainId, ruleId, probeAllTrigger, limit }) {
   return (
     <span className="inline-flex items-center gap-2">
       <button type="button" onClick={probe} disabled={busy}
-        className="text-[11px] px-2 py-0.5 rounded border border-line bg-surface text-ink-soft hover:border-emerald-500 hover:text-emerald-600 disabled:opacity-50">
+        className="text-[11px] px-2 py-0.5 rounded-lg border-[1.5px] border-line bg-surface text-ink-soft hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)] hover:-translate-y-px disabled:opacity-50 disabled:hover:translate-y-0">
         {busy ? <Spinner className="w-3 h-3" /> : '测试'}
       </button>
       {busy && <span className="text-[11px] text-ink-mut">测试中...</span>}
@@ -490,9 +490,9 @@ export function Select({ value, onChange, options = [], groups, placeholder = '�
     return (
       <button key={String(o.value)} type="button"
         onClick={() => choose(o)}
-        className={`w-full text-left px-3 py-1.5 text-[13.5px] transition-colors hover:bg-raised flex items-center gap-2 ${sel ? 'text-emerald-600 font-semibold' : 'text-ink'}`}>
+        className={`w-full text-left px-3 py-1.5 text-[13.5px] transition-colors hover:bg-raised flex items-center gap-2 ${sel ? 'text-[color:var(--brand-from)] font-semibold' : 'text-ink'}`}>
         {multiple && (
-          <span className={`w-3.5 h-3.5 flex-none rounded border flex items-center justify-center ${sel ? 'bg-emerald-600 border-emerald-600' : 'border-line'}`}>
+          <span className={`w-3.5 h-3.5 flex-none rounded border-[1.5px] flex items-center justify-center ${sel ? 'bg-[color:var(--brand-from)] border-[color:var(--brand-from)]' : 'border-line'}`}>
             {sel && <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
           </span>
         )}
@@ -525,7 +525,7 @@ export function Select({ value, onChange, options = [], groups, placeholder = '�
         <div className="flex border-b border-line-soft flex-none">
           {sections.map((s, i) => (
             <button key={i} type="button" onClick={() => setActiveTab(i)}
-              className={`flex-1 px-3 py-[13px] text-[14px] font-semibold transition-colors ${i === activeTab ? 'text-emerald-600 border-b-2 border-emerald-600 -mb-px' : 'text-ink-soft hover:text-ink'}`}>
+              className={`flex-1 px-3 py-[13px] text-[14px] font-semibold transition-colors ${i === activeTab ? 'text-[color:var(--brand-from)] border-b-2 border-[color:var(--brand-from)] -mb-px' : 'text-ink-soft hover:text-ink'}`}>
               {s.label} <span className="text-ink-mut font-normal">{s.options.length}</span>
             </button>
           ))}
@@ -844,8 +844,8 @@ export function DateInput({
               onClick={() => pick(date)}
               className={`h-8 rounded-lg text-[12.5px] font-semibold tabular-nums transition-colors
                 ${outside ? 'text-ink-mut/45' : 'text-ink'}
-                ${isSel ? 'bg-emerald-600 text-white hover:bg-emerald-600' : 'hover:bg-raised'}
-                ${!isSel && isToday ? 'ring-1 ring-emerald-500/50 text-emerald-700 dark:text-emerald-400' : ''}
+                ${isSel ? 'border border-[color:var(--brand-from)] text-[color:var(--brand-from)] bg-raised' : 'hover:bg-raised'}
+                ${!isSel && isToday ? 'ring-1 ring-[color:var(--brand-from)]/50 text-[color:var(--brand-from)]' : ''}
               `}
             >
               {date.getDate()}
@@ -854,7 +854,7 @@ export function DateInput({
         })}
       </div>
       <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-line-soft">
-        <button type="button" className="text-[12px] font-semibold text-emerald-600 hover:underline" onClick={() => pick(today)}>今天</button>
+        <button type="button" className="text-[12px] font-semibold link-accent hover:underline" onClick={() => pick(today)}>今天</button>
         <div className="flex items-center gap-3">
           <button
             type="button"

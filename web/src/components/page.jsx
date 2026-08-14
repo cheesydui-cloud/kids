@@ -11,7 +11,7 @@ export function PageHeader({ title, count, unit = '条', badge, actions }) {
     <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
       <div className="flex items-center gap-3.5 min-w-0 flex-wrap">
         <div className="min-w-0">
-          <h1 className="m-0 text-[23px] font-bold tracking-tight text-ink leading-tight">{title}</h1>
+          <h1 className="m-0 text-[28px] font-extrabold tracking-tight text-ink leading-tight">{title}</h1>
           {count != null && (
             <div className="mt-1 text-[12.5px] text-ink-mut">共 <span className="font-semibold text-ink-soft tabular-nums">{count}</span> {unit}</div>
           )}
@@ -74,7 +74,7 @@ export function SearchInput({ value, onChange, placeholder }) {
     <div className="relative flex-1 min-w-0 md:min-w-[240px] md:max-w-[340px]">
       <svg className="w-4 h-4 absolute left-[13px] top-1/2 -translate-y-1/2 text-ink-mut pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full text-[13.5px] pl-[38px] pr-3.5 py-[10px] bg-surface border border-line rounded-2xl outline-none text-ink transition-all hover:border-emerald-400/50 focus:border-emerald-500 focus:shadow-[0_0_0_4px_rgba(16,185,129,0.14)]" />
+        className="input-field !rounded-xl pl-[38px] pr-3.5" />
     </div>
   )
 }
@@ -84,7 +84,7 @@ export function IdentityBar({ backTo, backLabel, avatar, title, badge, chips, me
   return (
     <div className="identity-bar">
       {backTo && (
-        <a href={backTo} className="inline-flex items-center gap-1 text-emerald-600 text-[13px] font-semibold hover:underline mb-2">
+        <a href={backTo} className="inline-flex items-center gap-1 text-[13px] font-semibold hover:underline mb-2" style={{ color: 'var(--brand-from)' }}>
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
           {backLabel || '返回列表'}
         </a>
@@ -162,7 +162,7 @@ export function DetailHeader({ title, badge, meta, actions, backTo, backLabel })
   return (
     <div className="mb-[22px]">
       {backTo && (
-        <a href={backTo} className="inline-flex items-center gap-1 text-emerald-600 text-[13px] font-semibold hover:underline mb-3">
+        <a href={backTo} className="inline-flex items-center gap-1 link-accent text-[13px] hover:underline mb-3">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
           {backLabel || '返回列表'}
         </a>
@@ -227,7 +227,7 @@ function InfoRow({ label, accent, mono, children }) {
 }
 
 /* Toolbar action button. Place inside ToolbarActions (or any ml-auto flex group).
-   Primary uses brand gradient; secondary is quiet border style. */
+   Primary and secondary are both outline; hover lifts and tints terracotta. */
 export function ToolbarButton({ onClick, children, className = '', secondary, type = 'button', disabled }) {
   return (
     <button type={type} onClick={onClick} disabled={disabled}

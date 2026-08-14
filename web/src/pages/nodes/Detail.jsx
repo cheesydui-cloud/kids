@@ -270,8 +270,8 @@ export default function NodeDetail() {
         {/* ===== HEADER ===== */}
         <header className={`${card} px-[26px] py-[22px]`}>
           <div className="flex items-start gap-5">
-            <div className="w-[52px] h-[52px] flex-none rounded-[14px] grid place-items-center text-emerald-600 text-[22px] font-bold hidden md:grid"
-              style={{ background: 'linear-gradient(135deg,#ecfdf5,#ccfbf1)' }}>⬡</div>
+            <div className="w-[52px] h-[52px] flex-none rounded-[14px] grid place-items-center text-[color:var(--brand-from)] text-[22px] font-bold hidden md:grid"
+              style={{ background: 'var(--color-raised)', border: '1.5px solid var(--color-line)' }}>⬡</div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="m-0 text-[22px] font-bold tracking-[-0.01em]">{node.name}</h1>
@@ -311,7 +311,7 @@ export default function NodeDetail() {
             )}
             <button onClick={remove} className="hidden md:inline-flex items-center px-3.5 py-[9px] rounded-[10px] text-[13px] font-semibold bg-surface text-[#b42318] border border-[#f1c7c2] hover:bg-[#fef3f2] transition-colors cursor-pointer">删除节点</button>
             {!isComposite && agentOutdated && (
-              <button onClick={upgrade} title={`推送升级到 ${latest_agent_version}`} className="hidden md:inline-flex items-center gap-1.5 px-4 py-[9px] rounded-[10px] text-[13px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 border-0 cursor-pointer transition-colors max-w-[280px] truncate">⤴ 推送升级到 {latest_agent_version}</button>
+              <button onClick={upgrade} title={`推送升级到 ${latest_agent_version}`} className="hidden md:inline-flex btn-primary !h-auto py-[9px] max-w-[280px] truncate">⤴ 推送升级到 {latest_agent_version}</button>
             )}
           </div>
         </header>
@@ -392,7 +392,7 @@ export default function NodeDetail() {
             </div>
             {!panel_url_configured && (
               <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-[13px]">
-                尚未设置面板地址，下面用你当前访问的地址推断。如 agent 走不同地址，请到<Link to="/nodes" className="text-emerald-600 font-semibold">节点页</Link>设置后再复制。
+                尚未设置面板地址，下面用你当前访问的地址推断。如 agent 走不同地址，请到<Link to="/nodes" className="link-accent">节点页</Link>设置后再复制。
               </div>
             )}
             <div className="mb-3 flex items-center gap-2.5 flex-wrap text-[13px]">
@@ -440,7 +440,7 @@ export default function NodeDetail() {
                       同步 A 记录（DNS only / 灰云，勿开橙云代理）
                     </div>
                     <button type="button" role="switch" aria-checked={cfSync}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${cfSync ? 'bg-emerald-600' : 'bg-gray-500'}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${cfSync ? 'bg-[color:var(--brand-from)]' : 'bg-gray-500'}`}
                       onClick={() => setCfSync(!cfSync)}>
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${cfSync ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
@@ -531,10 +531,10 @@ export default function NodeDetail() {
                 {ruleHops.map((rh, i) => (
                   <tr key={i}>
                     <td className="font-semibold">
-                      {rh.rule_id ? <Link to={`/rules/${rh.rule_id}`} className="text-emerald-600 hover:underline">{rh.rule_name || `#${rh.rule_id}`}</Link> : '--'}
+                      {rh.rule_id ? <Link to={`/rules/${rh.rule_id}`} className="link-accent hover:underline">{rh.rule_name || `#${rh.rule_id}`}</Link> : '--'}
                     </td>
                     <td className="text-sm">
-                      {rh.owner_id ? <Link to={`/users/${rh.owner_id}`} className="text-emerald-600 hover:underline">{rh.owner_name}</Link> : <span className="text-ink-mut">--</span>}
+                      {rh.owner_id ? <Link to={`/users/${rh.owner_id}`} className="link-accent hover:underline">{rh.owner_name}</Link> : <span className="text-ink-mut">--</span>}
                     </td>
                     <td className="text-xs whitespace-nowrap">
                       {rh.total_hops > 1
@@ -551,7 +551,7 @@ export default function NodeDetail() {
               </tbody>
             </table>
             </TableBox>
-          ) : <div className="pb-4"><Empty title="该节点尚无规则经过"><Link to="/rules" className="text-emerald-600 text-xs font-semibold">去添加</Link></Empty></div>}
+          ) : <div className="pb-4"><Empty title="该节点尚无规则经过"><Link to="/rules" className="link-accent text-xs">去添加</Link></Empty></div>}
         </section>
 
         {/* ===== 已授权用户 ===== */}
@@ -569,7 +569,7 @@ export default function NodeDetail() {
                 {grantedUsers.map(g => (
                   <tr key={g.user_id}>
                     <td className="font-semibold">
-                      <Link to={`/users/${g.user_id}`} className="text-emerald-600 hover:underline">{g.username}</Link>
+                      <Link to={`/users/${g.user_id}`} className="link-accent hover:underline">{g.username}</Link>
                     </td>
                     <td className="font-mono">{g.max_forwards}</td>
                     <td className="text-xs text-ink-mut">{fmtTime(g.granted_at)}</td>
@@ -748,7 +748,7 @@ function HopLatency({ fromId, toId }) {
       <span className="text-[11px] text-ink-mut">↓ 到下一跳</span>
       <button type="button" onClick={probe} disabled={!ready || state === 'loading'}
         title={ready ? '测试这一跳到下一跳的延迟' : '请先选好两跳节点'}
-        className="text-[11px] px-2 py-0.5 rounded border border-line bg-surface text-ink-soft hover:border-emerald-500 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed">
+        className="text-[11px] px-2 py-0.5 rounded-lg border-[1.5px] border-line bg-surface text-ink-soft hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)] hover:-translate-y-px disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
         {state === 'loading' ? <Spinner className="w-3 h-3" /> : '测延迟'}
       </button>
       {state === 'ok' && <span className="text-[11px] text-green-700 font-semibold tabular-nums">{label}</span>}

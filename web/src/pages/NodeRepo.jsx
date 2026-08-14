@@ -138,7 +138,7 @@ export default function NodeRepo() {
       <div className="h-full flex flex-col">
       <PageHeader title="落地仓库" count={list?.length || 0} unit="个" />
       <Panel fill>
-        <div className="px-3 pt-2 border-b border-line">
+        <PanelToolbar>
           <FolderBar
             folders={folders}
             ungrouped={ungrouped}
@@ -149,13 +149,11 @@ export default function NodeRepo() {
             onRename={async (id, name) => { await api.patch(`/node-repo-folders/${id}`, { name }); await loadFolders(); load() }}
             onDelete={async (id) => { await api.del(`/node-repo-folders/${id}`); await loadFolders(); load() }}
           />
-        </div>
-        <PanelToolbar>
           <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、协议、地址…" />
           {sel.size > 0 && (
             <>
-              <button onClick={() => setShowMove(true)} className="text-emerald-600 text-xs font-semibold px-3 py-1 rounded border border-emerald-200 hover:bg-emerald-50 dark:border-emerald-700 dark:hover:bg-emerald-900/20">移入分组 ({sel.size})</button>
-              <button onClick={bulkDelete} className="text-red-600 text-xs font-semibold px-3 py-1 rounded border border-red-200 hover:bg-red-50 dark:border-red-700 dark:hover:bg-red-900/20">删除选中 {sel.size}</button>
+              <button onClick={() => setShowMove(true)} className="btn-secondary !h-[30px] text-xs">移入分组 ({sel.size})</button>
+              <button onClick={bulkDelete} className="btn-danger-sm">删除选中 {sel.size}</button>
             </>
           )}
           <ToolbarActions>
@@ -172,13 +170,13 @@ export default function NodeRepo() {
         ) : (<>
           {!isMobile && <table className="tbl">
             <thead><tr>
-              <th className="w-8"><input type="checkbox" className="accent-emerald-600"
+              <th className="w-8"><input type="checkbox"
                 checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
               <th>名称</th><th>分组</th><th>协议</th><th>地址</th><th>使用</th><th>到期时间</th><th>备注</th><th>创建时间</th><th className="text-right">操作</th></tr></thead>
             <tbody>
               {filtered.map(n => (
                 <tr key={n.id}>
-                  <td><input type="checkbox" className="accent-emerald-600" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} /></td>
+                  <td><input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} /></td>
                   <td className="font-semibold">{n.name}</td>
                   <td className="text-xs">{n.group_name ? <Badge color="blue">{n.group_name}</Badge> : <span className="text-ink-mut">—</span>}</td>
                   <td className="font-mono text-xs text-ink-soft">{n.protocol || '—'}</td>
@@ -186,7 +184,7 @@ export default function NodeRepo() {
                   <td className="text-xs">
                     {(n.user_count || 0) > 0 ? (
                       <button type="button" onClick={() => openUsers(n)}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11.5px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700 transition-colors"
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11.5px] font-semibold border-[1.5px] bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)] hover:-translate-y-px transition-all"
                         title="查看使用此落地的用户">
                         {n.user_count} 人
                       </button>
@@ -220,7 +218,7 @@ export default function NodeRepo() {
               <div key={n.id} className="mobile-card">
                 <div className="flex items-center justify-between mb-1">
                   <label className="flex items-center gap-2 font-semibold">
-                    <input type="checkbox" className="accent-emerald-600" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} />
+                    <input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} />
                     {n.name}
                   </label>
                   <RowActions
@@ -246,7 +244,7 @@ export default function NodeRepo() {
                     <span className="font-mono">{n.protocol || '—'}</span>
                     {(n.user_count || 0) > 0 ? (
                       <button type="button" onClick={() => openUsers(n)}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border-[1.5px] bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)]">
                         {n.user_count} 人
                       </button>
                     ) : (
@@ -303,7 +301,7 @@ export default function NodeRepo() {
                     {usersList.map(u => (
                       <tr key={u.user_id}>
                         <td className="font-semibold">
-                          <Link to={`/users/${u.user_id}`} className="text-emerald-600 hover:underline" onClick={() => setUsersFor(null)}>
+                          <Link to={`/users/${u.user_id}`} className="link-accent hover:underline" onClick={() => setUsersFor(null)}>
                             {u.username}
                           </Link>
                         </td>
@@ -366,9 +364,9 @@ function looksDomain(host) {
 }
 
 const rowBtn = 'inline-flex items-center justify-center h-7 px-2.5 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
-const rowBtnNeutral = `${rowBtn} border-line bg-surface text-ink-soft hover:bg-raised hover:text-ink`
-const rowBtnPrimary = `${rowBtn} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/25 dark:text-emerald-300 dark:hover:bg-emerald-900/40`
-const rowBtnDanger = `${rowBtn} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300 dark:hover:bg-rose-900/35`
+const rowBtnNeutral = `${rowBtn} border-line bg-surface text-ink-soft hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)] hover:-translate-y-px`
+const rowBtnPrimary = `${rowBtn} border-line bg-surface text-ink hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)] hover:-translate-y-px`
+const rowBtnDanger = `${rowBtn} border-[#d48a8a] bg-surface text-[#b42318] hover:border-[#b42318] hover:-translate-y-px`
 
 function CFStatus({ n, onRetry, busy }) {
   if (!n?.cf_sync) return null
@@ -732,7 +730,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
                   {cfPulling ? '拉取中…' : '从 CF 拉取'}
                 </button>
               <button type="button" role="switch" aria-checked={form.cf_sync}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${form.cf_sync ? 'bg-emerald-600' : 'bg-gray-500'}`}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${form.cf_sync ? 'bg-[color:var(--brand-from)]' : 'bg-gray-500'}`}
                 onClick={() => set('cf_sync', !form.cf_sync)}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.cf_sync ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>

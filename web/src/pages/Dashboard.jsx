@@ -116,7 +116,7 @@ export default function Dashboard() {
                       </Badge>
                     </td>
                     <td>
-                      <Link to={`/users/${row.userId}`} className="font-semibold text-emerald-600 hover:underline">
+                      <Link to={`/users/${row.userId}`} className="font-semibold link-accent hover:underline">
                         {row.username}
                       </Link>
                     </td>
@@ -181,7 +181,7 @@ export default function Dashboard() {
                 {nodes.map(n => (
                   <tr key={n.id}>
                     <td>
-                      <Link to={`/nodes/${n.id}`} className="font-semibold text-emerald-600 hover:underline inline-flex items-center gap-1.5 flex-wrap">
+                      <Link to={`/nodes/${n.id}`} className="font-semibold link-accent hover:underline inline-flex items-center gap-1.5 flex-wrap">
                         {n.name}
                         <NodeBillingBadges node={n} />
                       </Link>
@@ -201,7 +201,7 @@ export default function Dashboard() {
               {nodes.map(n => (
                 <Link key={n.id} to={`/nodes/${n.id}`} className="mobile-card block no-underline text-ink">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-semibold text-emerald-600 inline-flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-[color:var(--brand-from)] inline-flex items-center gap-1.5 flex-wrap">
                       {n.name}
                       <NodeBillingBadges node={n} />
                     </span>
@@ -396,7 +396,7 @@ function OpsSummaryPanel({ summary }) {
     <div className="px-4 py-3 border-b border-line-soft last:border-b-0">
       <div className="flex items-center justify-between mb-2">
         <span className="text-[12px] font-semibold text-ink-soft uppercase tracking-wide">{title}</span>
-        {to && more ? <Link to={to} className="text-[11.5px] text-emerald-600 hover:underline">{more}</Link> : null}
+        {to && more ? <Link to={to} className="text-[11.5px] link-accent hover:underline">{more}</Link> : null}
       </div>
       <div className="space-y-1.5">{children}</div>
     </div>

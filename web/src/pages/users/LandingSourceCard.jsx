@@ -6,12 +6,12 @@ import {
   ROLE_LANDING, ROLE_DIRECT,
 } from '../../lib/landing'
 import { useToast, useBlur } from '../../components/Layout'
-import { Badge, Modal, SensText, DateInput } from '../../components/ui'
+import { Badge, Modal, Select, SensText, DateInput } from '../../components/ui'
 import { TableBox } from '../../components/page'
 
 const ADMIN_ROLE_OPTS = [
-  [ROLE_LANDING, '落地', 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700'],
-  [ROLE_DIRECT, '直连', 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700'],
+  [ROLE_LANDING, '落地', 'bg-transparent text-[color:#3d6b45] border-[#7d9a7a]'],
+  [ROLE_DIRECT, '直连', 'bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)]'],
 ]
 
 function AdminRoleToggle({ state, onChange }) {
@@ -77,15 +77,15 @@ function ExitNameCell({ userId, name, exit, onDone }) {
     <button type="button" onClick={start}
       title={exit.name_override ? `原名称: ${name || '(未命名)'} · 点击改名` : '点击改名'}
       className="group/name inline-flex items-center gap-1.5 max-w-full text-left rounded-md -mx-1 px-1 py-0.5
-        border border-transparent hover:border-emerald-500/40 hover:bg-emerald-500/[.06]
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 transition-colors">
-      <span className="font-semibold text-ink group-hover/name:text-emerald-700 dark:group-hover/name:text-emerald-400 truncate">
+        border border-transparent hover:border-[color:var(--brand-from)] hover:bg-[color-mix(in_srgb,var(--brand-from)_8%,transparent)]
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-from)]/40 transition-colors">
+      <span className="font-semibold text-ink group-hover/name:text-[color:var(--brand-from)] truncate">
         {effective}
       </span>
       {exit.name_override && (
-        <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex-none">已改</span>
+        <span className="text-[10px] font-semibold text-[color:var(--brand-from)] flex-none">已改</span>
       )}
-      <span className="inline-flex items-center gap-0.5 flex-none text-ink-mut group-hover/name:text-emerald-600">
+      <span className="inline-flex items-center gap-0.5 flex-none text-ink-mut group-hover/name:text-[color:var(--brand-from)]">
         <PencilIcon className="opacity-55 group-hover/name:opacity-100" />
         <span className="text-[11px] font-semibold opacity-70 group-hover/name:opacity-100">改名</span>
       </span>
@@ -262,7 +262,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
             <TableBox>
             <table className="tbl">
               <thead><tr>
-                <th className="w-8"><input type="checkbox" className="accent-emerald-600"
+                <th className="w-8"><input type="checkbox"
                   checked={preview.length > 0 && sel.size === preview.length} onChange={toggleSelAll} /></th>
                 <th>名称 <span className="font-normal text-ink-mut normal-case">（可改名）</span></th><th>协议</th><th>地址</th><th>限额</th><th>已用</th><th>到期时间</th><th className="text-right">用途</th><th className="text-right">操作</th></tr></thead>
               <tbody>
@@ -272,7 +272,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                   const exceeded = ex && ex.quota_bytes > 0 && ex.used_bytes >= ex.quota_bytes
                   return (
                     <tr key={i}>
-                      <td><input type="checkbox" className="accent-emerald-600" checked={sel.has(i)} onChange={() => toggleSel(i)} /></td>
+                      <td><input type="checkbox" checked={sel.has(i)} onChange={() => toggleSel(i)} /></td>
                       <td>
                         <ExitNameCell
                           userId={userId}
@@ -290,7 +290,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                             {fmtTrafficGB(ex.used_bytes, ex.quota_bytes)}
                             {exceeded && <Badge color="red">已超额</Badge>}
                             <button onClick={() => resetExit(ex)}
-                              className="ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-md border transition-colors bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700">
+                              className="ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-md border-[1.5px] transition-all bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)] hover:-translate-y-px">
                               重置
                             </button>
                           </>
@@ -326,7 +326,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                         {fmtTrafficGB(ex.used_bytes, ex.quota_bytes)}
                         {exceeded && <Badge color="red">已超额</Badge>}
                         <button onClick={() => resetExit(ex)}
-                              className="ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-md border transition-colors bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700">
+                              className="ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-md border-[1.5px] transition-all bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)] hover:-translate-y-px">
                               重置
                             </button>
                       </td>
@@ -503,36 +503,27 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
     } catch (err) { toast(err.message, 'error') } finally { setAssigning(false) }
   }
 
-  const chip = (key, label, count) => {
-    const active = folderFilter === key
-    return (
-      <button
-        key={key || 'all'}
-        type="button"
-        onClick={() => setFolderFilter(key)}
-        className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
-          active
-            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-            : 'bg-surface text-ink-soft border-line hover:bg-raised hover:text-ink'
-        }`}
-      >
-        <span>{label}</span>
-        <span className={`font-mono tabular-nums ${active ? 'text-white/80' : 'text-ink-mut'}`}>{count}</span>
-      </button>
-    )
-  }
+  const folderOptions = [
+    { value: '', label: `全部 ${repoNodes.length}` },
+    { value: '0', label: `未分组 ${ungroupedCount}` },
+    ...folders.map(f => ({
+      value: String(f.id),
+      label: `${f.name} ${f.count ?? repoNodes.filter(n => String(n.group_id) === String(f.id)).length}`,
+    })),
+  ]
 
   return (
     <Modal open onClose={onClose} title="从落地仓库导入" wide>
       <div className="flex flex-col gap-3 min-h-0">
         {!loading && repoNodes.length > 0 && (
           <>
-            <div className="flex flex-wrap items-center gap-2">
-              {chip('', '全部', repoNodes.length)}
-              {chip('0', '未分组', ungroupedCount)}
-              {folders.map(f => chip(String(f.id), f.name, f.count ?? repoNodes.filter(n => String(n.group_id) === String(f.id)).length))}
-            </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <Select
+                value={folderFilter}
+                onChange={setFolderFilter}
+                options={folderOptions}
+                className="w-[220px] max-w-full"
+              />
               <input
                 className="input-field flex-1 min-w-[160px] text-sm"
                 value={search}
@@ -552,11 +543,11 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
               <span>
                 显示 {filtered.length} / {repoNodes.length}
                 {selected.size > 0 && (
-                  <span className="text-emerald-600 font-semibold ml-2">已选 {selected.size}</span>
+                  <span className="text-[color:var(--brand-from)] font-semibold ml-2">已选 {selected.size}</span>
                 )}
               </span>
               {search || folderFilter ? (
-                <button type="button" className="text-emerald-600 font-semibold hover:underline" onClick={() => { setSearch(''); setFolderFilter('') }}>
+                <button type="button" className="link-accent hover:underline" onClick={() => { setSearch(''); setFolderFilter('') }}>
                   清除筛选
                 </button>
               ) : null}
@@ -583,10 +574,10 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
                 <label
                   key={n.id}
                   className={`flex items-center gap-3 text-sm cursor-pointer py-2 px-3 rounded-lg hover:bg-raised transition-colors border ${
-                    selected.has(n.id) ? 'border-emerald-500/40 bg-emerald-500/[.06]' : 'border-transparent hover:border-line'
+                    selected.has(n.id) ? 'border-[color:var(--brand-from)] bg-[color-mix(in_srgb,var(--brand-from)_8%,transparent)]' : 'border-transparent hover:border-line'
                   }`}
                 >
-                  <input type="checkbox" className="accent-emerald-600 flex-none" checked={selected.has(n.id)} onChange={() => toggle(n.id)} />
+                  <input type="checkbox" className="flex-none" checked={selected.has(n.id)} onChange={() => toggle(n.id)} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="font-semibold truncate">{n.name}</span>

@@ -116,7 +116,7 @@ export default function UserList() {
       <PageHeader title="用户管理" count={users.length} unit="个用户" />
 
       <Panel fill>
-        <div className="px-3 pt-2 border-b border-line">
+        <PanelToolbar>
           <FolderBar
             folders={folders}
             ungrouped={ungrouped}
@@ -127,11 +127,9 @@ export default function UserList() {
             onRename={async (id, name) => { await api.patch(`/user-folders/${id}`, { name }); await loadFolders(); load() }}
             onDelete={async (id) => { await api.del(`/user-folders/${id}`); await loadFolders(); load() }}
           />
-        </div>
-        <PanelToolbar>
           <SearchInput value={search} onChange={setSearch} placeholder="搜索用户名…" />
           {sel.size > 0 && (
-            <button onClick={() => setShowMove(true)} className="text-emerald-600 text-xs font-semibold px-3 py-1 rounded border border-emerald-200 hover:bg-emerald-50 dark:border-emerald-700 dark:hover:bg-emerald-900/20">移入分组 ({sel.size})</button>
+            <button onClick={() => setShowMove(true)} className="btn-secondary !h-[32px] text-xs">移入分组 ({sel.size})</button>
           )}
           <ToolbarActions className="hidden md:flex">
             <ToolbarButton onClick={() => setShowPaste(true)} secondary>粘贴授权</ToolbarButton>
@@ -148,7 +146,7 @@ export default function UserList() {
           {/* Desktop table */}
           {!isMobile && <table className="tbl">
             <thead><tr>
-              <th className="w-8"><input type="checkbox" className="accent-emerald-600"
+              <th className="w-8"><input type="checkbox"
                 checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
               <th className="w-12">ID</th><th>用户名</th><th>分组</th><th>角色</th><th>规则配额</th><th>流量</th><th>状态</th>
               <th className="cursor-pointer select-none whitespace-nowrap" onClick={toggleExpirySort}>到期{sortBy === 'expires_asc' ? ' ↑' : sortBy === 'expires_desc' ? ' ↓' : ''}</th>
@@ -160,10 +158,10 @@ export default function UserList() {
                 return (
                   <tr key={u.id} className="cursor-pointer" onClick={() => navigate(`/users/${u.id}`)}>
                     <td onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" className="accent-emerald-600" checked={sel.has(u.id)} onChange={e => toggleSel(u.id, e)} />
+                      <input type="checkbox" checked={sel.has(u.id)} onChange={e => toggleSel(u.id, e)} />
                     </td>
                     <td className="font-mono text-xs text-ink-mut">{u.id}</td>
-                    <td className="text-emerald-600 font-semibold">{u.username}</td>
+                    <td className="font-semibold" style={{ color: 'var(--brand-from)' }}>{u.username}</td>
                     <td className="text-xs">{u.group_name ? <Badge color="blue">{u.group_name}</Badge> : <span className="text-ink-mut">—</span>}</td>
                     <td><span className="inline-flex items-center font-mono text-xs bg-raised text-ink-soft px-1.5 py-0.5 rounded">{u.role}</span></td>
                     <td className="font-mono">{u.role === 'user' ? `${u.rule_count || 0} / ${u.max_forwards}` : '--'}</td>
@@ -181,7 +179,7 @@ export default function UserList() {
                       ) : (
                         <div className="flex gap-2 justify-end">
                           {u.role !== 'admin' && (
-                            <button onClick={() => setCardUser(u)} title="复制名片" className="icon-btn !text-emerald-600 !border-emerald-500/30">
+                            <button onClick={() => setCardUser(u)} title="复制名片" className="icon-btn">
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h3M15 12h3M7 15h10"/></svg>
                             </button>
                           )}
@@ -210,7 +208,7 @@ export default function UserList() {
             {filtered.map(u => (
               <Link key={u.id} to={`/users/${u.id}`} className="mobile-card block no-underline text-ink">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-emerald-600">{u.username}</span>
+                  <span className="font-semibold" style={{ color: 'var(--brand-from)' }}>{u.username}</span>
                   {u.disabled
                     ? <Badge color="amber">已禁用</Badge>
                     : <Badge color="green">正常</Badge>}

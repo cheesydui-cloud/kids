@@ -267,7 +267,7 @@ export default function UserDetail() {
                         return (
                           <tr key={r.id}>
                             <td className="font-semibold">
-                              <Link to={`/rules/${r.id}`} className="text-emerald-600 hover:underline">{r.name}</Link>
+                              <Link to={`/rules/${r.id}`} className="link-accent hover:underline">{r.name}</Link>
                             </td>
                             <td className="font-mono text-xs text-ink-soft">{nodeMap[r.node_id]?.name || `#${r.node_id}`}</td>
                             <td className="font-mono text-xs whitespace-nowrap">
@@ -285,7 +285,7 @@ export default function UserDetail() {
               </TableBox>
               {rules.length > 8 && (
                 <div className="mt-2 text-right">
-                  <button type="button" className="text-xs text-emerald-600 font-semibold hover:underline" onClick={() => setTab('rules')}>
+                  <button type="button" className="text-xs link-accent hover:underline" onClick={() => setTab('rules')}>
                     查看全部 {rules.length} 条规则
                   </button>
                 </div>
@@ -423,7 +423,7 @@ export default function UserDetail() {
                       <tr key={r.id}>
                         <td className="font-mono text-xs text-ink-mut">{r.id}</td>
                         <td className="font-semibold">
-                          <Link to={`/rules/${r.id}`} className="text-emerald-600 hover:underline">{r.name}</Link>
+                          <Link to={`/rules/${r.id}`} className="link-accent hover:underline">{r.name}</Link>
                         </td>
                         <td className="font-mono text-ink-soft">
                           <span className="inline-flex items-center gap-2">
@@ -460,8 +460,8 @@ export default function UserDetail() {
                               limit={detailProbeLimit}
                             />
                             <QRCodeButton text={ruleQRText} toast={toast} />
-                            <button onClick={copyRuleLink} className="text-emerald-600 text-xs font-semibold hover:underline">复制</button>
-                            <button onClick={() => setEditRule(r)} className="text-emerald-600 text-xs font-semibold hover:underline">编辑</button>
+                            <button onClick={copyRuleLink} className="link-accent text-xs hover:underline">复制</button>
+                            <button onClick={() => setEditRule(r)} className="link-accent text-xs hover:underline">编辑</button>
                             <button onClick={deleteRule} className="text-red-600 text-xs font-semibold hover:underline">删除</button>
                           </div>
                         </td>

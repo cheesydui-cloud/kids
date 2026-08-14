@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../lib/api'
 import { Layout, useToast } from '../components/Layout'
-import { Loading, Empty, Badge, useConfirm } from '../components/ui'
+import { Loading, Empty, Badge, Modal, useConfirm } from '../components/ui'
 import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll } from '../components/page'
 import { Markdown } from '../lib/markdown'
 import { fmtDate } from '../lib/fmt'
@@ -33,6 +33,7 @@ export default function Docs() {
   const [list, setList] = useState(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null) // null | {id?} new or existing
+  const [viewing, setViewing] = useState(null)
   const toast = useToast()
   const confirm = useConfirm()
 
@@ -47,7 +48,7 @@ export default function Docs() {
   useEffect(() => { load() }, [load])
 
   const del = async (doc) => {
-    if (!(await confirm({ title: '删除文档', message: `确认删除「${doc.title}」？删除后用户端将不可见。`, confirmText: '删除', danger: true }))) return
+    if (!(await confirm({ title: '删除文档', message: `确认删除「${doc.title}」？`, confirmText: '删除', danger: true }))) return
     try {
       await api.del(`/docs/${doc.id}`)
       toast('已删除')
@@ -131,12 +132,14 @@ export default function Docs() {
                             className="text-xs font-semibold text-ink-soft hover:text-ink disabled:opacity-30">上移</button>
                           <button type="button" disabled={idx === list.length - 1} onClick={() => move(d, 'down')}
                             className="text-xs font-semibold text-ink-soft hover:text-ink disabled:opacity-30">下移</button>
-                          <button type="button" onClick={() => togglePub(d)}
-                            className="text-xs font-semibold text-emerald-600 hover:underline">
-                            {d.published ? '下架' : '发布'}
-                          </button>
+                          <button type="button" onClick={() => setViewing(d)}
+                            className="text-xs font-semibold link-accent hover:underline">查看</button>
+                          {!d.published && (
+                            <button type="button" onClick={() => togglePub(d)}
+                              className="text-xs font-semibold link-accent hover:underline">发布</button>
+                          )}
                           <button type="button" onClick={() => setEditing({ id: d.id })}
-                            className="text-xs font-semibold text-emerald-600 hover:underline">编辑</button>
+                            className="text-xs font-semibold link-accent hover:underline">编辑</button>
                           <button type="button" onClick={() => del(d)}
                             className="text-xs font-semibold text-red-600 hover:underline">删除</button>
                         </div>
@@ -149,6 +152,11 @@ export default function Docs() {
           </TableScroll>
         </Panel>
       </div>
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.title || '查看文档'} wide>
+        {viewing?.content
+          ? <div className="max-h-[70vh] overflow-auto -mx-1 px-1"><Markdown source={viewing.content} /></div>
+          : <p className="text-sm text-ink-mut">这篇还没有内容。</p>}
+      </Modal>
     </Layout>
   )
 }
@@ -259,8 +267,8 @@ function DocEditor({ doc, onCancel, onSaved }) {
               autoFocus
             />
             <label className="inline-flex items-center gap-2 text-sm font-semibold text-ink-soft cursor-pointer whitespace-nowrap">
-              <input type="checkbox" className="accent-emerald-600" checked={published} onChange={e => setPublished(e.target.checked)} />
-              发布给用户
+              <input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} />
+              标记为已发布
             </label>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

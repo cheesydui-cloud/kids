@@ -27,8 +27,8 @@ const exitOf = (r) => (r.exit_host && r.exit_port ? `${r.exit_host}:${r.exit_por
 function SortArrow({ dir }) {
   return (
     <span className="inline-flex flex-col leading-[0.55] text-[9px] ml-1">
-      <span className={dir === 'asc' ? 'text-emerald-600' : 'text-ink-mut opacity-50'}>▲</span>
-      <span className={dir === 'desc' ? 'text-emerald-600' : 'text-ink-mut opacity-50'}>▼</span>
+      <span className={dir === 'asc' ? 'text-[color:var(--brand-from)]' : 'text-ink-mut opacity-50'}>▲</span>
+      <span className={dir === 'desc' ? 'text-[color:var(--brand-from)]' : 'text-ink-mut opacity-50'}>▼</span>
     </span>
   )
 }

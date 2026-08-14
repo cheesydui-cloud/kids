@@ -148,8 +148,8 @@ export default function Proxies() {
         <div className="flex items-center gap-1.5 px-[22px] py-2.5 border-b border-line-soft">
           {[['all', '全部', allProxies.length], ['direct', '直连', directProxies.length], ['relay', '中转', relayProxies.length]].map(([key, label, n]) => (
             <button key={key} onClick={() => setTab(key)}
-              className={`px-3.5 py-1 rounded-full text-xs border transition-colors ${
-                tab === key ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-surface text-ink-soft border-line hover:border-ink-mut'
+              className={`px-3.5 py-1 rounded-full text-xs border-[1.5px] transition-all ${
+                tab === key ? 'bg-raised text-ink border-line' : 'bg-surface text-ink-soft border-line hover:-translate-y-px hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)]'
               }`}>{label} {n}</button>
           ))}
           {filtered.length > 0 && (
@@ -219,7 +219,7 @@ export default function Proxies() {
                         {text ? (
                           <CopyText text={text}>
                             <span
-                              className="text-emerald-600 font-sans text-xs font-semibold cursor-pointer hover:underline"
+                              className="link-accent font-sans text-xs cursor-pointer hover:underline"
                               title={
                                 copyFmt === 'yaml' && uriToClashYaml(n.kind === 'relay' ? n.relay : n.uri)
                                   ? '适合 Clash、软路由等粘贴配置'

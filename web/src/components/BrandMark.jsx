@@ -14,22 +14,22 @@ export function BrandMark({ className = 'w-[26px] h-[26px]' }) {
   )
 }
 
-const badgeBg = { background: 'linear-gradient(145deg, #10b981 0%, #14b8a6 52%, #0d9488 100%)' }
+const badgeBg = { background: 'linear-gradient(145deg, #b45a34 0%, #9a4a28 52%, #7a3f22 100%)' }
 
 // Custom logos fill the whole rounded badge. The default mark stays inset on
-// the green tile so a 26px glyph does not look like a cropped photo.
+// the terracotta tile so a 26px glyph does not look like a cropped photo.
 export function BrandBadge({ src, size = 42, className = '', title, markClassName = 'w-[26px] h-[26px]' }) {
   const box = `flex-none overflow-hidden rounded-[14px] ring-1 ring-white/25 ${className}`
   const dim = { width: size, height: size }
   if (src) {
     return (
-      <div className={`${box} bg-surface shadow-[0_10px_24px_-8px_rgba(16,185,129,0.35)]`} style={dim} title={title}>
+      <div className={`${box} bg-surface shadow-[0_10px_24px_-8px_rgba(154,74,40,0.28)]`} style={dim} title={title}>
         <img src={src} alt="" className="w-full h-full object-cover" />
       </div>
     )
   }
   return (
-    <div className={`${box} grid place-items-center text-white shadow-[0_10px_24px_-8px_rgba(16,185,129,0.65)]`}
+    <div className={`${box} grid place-items-center text-white shadow-[0_10px_24px_-8px_rgba(154,74,40,0.45)]`}
       style={{ ...dim, ...badgeBg }} title={title}>
       <BrandMark className={markClassName} />
     </div>

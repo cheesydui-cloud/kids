@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { Modal, useConfirm } from './ui'
+import { Modal, Select, useConfirm } from './ui'
 import { useToast } from './Layout'
 
 /**
- * Horizontal folder navigator for single-level admin folders.
+ * Dropdown folder filter for single-level admin folders.
  * filter: '' all | '0' ungrouped | folder id string
  */
 export default function FolderBar({
@@ -19,26 +19,16 @@ export default function FolderBar({
   const toast = useToast()
   const confirm = useConfirm()
   const [showCreate, setShowCreate] = useState(false)
-  const [renaming, setRenaming] = useState(null) // folder or null
+  const [renaming, setRenaming] = useState(null)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const chip = (key, label, count, active) => (
-    <button
-      key={key}
-      type="button"
-      onClick={() => onFilter(key)}
-      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
-        active
-          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-          : 'bg-surface text-ink-soft border-line hover:bg-raised hover:text-ink'
-      }`}
-    >
-      <FolderIcon open={active} />
-      <span>{label}</span>
-      <span className={`font-mono tabular-nums ${active ? 'text-white/80' : 'text-ink-mut'}`}>{count}</span>
-    </button>
-  )
+  const options = [
+    { value: '', label: `全部 ${total}` },
+    { value: '0', label: `未分组 ${ungrouped}` },
+    ...folders.map(f => ({ value: String(f.id), label: `${f.name} ${f.count || 0}` })),
+  ]
+  const current = folders.find(f => String(f.id) === String(filter))
 
   const create = async () => {
     const n = name.trim()
@@ -90,37 +80,37 @@ export default function FolderBar({
 
   return (
     <>
-      <div className="flex items-center gap-1.5 flex-wrap px-1 py-1">
-        {chip('', '全部', total, filter === '')}
-        {chip('0', '未分组', ungrouped, filter === '0')}
-        {folders.map(f => (
-          <div key={f.id} className="inline-flex items-center gap-0.5 group">
-            {chip(String(f.id), f.name, f.count || 0, String(filter) === String(f.id))}
-            {/* Always visible (muted) so rename/delete aren't hover-only secrets. */}
-            <span className="inline-flex items-center gap-0.5 ml-0.5">
-              <button
-                type="button"
-                title="重命名"
-                className="text-ink-mut/70 hover:text-emerald-600 p-0.5 rounded hover:bg-emerald-500/10 transition-colors"
-                onClick={() => { setRenaming(f); setName(f.name) }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-              </button>
-              <button
-                type="button"
-                title="删除"
-                className="text-ink-mut/70 hover:text-red-600 p-0.5 rounded hover:bg-red-500/10 transition-colors"
-                onClick={() => remove(f)}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4h8v2"/></svg>
-              </button>
-            </span>
-          </div>
-        ))}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Select
+          value={filter}
+          onChange={onFilter}
+          options={options}
+          className="w-[220px] max-w-full"
+        />
+        {current && (
+          <span className="inline-flex items-center gap-0.5">
+            <button
+              type="button"
+              title="重命名"
+              className="icon-btn !w-8 !h-8"
+              onClick={() => { setRenaming(current); setName(current.name) }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button
+              type="button"
+              title="删除"
+              className="icon-btn-danger !w-8 !h-8"
+              onClick={() => remove(current)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4h8v2"/></svg>
+            </button>
+          </span>
+        )}
         <button
           type="button"
           onClick={() => { setShowCreate(true); setName('') }}
-          className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-dashed border-line text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+          className="btn-secondary !h-[42px] text-[13px]"
         >
           ＋ 新建分组
         </button>
@@ -161,13 +151,10 @@ export default function FolderBar({
   )
 }
 
-function FolderIcon({ open }) {
+function FolderIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-90">
-      {open
-        ? <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1H3V7Z" />
-        : <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />}
-      {open && <path d="M3 10h18v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7Z" />}
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
     </svg>
   )
 }

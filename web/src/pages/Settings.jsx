@@ -157,7 +157,7 @@ export default function Settings() {
           {TABS.map(t => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
               className={`px-4 py-2.5 text-[13.5px] font-semibold border-b-2 -mb-px transition-colors ${
-                tab === t.id ? 'border-emerald-500 text-ink' : 'border-transparent text-ink-mut hover:text-ink-soft'
+                tab === t.id ? 'border-[color:var(--brand-from)] text-ink' : 'border-transparent text-ink-mut hover:text-ink-soft'
               }`}>{t.label}</button>
           ))}
         </div>
@@ -207,7 +207,7 @@ export default function Settings() {
                 <div className="flex items-center gap-6 mb-[22px]">
                   <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">显示倍率</label>
                   <button type="button" role="switch" aria-checked={form.show_rate_to_user}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.show_rate_to_user ? 'bg-emerald-600' : 'bg-gray-600'}`}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.show_rate_to_user ? 'bg-[color:var(--brand-from)]' : 'bg-gray-600'}`}
                     onClick={() => set('show_rate_to_user', !form.show_rate_to_user)}>
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.show_rate_to_user ? 'translate-x-6' : 'translate-x-1'}`} />
                   </button>
@@ -237,12 +237,12 @@ export default function Settings() {
                     />
                     <div className="flex items-center gap-3 mt-2">
                       <label className="inline-flex items-center gap-1.5 text-[12px] text-ink-soft cursor-pointer">
-                        <input type="checkbox" className="accent-emerald-600" checked={form.cf_clear_token}
+                        <input type="checkbox" checked={form.cf_clear_token}
                           onChange={e => set('cf_clear_token', e.target.checked)} />
                         清除已保存的 Token
                       </label>
                       {form.cf_token_configured && !form.cf_clear_token && (
-                        <span className="text-[12px] text-emerald-600 font-semibold">已配置</span>
+                        <span className="text-[12px] text-[color:var(--brand-from)] font-semibold">已配置</span>
                       )}
                     </div>
                   </div>

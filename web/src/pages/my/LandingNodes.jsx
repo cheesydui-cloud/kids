@@ -68,7 +68,7 @@ export default function MyLandingNodes() {
           {stale && <span className="text-xs text-amber-600 ml-2">订阅刷新失败，显示上次结果</span>}
           {hasDynamic && (
             <button onClick={refresh} disabled={refreshing}
-              className="ml-auto inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-ink-soft bg-surface border border-line hover:border-emerald-500 hover:text-emerald-600 px-[18px] py-[9px] rounded-[10px] transition-colors disabled:opacity-50">
+              className="ml-auto btn-secondary disabled:opacity-50">
               {refreshing ? '刷新中…' : '刷新订阅'}
             </button>
           )}
@@ -103,7 +103,7 @@ export default function MyLandingNodes() {
                   </td>
                   <td>{n.source === 'local' ? <Badge color="blue">本地</Badge> : <Badge color="gray">分配</Badge>}</td>
                   <td className="text-right">
-                    <CopyText text={`${n.host}:${n.port}`}><span className="text-emerald-600 font-sans text-xs font-semibold">复制</span></CopyText>
+                    <CopyText text={`${n.host}:${n.port}`}><span className="text-[color:var(--brand-from)] font-sans text-xs font-semibold">复制</span></CopyText>
                   </td>
                 </tr>
               ))}

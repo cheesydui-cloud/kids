@@ -128,14 +128,14 @@ export function ProxyURIEditor({ username, blurred }) {
         <p className="text-[13px] leading-[1.7] text-ink-soft mb-3.5">
           手动填写的 URI 保存在本浏览器，本地与服务器相同地址的节点以本地为准。
           节点用途可在下方配置，覆盖管理员默认值，仅在本浏览器生效：
-          <span className="font-semibold text-emerald-600">落地</span>可作为规则出口；
+          <span className="font-semibold text-[color:var(--brand-from)]">落地</span>可作为规则出口；
           <span className="font-semibold text-blue-600">直连</span>出现在「我的代理」；
           <span className="font-semibold text-ink-mut">未配置</span>不参与任何功能。
         </p>
 
         {/* Subscription URL input */}
         <button type="button" onClick={() => setShowSub(v => !v)}
-          className="inline-flex items-center gap-1.5 text-[13px] text-emerald-600 hover:text-emerald-500 mb-2 self-start transition-colors">
+          className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--brand-from)] hover:underline mb-2 self-start transition-colors">
           <svg className={`w-3 h-3 transition-transform ${showSub ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
           订阅地址{subNodes.length > 0 && <span className="text-ink-mut">（{subNodes.length} 个节点）</span>}
         </button>
@@ -159,7 +159,7 @@ export function ProxyURIEditor({ username, blurred }) {
           <div className="mb-4 border border-line rounded-[10px] overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 bg-raised text-[12px]">
               <span className="text-ink-soft font-semibold flex items-center gap-2">
-                <input type="checkbox" className="accent-emerald-600"
+                <input type="checkbox"
                   checked={subNodes.length > 0 && selSub.size === subNodes.length}
                   onChange={toggleSelAll(setSelSub, subNodes.length)} />
                 {subNodes.length} 个节点
@@ -173,7 +173,7 @@ export function ProxyURIEditor({ username, blurred }) {
                 <tbody>
                   {subNodes.map((n, i) => (
                     <tr key={i} className="border-t border-line-soft">
-                      <td className="pl-3 py-1.5 w-6"><input type="checkbox" className="accent-emerald-600"
+                      <td className="pl-3 py-1.5 w-6"><input type="checkbox"
                         checked={selSub.has(i)} onChange={() => toggleSel(setSelSub)(i)} /></td>
                       <td className="px-2 py-1.5 truncate max-w-[200px]" title={n.name}>{n.name || '(未命名)'}</td>
                       <td className="px-2 py-1.5 text-ink-mut font-mono text-[11px]">{n.protocol}</td>
@@ -202,7 +202,7 @@ export function ProxyURIEditor({ username, blurred }) {
         {manualParsed.length > 0 && (
           <>
             <button type="button" onClick={() => setShowManualConfig(v => !v)}
-              className="inline-flex items-center gap-1.5 text-[13px] text-emerald-600 hover:text-emerald-500 mt-3 self-start transition-colors">
+              className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--brand-from)] hover:underline mt-3 self-start transition-colors">
               <svg className={`w-3 h-3 transition-transform ${showManualConfig ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
               配置表<span className="text-ink-mut">（{manualParsed.length} 个节点）</span>
             </button>
@@ -210,7 +210,7 @@ export function ProxyURIEditor({ username, blurred }) {
               <div className="mt-2 border border-line rounded-[10px] overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 bg-raised text-[12px]">
                   <span className="text-ink-soft font-semibold flex items-center gap-2">
-                    <input type="checkbox" className="accent-emerald-600"
+                    <input type="checkbox"
                       checked={manualParsed.length > 0 && selManual.size === manualParsed.length}
                       onChange={toggleSelAll(setSelManual, manualParsed.length)} />
                     {manualParsed.length} 个节点
@@ -224,7 +224,7 @@ export function ProxyURIEditor({ username, blurred }) {
                     <tbody>
                       {manualParsed.map((n, i) => (
                         <tr key={i} className="border-t border-line-soft">
-                          <td className="pl-3 py-1.5 w-6"><input type="checkbox" className="accent-emerald-600"
+                          <td className="pl-3 py-1.5 w-6"><input type="checkbox"
                             checked={selManual.has(i)} onChange={() => toggleSel(setSelManual)(i)} /></td>
                           <td className="px-2 py-1.5 truncate max-w-[200px]" title={n.name}>{n.name || '(未命名)'}</td>
                           <td className="px-2 py-1.5 text-ink-mut font-mono text-[11px]">{n.protocol}</td>
@@ -247,8 +247,8 @@ export function ProxyURIEditor({ username, blurred }) {
 }
 
 const ROLE_OPTS = [
-  [ROLE_LANDING, '落地', 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700'],
-  [ROLE_DIRECT, '直连', 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700'],
+  [ROLE_LANDING, '落地', 'bg-transparent text-[color:#3d6b45] border-[#7d9a7a]'],
+  [ROLE_DIRECT, '直连', 'bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)]'],
 ]
 
 // Two independent per-node switches — landing and direct can both be on at

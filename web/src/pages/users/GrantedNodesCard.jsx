@@ -81,15 +81,15 @@ function ExitNameCell({ userId, name, exit, onDone }) {
     <button type="button" onClick={start}
       title={exit.name_override ? `原名称: ${name || '(未命名)'} · 点击改名` : '点击改名'}
       className="group/name inline-flex items-center gap-1.5 max-w-full text-left rounded-md -mx-1 px-1 py-0.5
-        border border-transparent hover:border-emerald-500/40 hover:bg-emerald-500/[.06]
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 transition-colors">
-      <span className="font-semibold text-ink group-hover/name:text-emerald-700 dark:group-hover/name:text-emerald-400 truncate">
+        border border-transparent hover:border-[color:var(--brand-from)] hover:bg-[color-mix(in_srgb,var(--brand-from)_8%,transparent)]
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-from)]/40 transition-colors">
+      <span className="font-semibold text-ink group-hover/name:text-[color:var(--brand-from)] truncate">
         {effective}
       </span>
       {exit.name_override && (
-        <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex-none">已改</span>
+        <span className="text-[10px] font-semibold text-[color:var(--brand-from)] flex-none">已改</span>
       )}
-      <span className="inline-flex items-center gap-0.5 flex-none text-ink-mut group-hover/name:text-emerald-600">
+      <span className="inline-flex items-center gap-0.5 flex-none text-ink-mut group-hover/name:text-[color:var(--brand-from)]">
         <PencilIcon className="opacity-55 group-hover/name:opacity-100" />
         <span className="text-[11px] font-semibold opacity-70 group-hover/name:opacity-100">改名</span>
       </span>
@@ -107,8 +107,8 @@ function ExitNameCell({ userId, name, exit, onDone }) {
 }
 
 const ADMIN_ROLE_OPTS = [
-  [1, '落地', 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700'],
-  [2, '直连', 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700'],
+  [1, '落地', 'bg-transparent text-[color:#3d6b45] border-[#7d9a7a]'],
+  [2, '直连', 'bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)]'],
 ]
 
 function AdminRoleToggle({ state, onChange }) {
@@ -150,7 +150,7 @@ function GrantNodeForm({ userId, allNodes, grantedNodes, onDone }) {
   const [max, setMax] = useState('10')
   const [loading, setLoading] = useState(false)
   const toast = useToast()
-  if (!allNodes?.length) return <Empty desc={<Link to="/nodes" className="text-emerald-600 text-xs font-semibold">请先创建节点</Link>} />
+  if (!allNodes?.length) return <Empty desc={<Link to="/nodes" className="link-accent text-xs">请先创建节点</Link>} />
 
   const grantedIds = new Set((grantedNodes || []).map(n => n.id))
   const available = allNodes.filter(n => !grantedIds.has(n.id))
@@ -266,10 +266,10 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
         <div className="flex items-center gap-1.5 px-[22px] py-2.5 border-b border-line-soft">
           {[['single', '单点', singleNodes.length], ['composite', '组合', compositeNodes.length]].map(([key, label, n]) => (
             <button key={key} onClick={() => { setTab(key); setSelected(new Set()) }}
-              className={`px-3 py-1 rounded-md text-xs font-semibold border transition-colors ${
+              className={`px-3 py-1 rounded-xl text-xs font-semibold border-[1.5px] transition-all ${
                 tab === key
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-surface text-ink-soft border-line hover:border-ink-mut'
+                  ? 'bg-raised text-ink border-line'
+                  : 'bg-surface text-ink-soft border-line hover:-translate-y-px hover:border-[color:var(--brand-from)] hover:text-[color:var(--brand-from)]'
               }`}>{label} {n}</button>
           ))}
           {selected.size > 0 && (
@@ -283,7 +283,7 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
         <TableBox>
         <table className="tbl">
           <thead><tr>
-            <th className="w-8"><input type="checkbox" className="accent-emerald-600"
+            <th className="w-8"><input type="checkbox"
               checked={tabNodes.length > 0 && tabNodes.every(n => selected.has(n.id))}
               onChange={toggleAll} /></th>
             <th>节点</th><th>类型</th><th>规则上限</th><th>流量配额</th><th>已用</th><th className="w-16"></th><th className="text-right">操作</th>
@@ -291,9 +291,9 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
           <tbody>
             {tabNodes.map(n => (
               <tr key={n.id}>
-                <td><input type="checkbox" className="accent-emerald-600" checked={selected.has(n.id)} onChange={() => toggleOne(n.id)} /></td>
+                <td><input type="checkbox" checked={selected.has(n.id)} onChange={() => toggleOne(n.id)} /></td>
                 <td className="font-semibold">
-                  <Link to={`/nodes/${n.id}`} className="text-emerald-600 hover:underline">{n.name}</Link>
+                  <Link to={`/nodes/${n.id}`} className="link-accent hover:underline">{n.name}</Link>
                 </td>
                 <td><NodeTypeBadge type={n.node_type} /></td>
                 <td>
