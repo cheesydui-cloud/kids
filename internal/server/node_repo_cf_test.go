@@ -69,7 +69,7 @@ func TestNodeRepoCFSyncRequiresDomainAndIP(t *testing.T) {
 	s := newServer(t, d)
 	admin := loginAsAdmin(t, d)
 
-	// CF on + bare IP host → 400
+	// CF on + bare IP host, no record name → 400
 	body := map[string]any{
 		"name": "x", "protocol": "ss",
 		"host": "1.2.3.4", "port": 443,
@@ -82,7 +82,10 @@ func TestNodeRepoCFSyncRequiresDomainAndIP(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400 for IP+cf_sync, got %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("want 400 for IP+cf_sync without record name, got %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "记录名") {
+		t.Fatalf("want 记录名 hint, got %s", rec.Body.String())
 	}
 
 	// CF on + domain but missing backend_ip → 400
@@ -452,5 +455,87 @@ func TestNodeRepoCFLookupRequiresDomain(t *testing.T) {
 	s.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "记录名") {
+		t.Fatalf("want 记录名 hint, got %s", rec.Body.String())
+	}
+}
+
+func TestNodeRepoCFSyncIPHostWithRecordName(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+
+	var lastName string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/dns_records"):
+			lastName = r.URL.Query().Get("name")
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"id":"r1","type":"A","name":"node.example.com","content":"82.22.26.185","ttl":1,"proxied":false}]}`))
+		case r.Method == "POST" || r.Method == "PUT":
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":{"id":"r1","type":"A","name":"node.example.com","content":"82.22.26.185","ttl":1,"proxied":false}}`))
+		default:
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[]}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	_ = db.SetSetting(d, "cf_api_token", "tok")
+	_ = db.SetSetting(d, "cf_api_base", srv.URL)
+
+	req := newTestRequest("POST", "/api/node-repo/cf-lookup", bytes.NewReader([]byte(`{"host":"82.22.26.185","cf_record_name":"node.example.com","cf_zone_id":"z1"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lookup: %d %s", rec.Code, rec.Body.String())
+	}
+	var looked map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &looked)
+	if looked["ip"] != "82.22.26.185" || looked["record"] != "node.example.com" {
+		t.Fatalf("lookup=%v lastName=%q", looked, lastName)
+	}
+
+	body := map[string]any{
+		"name": "ss-ip", "protocol": "ss",
+		"host": "82.22.26.185", "port": 38846,
+		"cf_sync": true, "backend_ip": "82.22.26.185",
+		"cf_record_name": "node.example.com", "cf_zone_id": "z1",
+	}
+	buf, _ := json.Marshal(body)
+	req = newTestRequest("POST", "/api/node-repo", bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Node   db.NodeRepoEntry `json:"node"`
+		CFSync cfSyncResult     `json:"cf_sync"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Node.Host != "82.22.26.185" || resp.Node.CFRecordName != "node.example.com" {
+		t.Fatalf("node=%+v", resp.Node)
+	}
+	if !resp.CFSync.Attempted || !resp.CFSync.OK {
+		t.Fatalf("cf_sync=%+v", resp.CFSync)
+	}
+	if resp.CFSync.Record != "node.example.com" {
+		t.Fatalf("synced record=%q", resp.CFSync.Record)
+	}
+
+	buf, _ = json.Marshal(map[string]any{"backend_ip": "203.0.113.9"})
+	req = newTestRequest("POST", "/api/node-repo/"+itoa(resp.Node.ID)+"/backend-ip", bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("backend-ip: %d %s", rec.Code, rec.Body.String())
 	}
 }

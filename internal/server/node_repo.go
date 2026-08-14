@@ -113,17 +113,43 @@ func validateNodeRepoCF(host string, cf db.NodeRepoCFFields) error {
 		}
 		return nil
 	}
-	// Sync on: host must be a domain (not a bare IP), backend_ip required IPv4.
-	if net.ParseIP(host) != nil {
-		return errBad("开启 CF 同步时，目标地址须为域名（不能是 IP）")
-	}
-	if !resolver.PlausibleHostname(host) {
-		return errBad("开启 CF 同步时，目标地址须为合法域名")
+	// Sync on: need a domain to write (record name, or the target if it is a
+	// hostname) plus the IPv4 that goes into the A record. SOCKS5 / Naive
+	// forms keep the forwarding target as an IP and put the domain in 记录名.
+	if _, err := cfRecordHost(host, cf.CFRecordName); err != nil {
+		return err
 	}
 	if !cloudflare.IsIPv4(cf.BackendIP) {
 		return errBad("开启 CF 同步时，须填写当前 IPv4")
 	}
 	return nil
+}
+
+// cfRecordHost is the Cloudflare A-record name: an explicit 记录名 wins;
+// otherwise the target host is used when it is a domain. An IP target
+// without a record name cannot be synced.
+func cfRecordHost(host, recordName string) (string, error) {
+	rec := strings.TrimSpace(recordName)
+	if rec != "" {
+		if net.ParseIP(rec) != nil {
+			return "", errBad("记录名须为域名，不能是 IP")
+		}
+		if !resolver.PlausibleHostname(rec) {
+			return "", errBad("记录名不是合法域名")
+		}
+		return rec, nil
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", errBad("请先填写目标地址或记录名")
+	}
+	if net.ParseIP(host) != nil {
+		return "", errBad("目标地址是 IP 时，请填写记录名（要同步的域名）")
+	}
+	if !resolver.PlausibleHostname(host) {
+		return "", errBad("目标地址不是合法域名")
+	}
+	return host, nil
 }
 
 // apiCreateNodeRepoEntry creates a new node in the repository.
@@ -279,6 +305,10 @@ func (s *Server) nodeRepoCFSession(ctx context.Context, host, zoneID, recordName
 	if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
 		cli.BaseURL = strings.TrimSpace(base)
 	}
+	name, err := cfRecordHost(host, recordName)
+	if err != nil {
+		return nodeRepoCFSession{}, err
+	}
 	zid := strings.TrimSpace(zoneID)
 	if zid == "" {
 		zoneName, _ := db.GetSetting(s.DB, "cf_zone_name")
@@ -301,7 +331,7 @@ func (s *Server) nodeRepoCFSession(ctx context.Context, host, zoneID, recordName
 	return nodeRepoCFSession{
 		cli:        cli,
 		zoneID:     zid,
-		recordName: cloudflare.RecordNameForHost(host, recordName),
+		recordName: cloudflare.RecordNameForHost(name, recordName),
 	}, nil
 }
 
@@ -549,11 +579,6 @@ func (s *Server) apiSetNodeRepoBackendIP(w http.ResponseWriter, r *http.Request)
 	if body.CFSync != nil {
 		cfSync = *body.CFSync
 	}
-	// Changing IP alone never changes host:port — no cascade.
-	if net.ParseIP(n.Host) != nil && cfSync {
-		jsonErr(w, http.StatusBadRequest, "目标地址是 IP 时不能开启 CF 同步；请先把目标改为域名")
-		return
-	}
 	cf := db.NodeRepoCFFields{
 		BackendIP: ip, CFSync: cfSync,
 		CFZoneID: n.CFZoneID, CFRecordName: n.CFRecordName,
@@ -613,21 +638,15 @@ func (s *Server) apiLookupNodeRepoCF(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	host := strings.TrimSpace(body.Host)
-	if host == "" {
-		jsonErr(w, http.StatusBadRequest, "请先填写目标地址")
-		return
-	}
-	if net.ParseIP(host) != nil {
-		jsonErr(w, http.StatusBadRequest, "目标地址是 IP，没有 CF 记录可拉取")
-		return
-	}
-	if !resolver.PlausibleHostname(host) {
-		jsonErr(w, http.StatusBadRequest, "目标地址不是合法域名")
+	recordName := strings.TrimSpace(body.CFRecordName)
+	name, err := cfRecordHost(host, recordName)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	sess, err := s.nodeRepoCFSession(ctx, host, strings.TrimSpace(body.CFZoneID), strings.TrimSpace(body.CFRecordName), nil)
+	sess, err := s.nodeRepoCFSession(ctx, name, strings.TrimSpace(body.CFZoneID), recordName, nil)
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return

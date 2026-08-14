@@ -412,7 +412,7 @@ function AddrCell({ n, onRetry, busy }) {
 
 function RowActions({ n, busy, onProbe, onChangeIP, onEdit, onDelete, compact }) {
   const showDNS = looksDomain(n.host)
-  const showChangeIP = showDNS || n.cf_sync
+  const showChangeIP = showDNS || n.cf_sync || !!n.cf_record_name
   return (
     <div className={`inline-flex items-center flex-wrap justify-end ${compact ? 'gap-1.5' : 'gap-1.5'}`}>
       {(showDNS || showChangeIP) && (
@@ -564,9 +564,11 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
 
   const pullFromCF = async () => {
     const host = form.host.trim()
-    if (!host) { toast('请先填写目标地址', 'error'); return }
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || (host.includes(':') && !/[a-zA-Z]/.test(host))) {
-      toast('目标地址是 IP，没有 CF 记录可拉取', 'error')
+    const recordName = form.cf_record_name.trim()
+    const looksIP = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || (s.includes(':') && !/[a-zA-Z]/.test(s))
+    if (!host && !recordName) { toast('请先填写目标地址或记录名', 'error'); return }
+    if (looksIP(host) && !recordName) {
+      toast('目标地址是 IP 时，请先填写记录名（要同步的域名）', 'error')
       return
     }
     setCfPulling(true)
@@ -574,7 +576,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
       const d = await api.post('/node-repo/cf-lookup', {
         host,
         cf_zone_id: form.cf_zone_id,
-        cf_record_name: form.cf_record_name,
+        cf_record_name: recordName,
       })
       if (!d?.ip) { toast(d?.message || 'Cloudflare 上没有这条 A 记录', 'error'); return }
       setForm(f => ({ ...f, backend_ip: d.ip, cf_sync: true }))
@@ -590,6 +592,11 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
     e.preventDefault()
     if (!form.name.trim() || !form.host.trim() || !form.port) { toast('名称、地址、端口不能为空', 'error'); return }
     if (form.cf_sync && !form.backend_ip.trim()) { toast('开启 CF 同步时须填写当前 IPv4', 'error'); return }
+    const looksIP = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || (s.includes(':') && !/[a-zA-Z]/.test(s))
+    if (form.cf_sync && looksIP(form.host.trim()) && !form.cf_record_name.trim()) {
+      toast('目标地址是 IP 时，请填写记录名（要同步的域名）', 'error')
+      return
+    }
     setSubmitting(true)
     try {
       const gid = Number(form.group_id) || 0
@@ -717,7 +724,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[13px] font-bold text-ink">Cloudflare DNS</div>
-                <div className="text-[11px] text-ink-mut">可选。从 CF 拉取当前 A 记录，或保存时把 IP 写回去（灰云）</div>
+                <div className="text-[11px] text-ink-mut">可选。从 CF 拉取当前 A 记录，或保存时把 IP 写回去（灰云）。目标是 IP 时在右侧填域名。</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button type="button" disabled={cfPulling} onClick={pullFromCF}
@@ -737,8 +744,10 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
                 <input className="input-field font-mono text-sm" value={form.backend_ip} onChange={e => set('backend_ip', e.target.value)} placeholder="要写入 A 记录的 IPv4" />
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-[12px] font-semibold text-ink-soft mb-1">记录名 <span className="text-ink-mut font-normal">(可选)</span></label>
-                <input className="input-field font-mono text-sm" value={form.cf_record_name} onChange={e => set('cf_record_name', e.target.value)} placeholder="默认用目标地址" disabled={!form.cf_sync && !form.cf_record_name} />
+                <label className="block text-[12px] font-semibold text-ink-soft mb-1">
+                  记录名 {(/^\d{1,3}(\.\d{1,3}){3}$/.test(form.host.trim()) || form.cf_sync) ? <span className="text-red-500">*</span> : <span className="text-ink-mut font-normal">(可选)</span>}
+                </label>
+                <input className="input-field font-mono text-sm" value={form.cf_record_name} onChange={e => set('cf_record_name', e.target.value)} placeholder="例 node.example.com" />
               </div>
             </div>
             {isEdit && node?.cf_last_sync_at > 0 && (

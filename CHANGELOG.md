@@ -9,6 +9,29 @@
 
 ---
 
+## v0.2.2 — 2026-08-14
+
+落地仓库目标填 IP 时，也能用「记录名」从 Cloudflare 拉取和同步域名。
+
+### 修复
+
+- 目标地址是 IP 时，「记录名」不再灰掉；把要同步的域名填进去即可拉取 / 保存
+- 开启 CF 同步不再要求目标本身必须是域名；域名写在记录名即可
+- 从 CF 拉取、改 IP、重新同步都按记录名写 A 记录，不会把 IP 当成域名去查
+
+### 升级注意
+
+- 系统设置里仍要先填 Cloudflare Token 和默认 Zone
+- 目标是 IP 时必须填写记录名（例如 `node.example.com`），再点「从 CF 拉取」或打开同步开关保存
+- 只改面板，节点不用动
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.1 — 2026-08-15
 
 用户详情顶栏吸顶不再露底，组合节点可测相邻两跳延迟。
