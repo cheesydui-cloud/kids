@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -261,6 +262,49 @@ type cfSyncResult struct {
 	Record    string `json:"record,omitempty"`
 }
 
+type nodeRepoCFSession struct {
+	cli        *cloudflare.Client
+	zoneID     string
+	recordName string
+}
+
+// nodeRepoCFSession builds a CF client and resolves zone + record name.
+// persistZoneID writes the looked-up zone onto an existing repo row.
+func (s *Server) nodeRepoCFSession(ctx context.Context, host, zoneID, recordName string, persist *db.NodeRepoEntry) (nodeRepoCFSession, error) {
+	token, _ := db.GetSetting(s.DB, "cf_api_token")
+	if strings.TrimSpace(token) == "" {
+		return nodeRepoCFSession{}, fmt.Errorf("未配置 Cloudflare API Token（请到系统设置填写）")
+	}
+	cli := &cloudflare.Client{Token: token}
+	if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
+		cli.BaseURL = strings.TrimSpace(base)
+	}
+	zid := strings.TrimSpace(zoneID)
+	if zid == "" {
+		zoneName, _ := db.GetSetting(s.DB, "cf_zone_name")
+		zoneName = strings.TrimSpace(zoneName)
+		if zoneName == "" {
+			return nodeRepoCFSession{}, fmt.Errorf("未指定 Zone（条目 cf_zone_id 为空且系统未设默认 Zone）")
+		}
+		id, err := cli.ResolveZoneID(ctx, zoneName)
+		if err != nil {
+			return nodeRepoCFSession{}, err
+		}
+		zid = id
+		if persist != nil && persist.ID > 0 {
+			_ = db.UpdateNodeRepoEntry(s.DB, persist.ID, persist.Name, persist.Protocol, persist.Host, persist.Port, persist.URI, persist.Remark, persist.ExpiresAt, persist.GroupName, db.NodeRepoCFFields{
+				BackendIP: persist.BackendIP, CFSync: persist.CFSync, CFZoneID: zid, CFRecordName: persist.CFRecordName,
+			})
+			persist.CFZoneID = zid
+		}
+	}
+	return nodeRepoCFSession{
+		cli:        cli,
+		zoneID:     zid,
+		recordName: cloudflare.RecordNameForHost(host, recordName),
+	}, nil
+}
+
 // maybeSyncNodeRepoCF pushes an A record when the entry has cf_sync enabled.
 // Failures are recorded on the row and returned; the repo save itself already
 // succeeded so the admin can fix token/IP and retry.
@@ -268,57 +312,28 @@ func (s *Server) maybeSyncNodeRepoCF(ctx context.Context, adminID int64, n *db.N
 	if n == nil || !n.CFSync {
 		return cfSyncResult{Attempted: false, Skipped: true, Message: "未开启 CF 同步"}
 	}
-	token, _ := db.GetSetting(s.DB, "cf_api_token")
-	if strings.TrimSpace(token) == "" {
-		msg := "未配置 Cloudflare API Token（请到系统设置填写）"
+	sess, err := s.nodeRepoCFSession(ctx, n.Host, n.CFZoneID, n.CFRecordName, n)
+	if err != nil {
+		msg := err.Error()
 		_ = db.SetNodeRepoCFSyncResult(s.DB, n.ID, false, "", msg)
 		n.CFLastError = msg
+		if strings.Contains(msg, "Zone") || strings.Contains(msg, "Token") {
+			return cfSyncResult{Attempted: true, OK: false, Message: msg}
+		}
+		db.WriteAudit(s.DB, adminID, "cf.dns.fail", n.Host, msg)
 		return cfSyncResult{Attempted: true, OK: false, Message: msg}
 	}
-	zoneID := strings.TrimSpace(n.CFZoneID)
-	if zoneID == "" {
-		zoneName, _ := db.GetSetting(s.DB, "cf_zone_name")
-		zoneName = strings.TrimSpace(zoneName)
-		if zoneName == "" {
-			msg := "未指定 Zone（条目 cf_zone_id 为空且系统未设默认 Zone）"
-			_ = db.SetNodeRepoCFSyncResult(s.DB, n.ID, false, "", msg)
-			n.CFLastError = msg
-			return cfSyncResult{Attempted: true, OK: false, Message: msg}
-		}
-		cli := &cloudflare.Client{Token: token}
-		if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
-			cli.BaseURL = strings.TrimSpace(base)
-		}
-		id, err := cli.ResolveZoneID(ctx, zoneName)
-		if err != nil {
-			msg := err.Error()
-			_ = db.SetNodeRepoCFSyncResult(s.DB, n.ID, false, "", msg)
-			n.CFLastError = msg
-			db.WriteAudit(s.DB, adminID, "cf.dns.fail", n.Host, msg)
-			return cfSyncResult{Attempted: true, OK: false, Message: msg}
-		}
-		zoneID = id
-		// Persist resolved zone id so subsequent syncs skip the lookup.
-		_ = db.UpdateNodeRepoEntry(s.DB, n.ID, n.Name, n.Protocol, n.Host, n.Port, n.URI, n.Remark, n.ExpiresAt, n.GroupName, db.NodeRepoCFFields{
-			BackendIP: n.BackendIP, CFSync: n.CFSync, CFZoneID: zoneID, CFRecordName: n.CFRecordName,
-		})
-		n.CFZoneID = zoneID
-	}
-
-	recordName := cloudflare.RecordNameForHost(n.Host, n.CFRecordName)
+	zoneID := sess.zoneID
+	recordName := sess.recordName
 	ttlStr, _ := db.GetSetting(s.DB, "cf_ttl")
 	ttl := 1
 	if t, err := strconv.Atoi(strings.TrimSpace(ttlStr)); err == nil && t > 0 {
 		ttl = t
 	}
 
-	cli := &cloudflare.Client{Token: token}
-	if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
-		cli.BaseURL = strings.TrimSpace(base)
-	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	rec, err := cli.UpsertARecord(ctx, zoneID, recordName, n.BackendIP, ttl)
+	rec, err := sess.cli.UpsertARecord(ctx, zoneID, recordName, n.BackendIP, ttl)
 	if err != nil {
 		msg := err.Error()
 		_ = db.SetNodeRepoCFSyncResult(s.DB, n.ID, false, "", msg)
@@ -503,7 +518,6 @@ func (s *Server) apiAssignRepoToUser(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true, "assigned": len(inputs), "exits": exits})
 }
 
-
 // apiSetNodeRepoBackendIP updates only the current IPv4 (and optionally forces
 // CF sync). Domain host/port stay unchanged so rules are not cascaded.
 func (s *Server) apiSetNodeRepoBackendIP(w http.ResponseWriter, r *http.Request) {
@@ -581,6 +595,61 @@ func (s *Server) apiResyncNodeRepoCF(w http.ResponseWriter, r *http.Request) {
 	cfResult := s.maybeSyncNodeRepoCF(r.Context(), u.ID, &n)
 	n, _ = db.GetNodeRepoEntry(s.DB, id)
 	jsonOK(w, map[string]any{"ok": true, "node": n, "cf_sync": cfResult})
+}
+
+// apiLookupNodeRepoCF reads the current A record from Cloudflare and
+// returns its IPv4 so the add/edit form can fill 「当前 IP」. Does not write
+// DNS and does not require a saved repo row.
+func (s *Server) apiLookupNodeRepoCF(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Host         string `json:"host"`
+		CFZoneID     string `json:"cf_zone_id"`
+		CFRecordName string `json:"cf_record_name"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonErr(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+	host := strings.TrimSpace(body.Host)
+	if host == "" {
+		jsonErr(w, http.StatusBadRequest, "请先填写目标地址")
+		return
+	}
+	if net.ParseIP(host) != nil {
+		jsonErr(w, http.StatusBadRequest, "目标地址是 IP，没有 CF 记录可拉取")
+		return
+	}
+	if !resolver.PlausibleHostname(host) {
+		jsonErr(w, http.StatusBadRequest, "目标地址不是合法域名")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	sess, err := s.nodeRepoCFSession(ctx, host, strings.TrimSpace(body.CFZoneID), strings.TrimSpace(body.CFRecordName), nil)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	rec, err := sess.cli.GetARecord(ctx, sess.zoneID, sess.recordName)
+	if err != nil {
+		jsonErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if rec == nil || !cloudflare.IsIPv4(rec.Content) {
+		jsonErr(w, http.StatusNotFound, "Cloudflare 上没有这条 A 记录："+sess.recordName)
+		return
+	}
+	jsonOK(w, map[string]any{
+		"ok":      true,
+		"ip":      rec.Content,
+		"record":  sess.recordName,
+		"zone_id": sess.zoneID,
+		"proxied": rec.Proxied,
+		"ttl":     rec.TTL,
+		"message": "已从 Cloudflare 拉取 " + rec.Content,
+	})
 }
 
 // apiProbeNodeRepoDNS resolves the entry host and compares to backend_ip.

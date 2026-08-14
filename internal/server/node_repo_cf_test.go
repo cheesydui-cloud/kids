@@ -154,10 +154,10 @@ func TestSettingsCFTokenMaskAndClear(t *testing.T) {
 
 	// save token
 	body := map[string]any{
-		"panel_url": "http://127.0.0.1:7788",
+		"panel_url":    "http://127.0.0.1:7788",
 		"cf_api_token": "abcd1234efgh5678",
 		"cf_zone_name": "example.com",
-		"cf_ttl": 1,
+		"cf_ttl":       1,
 	}
 	buf, _ := json.Marshal(body)
 	req := newTestRequest("POST", "/api/settings", bytes.NewReader(buf))
@@ -238,7 +238,6 @@ func TestNodeRepoDomainWithoutCF(t *testing.T) {
 		t.Fatalf("should skip CF: %+v", resp.CFSync)
 	}
 }
-
 
 func TestNodeRepoCFSyncSuccessWithMockAPI(t *testing.T) {
 	d := openDB(t)
@@ -425,5 +424,33 @@ func TestNodeRepoChangeIPAndProbe(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &probe)
 	if probe["status"] != "literal_ip" {
 		t.Fatalf("probe=%v", probe)
+	}
+
+	req = newTestRequest("POST", "/api/node-repo/cf-lookup", bytes.NewReader([]byte(`{"host":"p1.example.com","cf_zone_id":"z1"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("cf-lookup %d %s", rec.Code, rec.Body.String())
+	}
+	var looked map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &looked)
+	if looked["ip"] != "1.1.1.1" {
+		t.Fatalf("lookup=%v", looked)
+	}
+}
+
+func TestNodeRepoCFLookupRequiresDomain(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+	req := newTestRequest("POST", "/api/node-repo/cf-lookup", bytes.NewReader([]byte(`{"host":"1.2.3.4"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d %s", rec.Code, rec.Body.String())
 	}
 }

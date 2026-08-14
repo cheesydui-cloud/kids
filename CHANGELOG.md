@@ -9,6 +9,33 @@
 
 ---
 
+## v0.1.5 — 2026-08-15
+
+落地仓库可以从 Cloudflare 把当前 A 记录拉回「当前 IP」，不必手抄。
+
+### 新增
+
+- 添加 / 编辑落地节点时，Cloudflare 区域提供 **从 CF 拉取**：按目标域名（或自定义记录名）读取现有 A 记录并填入当前 IP
+- 接口 `POST /api/node-repo/cf-lookup`：只读 Cloudflare，不改 DNS、不必先保存节点
+- 拉取成功后自动打开 CF 同步开关，便于核对后再写回
+
+### 改进
+
+- 系统设置里的 Cloudflare 说明补充「可拉取、可写回」
+- CI 在 `go vet` 前先构建前端，避免仓库不提交 `web/dist` 时 embed 失败
+
+### 升级注意
+
+- 需要先在系统设置填好 Cloudflare API Token 和默认 Zone
+- 目标地址必须是域名；裸 IP 没有 CF 记录可拉
+- 一键安装命令不变。升级面板：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.1.4 — 2026-08-15
 
 节点 agent 改为从面板安装：脚本和二进制都走面板，不再经过 GitHub。落地仓库增加 Mieru。

@@ -2,7 +2,7 @@
 
 基于 nftables 的轻量多节点端口转发平台。**两个二进制（`nft-server` + `nft-agent`），零外部依赖**——面板管理多节点并推送规则，节点 agent 反向连入面板，节点零端口暴露。支持内核态 DNAT 与用户态 split-TCP 逐跳混用、多租户配额、组合节点自动编排多跳链路。
 
-当前版本：**v0.1.4**（下面这条安装命令固定不变，永远装最新版）  
+当前版本：**v0.1.5**（下面这条安装命令固定不变，永远装最新版）  
 仓库：https://github.com/cheesydui-cloud/kids
 
 > 衍生自 [xjetry/nft-forward](https://github.com/xjetry/nft-forward)，以 MIT 许可证发布（见 [LICENSE](./LICENSE)）。
@@ -130,6 +130,7 @@ agent 反向 WebSocket 连入面板，节点无需对公网开放管理端口。
 - 订阅地址（如 Remnawave 等面板订阅链接）
 - 手动 URI（`vless://`、`trojan://`、`socks5://`、`naive+https://`、`mierus://` 等）
 - SOCKS5 / Naive / Mieru 也可只填 IP、端口、账号、密码，面板自动生成分享链接
+- 落地仓库可从 Cloudflare 拉取当前 A 记录填入「当前 IP」，保存时再写回灰云 A 记录
 - 订阅与手动 URI 可组合
 - 节点可标记为「落地」「直连」或「未配置」
 - 用户建规则时可选落地节点作为出口

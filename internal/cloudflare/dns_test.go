@@ -137,6 +137,26 @@ func TestAPIErrorSurface(t *testing.T) {
 	}
 }
 
+func TestGetARecord(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		writeCF(w, true, []DNSRecord{{
+			ID: "r1", Type: "A", Name: "home.example.com", Content: "203.0.113.8", TTL: 1, Proxied: false,
+		}})
+	}))
+	defer srv.Close()
+	c := &Client{Token: "tok", BaseURL: srv.URL, HTTPClient: srv.Client()}
+	rec, err := c.GetARecord(context.Background(), "zone1", "home.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec == nil || rec.Content != "203.0.113.8" {
+		t.Fatalf("got %+v", rec)
+	}
+}
+
 func TestRecordNameForHost(t *testing.T) {
 	if got := RecordNameForHost("Home.Example.com", ""); got != "home.example.com" {
 		t.Fatalf("got %q", got)

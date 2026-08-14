@@ -136,6 +136,11 @@ type DNSRecord struct {
 	Proxied bool   `json:"proxied"`
 }
 
+// GetARecord returns the first A record matching name, or (nil, nil) if none.
+func (c *Client) GetARecord(ctx context.Context, zoneID, name string) (*DNSRecord, error) {
+	return c.findARecord(ctx, zoneID, name)
+}
+
 // UpsertARecord ensures an A record name → ipv4 exists (create or update).
 // proxied is forced false (DNS-only) for landing exits.
 // ttl 1 means "automatic" in Cloudflare.

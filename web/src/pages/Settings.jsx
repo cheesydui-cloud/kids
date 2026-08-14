@@ -129,7 +129,7 @@ export default function Settings() {
             <div className="pt-[22px]">
               <h3 className="text-[16px] font-bold text-ink mb-1">Cloudflare DNS</h3>
               <p className="text-[12px] text-ink-mut m-0 mb-[18px]">
-                用于落地仓库：目标填域名、保存时把「当前 IP」写入 CF 的 A 记录（仅 DNS / 灰云）。Token 只存服务端，接口不回显明文。
+                用于落地仓库：目标填域名后可从 CF 拉取当前 A 记录，保存时也可把「当前 IP」写回（仅 DNS / 灰云）。Token 只存服务端，接口不回显明文。
               </p>
             </div>
 

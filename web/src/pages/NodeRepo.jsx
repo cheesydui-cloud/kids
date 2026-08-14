@@ -523,6 +523,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
     cf_record_name: node?.cf_record_name || '',
   })
   const [submitting, setSubmitting] = useState(false)
+  const [cfPulling, setCfPulling] = useState(false)
   const toast = useToast()
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -558,6 +559,30 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
     const naive = tryParseNaiveHTTPS(uri)
     if (naive) {
       applyParsed(naive, { username: naive.username, password: naive.password })
+    }
+  }
+
+  const pullFromCF = async () => {
+    const host = form.host.trim()
+    if (!host) { toast('请先填写目标地址', 'error'); return }
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || (host.includes(':') && !/[a-zA-Z]/.test(host))) {
+      toast('目标地址是 IP，没有 CF 记录可拉取', 'error')
+      return
+    }
+    setCfPulling(true)
+    try {
+      const d = await api.post('/node-repo/cf-lookup', {
+        host,
+        cf_zone_id: form.cf_zone_id,
+        cf_record_name: form.cf_record_name,
+      })
+      if (!d?.ip) { toast(d?.message || 'Cloudflare 上没有这条 A 记录', 'error'); return }
+      setForm(f => ({ ...f, backend_ip: d.ip, cf_sync: true }))
+      toast(d.message || `已从 Cloudflare 拉取 ${d.ip}`)
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setCfPulling(false)
     }
   }
 
@@ -692,13 +717,19 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[13px] font-bold text-ink">Cloudflare DNS</div>
-                <div className="text-[11px] text-ink-mut">可选。保存时把当前 IP 写入 CF A 记录（灰云）</div>
+                <div className="text-[11px] text-ink-mut">可选。从 CF 拉取当前 A 记录，或保存时把 IP 写回去（灰云）</div>
               </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button type="button" disabled={cfPulling} onClick={pullFromCF}
+                  className="h-7 px-2.5 rounded-lg text-[12px] font-semibold border border-line bg-surface text-ink-soft hover:bg-raised hover:text-ink disabled:opacity-50">
+                  {cfPulling ? '拉取中…' : '从 CF 拉取'}
+                </button>
               <button type="button" role="switch" aria-checked={form.cf_sync}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${form.cf_sync ? 'bg-emerald-600' : 'bg-gray-500'}`}
                 onClick={() => set('cf_sync', !form.cf_sync)}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.cf_sync ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1">

@@ -763,6 +763,7 @@ func (s *Server) Router() http.Handler {
 			r.Patch("/node-repo/{id}", s.apiUpdateNodeRepoEntry)
 			r.Post("/node-repo/{id}/backend-ip", s.apiSetNodeRepoBackendIP)
 			r.Post("/node-repo/{id}/cf-resync", s.apiResyncNodeRepoCF)
+			r.Post("/node-repo/cf-lookup", s.apiLookupNodeRepoCF)
 			r.Post("/node-repo/batch-group", s.apiBatchSetNodeRepoGroup)
 			r.Delete("/node-repo/{id}", s.apiDeleteNodeRepoEntry)
 			r.Get("/node-repo-folders", s.apiListNodeRepoFolders)
