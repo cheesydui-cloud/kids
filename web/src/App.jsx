@@ -1,0 +1,163 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Component } from 'react'
+import { UserProvider, useUser, BlurProvider, CopyFmtProvider } from './components/Layout'
+import { Loading, ConfirmProvider } from './components/ui'
+
+import Login from './pages/Login'
+import Settings from './pages/Settings'
+import Dashboard from './pages/Dashboard'
+import ChangePassword from './pages/ChangePassword'
+
+import NodeList from './pages/nodes/List'
+import NodeDetail from './pages/nodes/Detail'
+import RulesList from './pages/rules/List'
+import RulesDetail from './pages/rules/Detail'
+import UserList from './pages/users/List'
+import UserDetail from './pages/users/Detail'
+import Announcements from './pages/Announcements'
+import NodeRepo from './pages/NodeRepo'
+import Docs from './pages/Docs'
+
+import MyDashboard from './pages/my/Dashboard'
+import MyRules from './pages/my/Rules'
+import MyRuleDetail from './pages/my/RuleDetail'
+import MyLandingNodes from './pages/my/LandingNodes'
+import MyDocs from './pages/my/Docs'
+import Proxies from './pages/Proxies'
+
+// ErrorBoundary: catches render errors in any child component and shows a
+// friendly fallback instead of letting the whole page go white.
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  componentDidCatch(error, info) {
+    console.error('ErrorBoundary caught:', error, info)
+    this.setState({ info })
+    try {
+      const payload = {
+        time: new Date().toISOString(),
+        href: window.location.href,
+        message: error?.message || String(error),
+        stack: error?.stack || '',
+        componentStack: info?.componentStack || '',
+      }
+      localStorage.setItem('nf-last-error', JSON.stringify(payload))
+    } catch {}
+  }
+  render() {
+    if (this.state.hasError) {
+      const err = this.state.error
+      const message = err?.message || err?.name || String(err) || '未知错误'
+      const stack = err?.stack || ''
+      const componentStack = this.state.info?.componentStack || ''
+      const details = `${message}\n\n--- 堆栈 ---\n${stack}\n\n--- 组件栈 ---\n${componentStack}`
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-app p-6">
+          <div className="text-center max-w-2xl">
+            <h1 className="text-xl font-bold text-ink">页面加载出错</h1>
+            <p className="mt-2 text-ink-soft">请刷新页面重试，如果问题持续请把下方错误信息发给管理员。</p>
+            <button onClick={() => window.location.reload()} className="mt-4 btn-primary">刷新页面</button>
+            <div className="mt-6 text-left bg-surface border border-line rounded-lg p-4 overflow-auto max-h-[60vh]">
+              <pre className="text-[12px] text-red-600 whitespace-pre-wrap break-words">{details}</pre>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+function ProtectedRoute({ children }) {
+  const { user } = useUser()
+  if (user === undefined) return <Loading />
+  if (user === null) return <Navigate to="/login" replace />
+  return children
+}
+
+function AdminRoute({ children }) {
+  const { user } = useUser()
+  if (user === undefined) return <Loading />
+  if (user === null) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/my" replace />
+  return children
+}
+
+function UserRoute({ children }) {
+  const { user } = useUser()
+  if (user === undefined) return <Loading />
+  if (user === null) return <Navigate to="/login" replace />
+  if (user.role === 'admin') return <Navigate to="/" replace />
+  return children
+}
+
+function RootRedirect() {
+  const { user } = useUser()
+  if (user === undefined) return <Loading />
+  if (user === null) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/my" replace />
+  return <Dashboard />
+}
+
+function NotFound() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-app">
+      <div className="text-center">
+        <h1 className="text-2xl font-bold text-ink">404</h1>
+        <p className="mt-2 text-ink-soft">页面不存在</p>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <UserProvider>
+        <ConfirmProvider>
+        <BlurProvider>
+        <CopyFmtProvider>
+        <ErrorBoundary>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+
+          <Route path="/" element={<RootRedirect />} />
+
+          {/* Admin routes */}
+          <Route path="/nodes" element={<AdminRoute><NodeList /></AdminRoute>} />
+          <Route path="/nodes/:id" element={<AdminRoute><NodeDetail /></AdminRoute>} />
+          <Route path="/rules" element={<AdminRoute><RulesList /></AdminRoute>} />
+          <Route path="/rules/:id" element={<AdminRoute><RulesDetail /></AdminRoute>} />
+          <Route path="/users" element={<AdminRoute><UserList /></AdminRoute>} />
+          <Route path="/users/:id" element={<AdminRoute><UserDetail /></AdminRoute>} />
+          <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
+          <Route path="/announcements" element={<AdminRoute><Announcements /></AdminRoute>} />
+          <Route path="/docs" element={<AdminRoute><Docs /></AdminRoute>} />
+          <Route path="/node-repo" element={<AdminRoute><NodeRepo /></AdminRoute>} />
+
+          {/* Regular user routes */}
+          <Route path="/my" element={<UserRoute><MyDashboard /></UserRoute>} />
+          <Route path="/my/rules" element={<UserRoute><MyRules /></UserRoute>} />
+          <Route path="/my/rules/:id" element={<UserRoute><MyRuleDetail /></UserRoute>} />
+          <Route path="/my/landing" element={<UserRoute><MyLandingNodes /></UserRoute>} />
+          <Route path="/my/docs" element={<UserRoute><MyDocs /></UserRoute>} />
+
+          {/* Shared routes */}
+          <Route path="/proxies" element={<ProtectedRoute><Proxies /></ProtectedRoute>} />
+          <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
+
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+        </ErrorBoundary>
+        </CopyFmtProvider>
+        </BlurProvider>
+        </ConfirmProvider>
+      </UserProvider>
+    </BrowserRouter>
+  )
+}

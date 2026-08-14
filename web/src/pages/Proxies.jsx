@@ -1,0 +1,255 @@
+import { useState, useEffect, useMemo } from 'react'
+import { api } from '../lib/api'
+import { Layout, useToast, useBlur, useUser, useCopyFmt } from '../components/Layout'
+import { Loading, Empty, CopyText, SensText, Badge } from '../components/ui'
+import { copyToClipboard } from '../lib/clipboard'
+import { PageHeader, Panel, PanelToolbar, SearchInput, TableScroll } from '../components/page'
+import {
+  parseURIs, loadLocalURIs, loadSubCache, fetchNodeRoles, loadLocalRoles, nodeHasRole, ROLE_LANDING, ROLE_DIRECT,
+  landingIndex, splitEndpoint, rewriteEndpoint, mergeLanding,
+} from '../lib/landing'
+import { formatRelayBatch, formatRelayCopyText, relayExpiryFromMap } from '../lib/relayCopy'
+import { uriToClashYaml } from '../lib/yaml-convert'
+import { fmtDate, expiryBadge } from '../lib/fmt'
+import { QRCodeButton } from '../components/QRCodeModal'
+
+export default function Proxies() {
+  const [rules, setRules] = useState(null)
+  const [serverNodes, setServerNodes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [tab, setTab] = useState('all')
+  const { copyFmt } = useCopyFmt()
+  const blurred = useBlur()
+  const toast = useToast()
+  const { user } = useUser()
+
+  const isAdmin = user?.role === 'admin'
+
+  const [roles, setRoles] = useState({})
+
+  useEffect(() => {
+    const rulesEndpoint = isAdmin ? `/rules?owner_ids=${user?.id}` : '/my/rules'
+    const rulesP = api.get(rulesEndpoint).then(d => d?.rules || []).catch(() => [])
+    const serverP = !isAdmin
+      ? api.get('/my/landing-nodes').then(d => d?.nodes || []).catch(() => [])
+      : Promise.resolve([])
+    const rolesP = fetchNodeRoles()
+    Promise.all([rulesP, serverP, rolesP]).then(([r, s, sr]) => {
+      setRules(r); setServerNodes(s); setRoles({ ...sr, ...loadLocalRoles(user?.username) })
+    }).finally(() => setLoading(false))
+  }, [])
+
+  const manualNodes = useMemo(() => parseURIs(loadLocalURIs(user?.username)), [user])
+  const localSubNodes = useMemo(() => loadSubCache(user?.username), [user])
+
+  const allSubNodes = useMemo(() => mergeLanding(localSubNodes, serverNodes), [localSubNodes, serverNodes])
+
+  const directSub = useMemo(() => allSubNodes.filter(n => nodeHasRole(roles, n, ROLE_DIRECT)), [allSubNodes, roles])
+  const landingSub = useMemo(() => allSubNodes.filter(n => nodeHasRole(roles, n, ROLE_LANDING)), [allSubNodes, roles])
+  const directManual = useMemo(() => manualNodes.filter(n => nodeHasRole(roles, n, ROLE_DIRECT)), [manualNodes, roles])
+  const landingManual = useMemo(() => manualNodes.filter(n => nodeHasRole(roles, n, ROLE_LANDING)), [manualNodes, roles])
+
+  const allLanding = useMemo(() => {
+    const manual = landingManual.map(n => ({ ...n, source: 'local' }))
+    const sub = landingSub.map(n => ({ ...n, source: serverNodes.some(s => s.host === n.host && s.port === n.port) ? 'admin' : 'local' }))
+    return mergeLanding(manual, sub)
+  }, [landingManual, landingSub, serverNodes])
+  const allLandingIdx = useMemo(() => landingIndex(allLanding), [allLanding])
+
+  const relayProxies = useMemo(() => {
+    if (!rules) return []
+    const out = []
+    for (const r of rules) {
+      const key = r.exit_host && r.exit_port ? `${r.exit_host}:${r.exit_port}` : null
+      if (!key || !allLandingIdx.has(key) || !r.entry) continue
+      const ep = splitEndpoint(r.entry)
+      const node = allLandingIdx.get(key)
+      const relay = ep && rewriteEndpoint(node.uri, ep.host, ep.port)
+      if (relay) out.push({ ...node, relay, ruleName: r.name })
+    }
+    return out
+  }, [rules, allLandingIdx])
+
+  if (loading) return <Layout><Loading /></Layout>
+
+  const directProxies = [...directManual, ...directSub]
+  const allProxies = [...directProxies.map(n => ({ ...n, kind: 'direct' })), ...relayProxies.map(n => ({ ...n, kind: 'relay' }))]
+
+  // Build expiry lookup from server landing nodes
+  const expiryMap = new Map()
+  serverNodes.forEach(n => {
+    if (n.expires_at > 0) expiryMap.set(`${n.host}:${n.port}`, n.expires_at)
+  })
+
+  const tabbed = tab === 'all' ? allProxies : allProxies.filter(n => n.kind === (tab === 'relay' ? 'relay' : 'direct'))
+  const q = search.trim().toLowerCase()
+  const filtered = !q ? tabbed : tabbed.filter(n =>
+    [n.name, n.protocol, `${n.host}:${n.port}`, n.ruleName].some(v => (v || '').toLowerCase().includes(q)))
+
+  // List still shows landing node name; only clipboard renames relay URIs to
+  // `{username}-8月5日` / `{username}-{ruleName}`. Direct proxies keep original names.
+  const copyText = (n, displayName, { asYaml = copyFmt === 'yaml' } = {}) => {
+    if (n.kind === 'relay') {
+      if (!n.relay) return null
+      const expiresAt = relayExpiryFromMap(expiryMap, n.host, n.port)
+      return formatRelayCopyText(n.relay, {
+        username: user?.username,
+        ruleName: n.ruleName,
+        expiresAt,
+        displayName,
+        asYaml,
+      })
+    }
+    const uri = n.uri
+    if (!uri) return null
+    if (asYaml) {
+      const yaml = uriToClashYaml(uri)
+      if (yaml) return yaml
+    }
+    return uri
+  }
+
+  // QR always uses raw URI (not YAML) so client scanners can import.
+  const qrText = (n) => copyText(n, undefined, { asYaml: false })
+
+  const copyAllText = () => {
+    const relayItems = []
+    const other = []
+    filtered.forEach((n, i) => {
+      if (n.kind === 'relay' && n.relay) {
+        relayItems.push({
+          key: i,
+          uri: n.relay,
+          username: user?.username,
+          ruleName: n.ruleName,
+          expiresAt: relayExpiryFromMap(expiryMap, n.host, n.port),
+        })
+      } else {
+        other.push({ i, text: copyText(n) })
+      }
+    })
+    const renamed = formatRelayBatch(relayItems, { asYaml: copyFmt === 'yaml' })
+    const byKey = new Map(relayItems.map((it, idx) => [it.key, renamed[idx]]))
+    return filtered.map((n, i) => {
+      if (n.kind === 'relay') return byKey.get(i) || null
+      return copyText(n)
+    }).filter(Boolean).join('\n')
+  }
+
+  return (
+    <Layout>
+      <div className="h-full flex flex-col">
+      <PageHeader title="我的代理" count={allProxies.length} unit="个" />
+      <Panel fill>
+        <PanelToolbar>
+          <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、协议、地址…" />
+        </PanelToolbar>
+        <div className="flex items-center gap-1.5 px-[22px] py-2.5 border-b border-line-soft">
+          {[['all', '全部', allProxies.length], ['direct', '直连', directProxies.length], ['relay', '中转', relayProxies.length]].map(([key, label, n]) => (
+            <button key={key} onClick={() => setTab(key)}
+              className={`px-3.5 py-1 rounded-full text-xs border transition-colors ${
+                tab === key ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-surface text-ink-soft border-line hover:border-ink-mut'
+              }`}>{label} {n}</button>
+          ))}
+          {filtered.length > 0 && (
+            <button
+              type="button"
+              title="一次复制当前列表全部链接，适合批量导入电脑端"
+              onClick={() => {
+              const all = copyAllText()
+              if (!all) { toast('没有可复制的内容', 'error'); return }
+              copyToClipboard(all).then(() => toast(`已复制 ${filtered.length} 条`)).catch(() => toast('复制失败', 'error'))
+            }} className="ml-auto px-3 py-0.5 rounded text-xs border border-line bg-surface text-ink-soft hover:border-ink-mut transition-colors">
+              复制全部
+            </button>
+          )}
+        </div>
+
+        <TableScroll>
+        {allProxies.length === 0 ? (
+          <Empty title="暂无可用代理" desc="请先配置代理 URI 或订阅地址，并标记为直连；或联系管理员分配落地节点后创建转发规则。" />
+        ) : filtered.length === 0 ? (
+          <Empty title="无匹配" desc="试试别的关键词。" />
+        ) : (
+          <table className="tbl">
+            <thead><tr><th>名称</th><th>协议</th><th>地址</th><th>到期时间</th><th>类型</th><th className="text-right">操作</th></tr></thead>
+            <tbody>
+              {filtered.map((n, i) => {
+                const text = copyText(n)
+                const qr = qrText(n)
+                return (
+                  <tr key={i}>
+                    <td className="font-semibold">
+                      {n.name || '(未命名)'}
+                      {n.kind === 'relay' && <span className="ml-1.5 text-[11px] text-ink-mut font-normal">← {n.ruleName}</span>}
+                    </td>
+                    <td className="font-mono text-xs text-ink-soft">{n.protocol}</td>
+                    <td className="font-mono text-xs">
+                      <SensText blurred={blurred}>
+                        {n.kind === 'relay' ? `${splitEndpoint(n.relay)?.host || n.host}:${splitEndpoint(n.relay)?.port || n.port}` : `${n.host}:${n.port}`}
+                      </SensText>
+                    </td>
+                    <td className="text-xs">
+                      {(() => {
+                        const ts = expiryMap.get(`${n.host}:${n.port}`)
+                        if (!ts || ts <= 0) return <span className="text-ink-mut">—</span>
+                        const badge = expiryBadge(ts)
+                        return (
+                          <>
+                            {fmtDate(ts)}
+                            {badge && <Badge color={badge.color} className="ml-1">{badge.label}</Badge>}
+                          </>
+                        )
+                      })()}
+                    </td>
+                    <td>
+                      {n.kind === 'relay'
+                        ? <Badge color="emerald">中转</Badge>
+                        : <Badge color="blue">直连</Badge>}
+                    </td>
+                    <td className="text-right">
+                      <div className="inline-flex items-center gap-4 justify-end">
+                        <QRCodeButton
+                          text={qr}
+                          toast={toast}
+                          label="生成二维码"
+                          title="适合手机端扫码导入"
+                        />
+                        {text ? (
+                          <CopyText text={text}>
+                            <span
+                              className="text-emerald-600 font-sans text-xs font-semibold cursor-pointer hover:underline"
+                              title={
+                                copyFmt === 'yaml' && uriToClashYaml(n.kind === 'relay' ? n.relay : n.uri)
+                                  ? '适合 Clash、软路由等粘贴配置'
+                                  : '适合电脑 V2RayN、Clash、软路由等粘贴导入'
+                              }
+                            >
+                              {copyFmt === 'yaml' && uriToClashYaml(n.kind === 'relay' ? n.relay : n.uri)
+                                ? '复制 YAML'
+                                : '复制链接'}
+                            </span>
+                          </CopyText>
+                        ) : (
+                          <span
+                            className="text-ink-mut font-sans text-xs font-semibold opacity-40 cursor-not-allowed"
+                            title="暂无可导入链接"
+                          >
+                            复制链接
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+        </TableScroll>
+      </Panel>
+      </div>
+    </Layout>
+  )
+}

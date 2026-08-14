@@ -1,0 +1,733 @@
+import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { api } from '../lib/api'
+import { Layout, useToast } from '../components/Layout'
+import { Loading, Empty, Badge, CopyText, Modal, useConfirm, DateInput } from '../components/ui'
+import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
+import FolderBar, { MoveToFolderModal } from '../components/FolderBar'
+import { parseURIs, tryParseURI } from '../lib/landing'
+import { fmtDate, expiryBadge, fmtTrafficGB } from '../lib/fmt'
+import { useIsMobile } from '../lib/useIsMobile'
+
+export default function NodeRepo() {
+  const [list, setList] = useState(null)
+  const [folders, setFolders] = useState([])
+  const [ungrouped, setUngrouped] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [showBulk, setShowBulk] = useState(false)
+  const [showMove, setShowMove] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [search, setSearch] = useState('')
+  const [folderFilter, setFolderFilter] = useState('') // '' all | '0' ungrouped | folder id
+  const [sel, setSel] = useState(new Set())
+  const [usersFor, setUsersFor] = useState(null) // node entry when modal open
+  const [usersList, setUsersList] = useState(null)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [changeIPFor, setChangeIPFor] = useState(null)
+  const [busyId, setBusyId] = useState(null) // probe/resync in flight
+  const toast = useToast()
+  const confirm = useConfirm()
+  const isMobile = useIsMobile()
+
+  const loadFolders = () => api.get('/node-repo-folders').then(d => {
+    setFolders(d?.folders || [])
+    setUngrouped(d?.ungrouped || 0)
+  }).catch(() => {})
+
+  const load = () => {
+    setLoading(true)
+    Promise.all([
+      api.get('/node-repo').then(d => setList(d?.nodes || [])),
+      loadFolders(),
+    ]).catch(console.error).finally(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const deleteNode = async (n) => {
+    if (!(await confirm({ title: '删除节点', message: `确认删除节点「${n.name}」？`, confirmText: '删除', danger: true }))) return
+    try { await api.del(`/node-repo/${n.id}`); toast('已删除'); load() } catch (err) { toast(err.message, 'error') }
+  }
+
+  const bulkDelete = async () => {
+    if (sel.size === 0) { toast('请先勾选要删除的节点', 'error'); return }
+    if (!(await confirm({ title: '批量删除', message: `确认删除选中的 ${sel.size} 个节点？`, confirmText: '删除', danger: true }))) return
+    try {
+      for (const id of sel) { await api.del(`/node-repo/${id}`) }
+      toast(`已删除 ${sel.size} 个节点`)
+      setSel(new Set())
+      load()
+    } catch (err) { toast(err.message, 'error') }
+  }
+
+  const openUsers = async (n) => {
+    setUsersFor(n)
+    setUsersList(null)
+    setUsersLoading(true)
+    try {
+      const d = await api.get(`/node-repo/${n.id}/users`)
+      setUsersList(d?.users || [])
+    } catch (err) {
+      toast(err.message, 'error')
+      setUsersFor(null)
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
+  const notifyCF = (cf) => {
+    if (!cf?.attempted) return
+    if (cf.ok) toast(`CF：${cf.message || '已同步'}${cf.ip ? ' · ' + cf.ip : ''}`)
+    else toast(`CF 同步失败：${cf.message || '未知错误'}`, 'error')
+  }
+
+  const probeDNS = async (n) => {
+    setBusyId(n.id)
+    try {
+      const d = await api.get(`/node-repo/${n.id}/probe-dns`)
+      if (d.status === 'match') toast(d.message || '解析一致')
+      else if (d.status === 'mismatch') toast(d.message || '解析不一致', 'error')
+      else if (d.status === 'fail') toast(d.message || '解析失败', 'error')
+      else toast(d.message || '已检查')
+    } catch (err) { toast(err.message, 'error') }
+    finally { setBusyId(null) }
+  }
+
+  const resyncCF = async (n) => {
+    setBusyId(n.id)
+    try {
+      const d = await api.post(`/node-repo/${n.id}/cf-resync`)
+      notifyCF(d?.cf_sync)
+      load()
+    } catch (err) { toast(err.message, 'error') }
+    finally { setBusyId(null) }
+  }
+
+  const folderName = (id) => folders.find(f => f.id === id)?.name || ''
+
+  const moveToFolder = async (folderId) => {
+    if (sel.size === 0) { toast('请先勾选节点', 'error'); return }
+    await api.post('/node-repo/batch-group', { ids: [...sel], group_id: folderId })
+    const label = folderId ? (folderName(folderId) || '分组') : '未分组'
+    toast(folderId ? `已移入「${label}」` : '已移出到未分组')
+    setSel(new Set())
+    setShowMove(false)
+    load()
+  }
+
+  const toggleSel = (id) => setSel(s => {
+    const next = new Set(s)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+
+  if (loading) return <Layout><Loading /></Layout>
+
+  const q = search.trim().toLowerCase()
+  let filtered = list || []
+  if (folderFilter === '0') filtered = filtered.filter(n => !(n.group_id > 0))
+  else if (folderFilter) filtered = filtered.filter(n => String(n.group_id) === String(folderFilter))
+  if (q) filtered = filtered.filter(n =>
+    [n.name, n.protocol, `${n.host}:${n.port}`, n.backend_ip, n.remark, n.group_name].some(v => (v || '').toLowerCase().includes(q)))
+
+  const toggleSelAll = () => setSel(s =>
+    s.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(n => n.id)))
+
+  return (
+    <Layout>
+      <div className="h-full flex flex-col">
+      <PageHeader title="落地仓库" count={list?.length || 0} unit="个" />
+      <Panel fill>
+        <div className="px-3 pt-2 border-b border-line">
+          <FolderBar
+            folders={folders}
+            ungrouped={ungrouped}
+            total={(list || []).length}
+            filter={folderFilter}
+            onFilter={f => { setFolderFilter(f); setSel(new Set()) }}
+            onCreate={async (name) => { await api.post('/node-repo-folders', { name }); await loadFolders() }}
+            onRename={async (id, name) => { await api.patch(`/node-repo-folders/${id}`, { name }); await loadFolders(); load() }}
+            onDelete={async (id) => { await api.del(`/node-repo-folders/${id}`); await loadFolders(); load() }}
+          />
+        </div>
+        <PanelToolbar>
+          <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、协议、地址…" />
+          {sel.size > 0 && (
+            <>
+              <button onClick={() => setShowMove(true)} className="text-emerald-600 text-xs font-semibold px-3 py-1 rounded border border-emerald-200 hover:bg-emerald-50 dark:border-emerald-700 dark:hover:bg-emerald-900/20">移入分组 ({sel.size})</button>
+              <button onClick={bulkDelete} className="text-red-600 text-xs font-semibold px-3 py-1 rounded border border-red-200 hover:bg-red-50 dark:border-red-700 dark:hover:bg-red-900/20">删除选中 {sel.size}</button>
+            </>
+          )}
+          <ToolbarActions>
+            <ToolbarButton onClick={() => setShowBulk(true)} secondary>批量导入</ToolbarButton>
+            <ToolbarButton onClick={() => { setEditing(null); setShowForm(true) }}>＋ 添加节点</ToolbarButton>
+          </ToolbarActions>
+        </PanelToolbar>
+
+        <TableScroll>
+        {!list || list.length === 0 ? (
+          <Empty title="暂无节点" desc="点击右上角「添加节点」将预先准备好的代理节点录入落地仓库。" />
+        ) : filtered.length === 0 ? (
+          <Empty title="无匹配节点" desc="试试别的关键词或分组。" />
+        ) : (<>
+          {!isMobile && <table className="tbl">
+            <thead><tr>
+              <th className="w-8"><input type="checkbox" className="accent-emerald-600"
+                checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
+              <th>名称</th><th>分组</th><th>协议</th><th>地址</th><th>使用</th><th>到期时间</th><th>备注</th><th>创建时间</th><th className="text-right">操作</th></tr></thead>
+            <tbody>
+              {filtered.map(n => (
+                <tr key={n.id}>
+                  <td><input type="checkbox" className="accent-emerald-600" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} /></td>
+                  <td className="font-semibold">{n.name}</td>
+                  <td className="text-xs">{n.group_name ? <Badge color="blue">{n.group_name}</Badge> : <span className="text-ink-mut">—</span>}</td>
+                  <td className="font-mono text-xs text-ink-soft">{n.protocol || '—'}</td>
+                  <td className="text-xs"><AddrCell n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} /></td>
+                  <td className="text-xs">
+                    {(n.user_count || 0) > 0 ? (
+                      <button type="button" onClick={() => openUsers(n)}
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11.5px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700 transition-colors"
+                        title="查看使用此落地的用户">
+                        {n.user_count} 人
+                      </button>
+                    ) : (
+                      <span className="text-ink-mut">—</span>
+                    )}
+                  </td>
+                  <td className="text-xs">
+                    {n.expires_at > 0 ? (
+                      <span className="inline-flex items-center gap-1.5">{fmtDate(n.expires_at)}{(() => { const b = expiryBadge(n.expires_at); return b ? <Badge color={b.color}>{b.label}</Badge> : null })()}</span>
+                    ) : <span className="text-ink-mut">—</span>}
+                  </td>
+                  <td className="text-xs text-ink-soft">{n.remark || '—'}</td>
+                  <td className="text-xs text-ink-mut">{new Date(n.created_at * 1000).toLocaleDateString('zh-CN')}</td>
+                  <td className="text-right">
+                    <RowActions
+                      n={n}
+                      busy={busyId === n.id}
+                      onProbe={() => probeDNS(n)}
+                      onChangeIP={() => setChangeIPFor(n)}
+                      onEdit={() => { setEditing(n); setShowForm(true) }}
+                      onDelete={() => deleteNode(n)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>}
+          {isMobile && <div>
+            {filtered.map(n => (
+              <div key={n.id} className="mobile-card">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="flex items-center gap-2 font-semibold">
+                    <input type="checkbox" className="accent-emerald-600" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} />
+                    {n.name}
+                  </label>
+                  <RowActions
+                    n={n}
+                    busy={busyId === n.id}
+                    onProbe={() => probeDNS(n)}
+                    onChangeIP={() => setChangeIPFor(n)}
+                    onEdit={() => { setEditing(n); setShowForm(true) }}
+                    onDelete={() => deleteNode(n)}
+                    compact
+                  />
+                </div>
+                <div className="mt-1.5 space-y-1">
+                  <div className="font-mono text-[12.5px] text-ink">{n.host}:{n.port}</div>
+                  {(n.backend_ip || n.cf_sync) && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {n.backend_ip && <span className="font-mono text-[12px] text-ink-mut">{n.backend_ip}</span>}
+                      <CFStatus n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
+                    {n.group_name && <Badge color="blue">{n.group_name}</Badge>}
+                    <span className="font-mono">{n.protocol || '—'}</span>
+                    {(n.user_count || 0) > 0 ? (
+                      <button type="button" onClick={() => openUsers(n)}
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        {n.user_count} 人
+                      </button>
+                    ) : (
+                      <span className="text-ink-mut">未使用</span>
+                    )}
+                    {n.expires_at > 0 && (
+                      <span className="inline-flex items-center gap-1">
+                        {fmtDate(n.expires_at)}
+                        {(() => { const b = expiryBadge(n.expires_at); return b ? <Badge color={b.color}>{b.label}</Badge> : null })()}
+                      </span>
+                    )}
+                    {n.remark && <span className="text-ink-mut">{n.remark}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>}
+        </>)}
+        </TableScroll>
+      </Panel>
+      </div>
+
+      {showForm && (
+        <NodeRepoForm
+          node={editing}
+          folders={folders}
+          onClose={() => setShowForm(false)}
+          onDone={() => { setShowForm(false); load() }}
+        />
+      )}
+
+      {usersFor && (
+        <Modal open onClose={() => setUsersFor(null)} title={`${usersFor.name} · ${usersFor.host}:${usersFor.port}`} wide>
+          <div className="space-y-3">
+            <p className="text-[13px] text-ink-soft">
+              {usersLoading ? '加载中…' : `${(usersList || []).length} 个用户正在使用此落地`}
+            </p>
+            {usersLoading ? (
+              <div className="py-8 text-center text-ink-mut text-sm">加载中…</div>
+            ) : !usersList?.length ? (
+              <div className="py-8 text-center text-ink-mut text-sm">暂无用户使用</div>
+            ) : (
+              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto border border-line rounded-xl">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>用户</th>
+                      <th>落地显示名</th>
+                      <th>流量</th>
+                      <th>规则</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usersList.map(u => (
+                      <tr key={u.user_id}>
+                        <td className="font-semibold">
+                          <Link to={`/users/${u.user_id}`} className="text-emerald-600 hover:underline" onClick={() => setUsersFor(null)}>
+                            {u.username}
+                          </Link>
+                        </td>
+                        <td className="text-xs text-ink-soft">{u.name_override || u.name || '—'}</td>
+                        <td className="text-xs font-mono text-ink-soft">
+                          {(u.quota_bytes > 0 || u.used_bytes > 0)
+                            ? fmtTrafficGB(u.used_bytes, u.quota_bytes)
+                            : '—'}
+                        </td>
+                        <td className="text-xs">{u.rule_count > 0 ? `${u.rule_count} 条` : <span className="text-ink-mut">0</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="flex justify-end pt-1">
+              <button type="button" onClick={() => setUsersFor(null)}
+                className="px-4 py-2 text-[13px] font-semibold rounded-xl border border-line bg-surface hover:bg-raised">
+                关闭
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showBulk && (
+        <BulkImportForm
+          folders={folders}
+          onClose={() => setShowBulk(false)}
+          onDone={() => { setShowBulk(false); load() }}
+        />
+      )}
+      {showMove && (
+        <MoveToFolderModal
+          title={`将 ${sel.size} 个节点移入…`}
+          folders={folders}
+          onClose={() => setShowMove(false)}
+          onMove={moveToFolder}
+        />
+      )}
+      {changeIPFor && (
+        <ChangeIPModal
+          node={changeIPFor}
+          onClose={() => setChangeIPFor(null)}
+          onDone={() => { setChangeIPFor(null); load() }}
+          notifyCF={notifyCF}
+        />
+      )}
+    </Layout>
+  )
+}
+
+
+function looksDomain(host) {
+  if (!host) return false
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false
+  if (host.includes(':')) return false // v6 literal rough
+  return /[a-zA-Z]/.test(host)
+}
+
+const rowBtn = 'inline-flex items-center justify-center h-7 px-2.5 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
+const rowBtnNeutral = `${rowBtn} border-line bg-surface text-ink-soft hover:bg-raised hover:text-ink`
+const rowBtnPrimary = `${rowBtn} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/25 dark:text-emerald-300 dark:hover:bg-emerald-900/40`
+const rowBtnDanger = `${rowBtn} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300 dark:hover:bg-rose-900/35`
+
+function CFStatus({ n, onRetry, busy }) {
+  if (!n?.cf_sync) return null
+  if (n.cf_last_error) {
+    return (
+      <button type="button" disabled={busy} onClick={onRetry}
+        title={n.cf_last_error}
+        className="inline-flex items-center">
+        <Badge color="red" className={busy ? 'opacity-50' : 'cursor-pointer hover:brightness-95'}>
+          CF 失败{busy ? '…' : ' · 重试'}
+        </Badge>
+      </button>
+    )
+  }
+  if (n.cf_last_sync_at > 0) {
+    return (
+      <Badge
+        color="green"
+        title={`上次同步 ${new Date(n.cf_last_sync_at * 1000).toLocaleString('zh-CN')}${n.cf_last_ip ? ` · ${n.cf_last_ip}` : ''}`}
+      >
+        CF 已同步
+      </Badge>
+    )
+  }
+  return <Badge color="amber">CF 待同步</Badge>
+}
+
+function AddrCell({ n, onRetry, busy }) {
+  return (
+    <div className="min-w-[11rem] py-0.5">
+      <div className="font-mono text-[12.5px] text-ink leading-snug">{n.host}:{n.port}</div>
+      {(n.backend_ip || n.cf_sync) && (
+        <div className="mt-1 flex items-center gap-2 flex-wrap">
+          {n.backend_ip && <span className="font-mono text-[12px] text-ink-mut leading-none">{n.backend_ip}</span>}
+          <CFStatus n={n} onRetry={onRetry} busy={busy} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RowActions({ n, busy, onProbe, onChangeIP, onEdit, onDelete, compact }) {
+  const showDNS = looksDomain(n.host)
+  const showChangeIP = showDNS || n.cf_sync
+  return (
+    <div className={`inline-flex items-center flex-wrap justify-end ${compact ? 'gap-1.5' : 'gap-1.5'}`}>
+      {(showDNS || showChangeIP) && (
+        <div className="inline-flex items-center gap-1.5">
+          {showDNS && (
+            <button type="button" disabled={busy} onClick={onProbe} className={rowBtnNeutral} title="解析域名并对比当前 IP">
+              检测
+            </button>
+          )}
+          {showChangeIP && (
+            <button type="button" onClick={onChangeIP} className={rowBtnPrimary} title="只改当前 IP 并同步 CF">
+              改 IP
+            </button>
+          )}
+        </div>
+      )}
+      <div className="inline-flex items-center gap-1.5">
+        {n.uri && (
+          <CopyText text={n.uri}>
+            <span className={`${rowBtnPrimary} cursor-pointer`}>复制</span>
+          </CopyText>
+        )}
+        <button type="button" onClick={onEdit} className={rowBtnPrimary}>编辑</button>
+        <button type="button" onClick={onDelete} className={rowBtnDanger}>删除</button>
+      </div>
+    </div>
+  )
+}
+
+function ChangeIPModal({ node, onClose, onDone, notifyCF }) {
+  const [ip, setIP] = useState(node?.backend_ip || '')
+  const [saving, setSaving] = useState(false)
+  const toast = useToast()
+  const submit = async (e) => {
+    e.preventDefault()
+    const v = ip.trim()
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) { toast('请填写合法 IPv4', 'error'); return }
+    setSaving(true)
+    try {
+      const body = { backend_ip: v }
+      // Auto-enable CF when target is a domain so one-click works after first bind.
+      if (looksDomain(node.host) && !node.cf_sync) body.cf_sync = true
+      const res = await api.post(`/node-repo/${node.id}/backend-ip`, body)
+      toast('IP 已更新')
+      notifyCF?.(res?.cf_sync)
+      onDone()
+    } catch (err) { toast(err.message, 'error') }
+    finally { setSaving(false) }
+  }
+  return (
+    <Modal open onClose={onClose} title={`改 IP · ${node.name}`}>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="text-[13px] text-ink-soft">
+          目标 <span className="font-mono font-semibold text-ink">{node.host}:{node.port}</span>
+          <div className="text-[12px] text-ink-mut mt-1">只改当前落地 IP 并推送到 CF；域名与用户规则不变。</div>
+        </div>
+        <div>
+          <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">当前 IPv4</label>
+          <input className="input-field font-mono" value={ip} onChange={e => setIP(e.target.value)}
+            placeholder="例如 68.252.208.113" autoFocus />
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? '保存中…' : '保存并同步 CF'}</button>
+          <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function NodeRepoForm({ node, folders = [], onClose, onDone }) {
+  const isEdit = !!node
+  const [form, setForm] = useState({
+    name: node?.name || '',
+    protocol: node?.protocol || '',
+    host: node?.host || '',
+    port: node?.port || '',
+    uri: node?.uri || '',
+    remark: node?.remark || '',
+    group_id: node?.group_id > 0 ? String(node.group_id) : '0',
+    expires_at: node?.expires_at > 0 ? new Date(node.expires_at * 1000).toISOString().slice(0, 10) : '',
+    backend_ip: node?.backend_ip || '',
+    cf_sync: !!node?.cf_sync,
+    cf_zone_id: node?.cf_zone_id || '',
+    cf_record_name: node?.cf_record_name || '',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const toast = useToast()
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Auto-parse URI: when user pastes a proxy URI into the URI field,
+  // extract protocol, host, port, and name automatically.
+  const handleURIBlur = () => {
+    const uri = form.uri.trim()
+    if (!uri || !uri.includes('://')) return
+    const parsed = tryParseURI(uri)
+    if (!parsed) return
+    setForm(f => ({
+      ...f,
+      protocol: parsed.protocol || f.protocol,
+      host: parsed.host || f.host,
+      port: parsed.port || f.port,
+      // If URI host is an IP and target is empty domain path, seed backend_ip.
+      backend_ip: (!f.backend_ip && parsed.host && /^\d+\.\d+\.\d+\.\d+$/.test(parsed.host))
+        ? parsed.host
+        : f.backend_ip,
+      name: !f.name.trim() && parsed.name ? parsed.name : f.name,
+    }))
+    toast(`已识别 ${parsed.protocol} 节点：${parsed.host}:${parsed.port}`)
+  }
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!form.name.trim() || !form.host.trim() || !form.port) { toast('名称、地址、端口不能为空', 'error'); return }
+    if (form.cf_sync && !form.backend_ip.trim()) { toast('开启 CF 同步时须填写当前 IPv4', 'error'); return }
+    setSubmitting(true)
+    try {
+      const gid = Number(form.group_id) || 0
+      const body = {
+        name: form.name.trim(),
+        protocol: form.protocol.trim(),
+        host: form.host.trim(),
+        port: Number(form.port),
+        uri: form.uri.trim(),
+        remark: form.remark.trim(),
+        group_id: gid,
+        group_name: '',
+        expires_at: form.expires_at ? Math.floor(new Date(form.expires_at).getTime() / 1000) : 0,
+        backend_ip: form.backend_ip.trim(),
+        cf_sync: !!form.cf_sync,
+        cf_zone_id: form.cf_zone_id.trim(),
+        cf_record_name: form.cf_record_name.trim(),
+      }
+      let cf
+      if (isEdit) {
+        const res = await api.patch(`/node-repo/${node.id}`, body)
+        cf = res?.cf_sync
+        toast('已更新')
+      } else {
+        const res = await api.post('/node-repo', body)
+        cf = res?.cf_sync
+        toast('已添加')
+      }
+      if (cf?.attempted) {
+        if (cf.ok) toast(`CF：${cf.message || '已同步'} ${cf.record || ''} → ${cf.ip || ''}`.trim())
+        else toast(`CF 同步失败：${cf.message || '未知错误'}`, 'error')
+      }
+      onDone()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={isEdit ? '编辑节点' : '添加节点'} wide>
+      <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">URI <span className="text-ink-mut font-normal text-xs">(粘贴后自动识别)</span></label>
+            <input className="input-field font-mono text-xs" value={form.uri} onChange={e => set('uri', e.target.value)} onBlur={handleURIBlur} placeholder="粘贴代理 URI，自动填充下方字段" />
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">名称</label>
+            <input className="input-field" value={form.name} onChange={e => set('name', e.target.value)} placeholder="自定义节点名称" autoFocus />
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">分组</label>
+            <select className="input-field" value={form.group_id} onChange={e => set('group_id', e.target.value)}>
+              <option value="0">未分组</option>
+              {folders.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">协议</label>
+            <input className="input-field" value={form.protocol} onChange={e => set('protocol', e.target.value)} placeholder="如 ss, vmess, trojan" />
+          </div>
+          <div className="pt-1 border-t border-line-soft">
+            <div className="text-[12px] font-bold text-ink-soft tracking-wide mb-2">转发目标</div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">目标地址</label>
+              <input className="input-field font-mono" value={form.host} onChange={e => set('host', e.target.value)} placeholder="域名（推荐）或 IP" />
+              <p className="text-[11px] text-ink-mut mt-1 m-0">规则认这个地址；填域名后换 IP 用户不用改链接</p>
+            </div>
+            <div>
+              <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">端口</label>
+              <input className="input-field font-mono" type="number" min="1" max="65535" value={form.port} onChange={e => set('port', e.target.value)} placeholder="端口" />
+            </div>
+          </div>
+          {form.uri && form.host && form.uri.includes(form.host) === false && /@\d+\.\d+\.\d+\.\d+/.test(form.uri) && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300 m-0 -mt-1">
+              URI 里仍是 IP，规则已走上方域名；URI 仅作展示/复制，不影响用户入口链接。
+            </p>
+          )}
+
+          <div className="rounded-xl border border-line-soft bg-raised/40 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[13px] font-bold text-ink">Cloudflare DNS</div>
+                <div className="text-[11px] text-ink-mut">可选。保存时把当前 IP 写入 CF A 记录（灰云）</div>
+              </div>
+              <button type="button" role="switch" aria-checked={form.cf_sync}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${form.cf_sync ? 'bg-emerald-600' : 'bg-gray-500'}`}
+                onClick={() => set('cf_sync', !form.cf_sync)}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.cf_sync ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-semibold text-ink-soft mb-1">当前 IP {form.cf_sync && <span className="text-red-500">*</span>}</label>
+                <input className="input-field font-mono text-sm" value={form.backend_ip} onChange={e => set('backend_ip', e.target.value)} placeholder="要写入 A 记录的 IPv4" />
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-semibold text-ink-soft mb-1">记录名 <span className="text-ink-mut font-normal">(可选)</span></label>
+                <input className="input-field font-mono text-sm" value={form.cf_record_name} onChange={e => set('cf_record_name', e.target.value)} placeholder="默认用目标地址" disabled={!form.cf_sync && !form.cf_record_name} />
+              </div>
+            </div>
+            {isEdit && node?.cf_last_sync_at > 0 && (
+              <div className="text-[11px] text-ink-mut">
+                上次同步：{new Date(node.cf_last_sync_at * 1000).toLocaleString('zh-CN')}
+                {node.cf_last_ip ? ` · ${node.cf_last_ip}` : ''}
+                {node.cf_last_error ? ` · 错误：${node.cf_last_error}` : ' · 成功'}
+              </div>
+            )}
+            {isEdit && node?.cf_last_error && !node?.cf_last_sync_at && (
+              <div className="text-[11px] text-red-600">上次失败：{node.cf_last_error}</div>
+            )}
+          </div>
+
+          <div className="pt-1 border-t border-line-soft">
+            <div className="text-[12px] font-bold text-ink-soft tracking-wide mb-2">管理</div>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">备注 <span className="text-ink-mut font-normal text-xs">(可选)</span></label>
+            <input className="input-field" value={form.remark} onChange={e => set('remark', e.target.value)} placeholder="备注" />
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">到期时间 <span className="text-ink-mut font-normal text-xs">(可选，留空永不过期)</span></label>
+            <DateInput
+              value={form.expires_at}
+              onChange={v => set('expires_at', v)}
+              className="w-full"
+              placeholder="留空永不过期"
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="submit" disabled={submitting} className="btn-primary flex-1">{submitting ? '保存中…' : '保存'}</button>
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
+          </div>
+        </form>
+    </Modal>
+  )
+}
+
+function BulkImportForm({ folders = [], onClose, onDone }) {
+  const [text, setText] = useState('')
+  const [groupId, setGroupId] = useState('0')
+  const [submitting, setSubmitting] = useState(false)
+  const toast = useToast()
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+    if (lines.length === 0) { toast('请输入至少一条 URI', 'error'); return }
+    const nodes = parseURIs(lines.join('\n'))
+    if (nodes.length === 0) { toast('未能解析出任何有效节点', 'error'); return }
+    setSubmitting(true)
+    try {
+      let count = 0
+      const gid = Number(groupId) || 0
+      for (const n of nodes) {
+        await api.post('/node-repo', {
+          name: n.name || '(未命名)',
+          protocol: n.protocol || '',
+          host: n.host,
+          port: n.port,
+          uri: n.uri || '',
+          remark: '',
+          group_id: gid,
+          group_name: '',
+        })
+        count++
+      }
+      toast(`成功导入 ${count} 个节点`)
+      onDone()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="批量导入节点" wide>
+      <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">节点 URI（每行一条）</label>
+            <textarea className="input-field font-mono text-xs" value={text} onChange={e => setText(e.target.value)}
+              placeholder={'ss://…\nvmess://…\ntrojan://…\nvless://…'} rows={16} style={{ resize: 'vertical', minHeight: 300 }} autoFocus />
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">导入到分组</label>
+            <select className="input-field" value={groupId} onChange={e => setGroupId(e.target.value)}>
+              <option value="0">未分组</option>
+              {folders.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="submit" disabled={submitting} className="btn-primary flex-1">{submitting ? '导入中…' : '导入'}</button>
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
+          </div>
+        </form>
+    </Modal>
+  )
+}
