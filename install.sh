@@ -449,15 +449,24 @@ ensure_runtime_deps() {
   die "缺少依赖: ${need[*]}。请先用系统包管理器安装后再跑本脚本"
 }
 
-# Verify dest against SHA256SUMS for $asset. Echoes the file sha256 hex.
+# Verify dest against SHA256SUMS for $asset. dest may be renamed (we always
+# save as nft-agent / nft-server); compare hashes by the published asset name.
+# Echoes the file sha256 hex.
 verify_asset() {
   local base="$1" asset="$2" dest="$3" strictness="${4:-strict}"
-  local ddir
+  local ddir expected actual
   ddir="$(dirname "$dest")"
+  [[ -f "$dest" ]] || die "下载结果不存在: $dest"
   if curl -fLs --retry 5 --retry-delay 2 --connect-timeout 20 \
       "$base/SHA256SUMS" -o "$ddir/SHA256SUMS" 2>/dev/null; then
-    (cd "$ddir" && grep -E "  $asset\$" SHA256SUMS | sha256sum -c - >&2) \
-      || die "sha256 校验失败: $asset"
+    expected="$(awk -v a="$asset" '$2 == a { print $1; exit }' "$ddir/SHA256SUMS")"
+    if [[ -z "$expected" ]]; then
+      die "SHA256SUMS 中没有 $asset"
+    fi
+    actual="$(sha256sum "$dest" | awk '{print $1}')"
+    if [[ "$actual" != "$expected" ]]; then
+      die "sha256 校验失败: $asset（期望 ${expected:0:12}…，实际 ${actual:0:12}…）"
+    fi
   elif [[ "$strictness" == "strict" ]]; then
     die "未取到 SHA256SUMS：必须强校验，拒绝裸跑（检查网络/代理或稍后重试）"
   else
@@ -478,14 +487,23 @@ fetch_and_verify() {
 # Download nft-server / nft-agent for this host arch, trying suffixed names first.
 download_role_binary() {
   local base="$1" kind="$2" dest="$3"
-  local name
+  local name size
   for name in $(asset_candidates "$kind"); do
     note "    尝试 $name ..."
-    if curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
+    rm -f "$dest"
+    if ! curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
          "$base/$name" -o "$dest"; then
-      verify_asset "$base" "$name" "$dest" strict
-      return 0
+      continue
     fi
+    size="$(wc -c < "$dest" | tr -d ' ')"
+    # Proxies sometimes return 200 + HTML; real binaries are several MB.
+    if [[ -z "$size" || "$size" -lt 1048576 ]]; then
+      echo "    $name 体积异常 (${size:-0} bytes)，换下一个候选" >&2
+      rm -f "$dest"
+      continue
+    fi
+    verify_asset "$base" "$name" "$dest" strict
+    return 0
   done
   die "下载失败: 未找到 $kind（linux-$HOST_GOARCH）。请确认已发布对应架构的 release 产物"
 }

@@ -9,6 +9,27 @@
 
 ---
 
+## v0.1.3 — 2026-08-15
+
+修复节点 agent 一键安装在 sha256 校验阶段必失败的问题。固定安装命令不变。
+
+### 修复
+
+- 安装脚本下载后把二进制存成 `nft-agent` / `nft-server`，校验却按发布名 `nft-*-linux-amd64` 找文件，导致 `sha256sum: No such file or directory`
+- 改为按发布名取出期望哈希，再和本地文件内容比对，不再要求磁盘文件名与资产名一致
+- 下载结果小于 1MB 时视为失败（常见是代理返回了 HTML），自动尝试下一个候选资产名
+
+### 升级注意
+
+- 一键安装命令不变。重新跑同一条即可，脚本从 `main` 拉取，不必先升级面板
+- 已装上面板的机器如需同步脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.1.2 — 2026-08-14
 
 落地仓库支持 SOCKS5 / Naive 用 IP、端口、账号、密码直接填表，不必再手拼分享链接。
