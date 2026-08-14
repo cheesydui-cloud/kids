@@ -279,10 +279,14 @@ export default function NodeList() {
           {pinMode && (
             <div className="fixed z-50 pointer-events-none flex flex-col items-end gap-1"
               style={{ left: pinMode.cx - 16, top: pinMode.cy - 18, transform: 'translateX(-100%)' }}>
-              <div className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold shadow transition-colors ${
-                pinMode.zone === 'top' ? 'bg-[color:var(--brand-from)] text-white' : 'bg-surface text-[color:var(--brand-from)] border-[1.5px] border-[color:var(--brand-from)]'}`}>↑ 置顶</div>
-              <div className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold shadow transition-colors ${
-                pinMode.zone === 'bottom' ? 'bg-amber-500 text-white' : 'bg-white/90 text-amber-400 border border-amber-200'}`}>置底 ↓</div>
+              <div className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold border-[1.5px] transition-colors ${
+                pinMode.zone === 'top'
+                  ? 'bg-surface text-[color:var(--brand-from)] border-[color:var(--brand-from)] shadow-[var(--shadow-float)]'
+                  : 'bg-surface text-ink-soft border-line'}`}>↑ 置顶</div>
+              <div className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold border-[1.5px] transition-colors ${
+                pinMode.zone === 'bottom'
+                  ? 'bg-surface text-amber-700 dark:text-amber-300 border-amber-500/55 shadow-[var(--shadow-float)]'
+                  : 'bg-surface text-ink-soft border-line'}`}>置底 ↓</div>
             </div>
           )}
           </div>}
@@ -394,7 +398,7 @@ function AddNodeModal({ open, onClose, onDone }) {
     return (
       <Modal open={open} onClose={() => { const cid = created.id; setCreated(null); navigate(`/nodes/${cid}`) }} title="节点已创建 · Token">
         <div className="text-[13px] text-ink-soft mb-3">这是该节点的 Token，可点击复制。在节点详情页也能随时查看它和完整安装命令。</div>
-        <div className="rounded-[10px] border border-line bg-[#f7f9fc] px-3.5 py-3 font-mono text-[13px] break-all">
+        <div className="rounded-[10px] border border-line bg-surface px-3.5 py-3 font-mono text-[13px] break-all">
           <CopyText text={created.secret} />
         </div>
         <div className="flex justify-end mt-5">

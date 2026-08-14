@@ -6,8 +6,8 @@ import {
   ROLE_LANDING, ROLE_DIRECT,
 } from '../../lib/landing'
 import { useToast, useBlur } from '../../components/Layout'
-import { Badge, Modal, Select, SensText, DateInput } from '../../components/ui'
-import { TableBox } from '../../components/page'
+import { Badge, Modal, Select, SensText, DateInput, useConfirm } from '../../components/ui'
+import { TableBox, SearchInput } from '../../components/page'
 
 const ADMIN_ROLE_OPTS = [
   [ROLE_LANDING, '落地', 'bg-transparent text-[color:#3d6b45] border-[#7d9a7a]'],
@@ -113,6 +113,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
   const [sel, setSel] = useState(new Set())
   const [showRepoPicker, setShowRepoPicker] = useState(false)
   const toast = useToast()
+  const confirm = useConfirm()
 
   useEffect(() => {
     api.get('/node-repo').catch(() => {})
@@ -159,6 +160,8 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
     } catch (err) { toast(err.message, 'error') }
   }
   const deleteExit = async (ex) => {
+    const label = ex.name || `${ex.host}:${ex.port}`
+    if (!(await confirm({ title: '删除落地', message: `确认删除落地「${label}」？`, confirmText: '删除', danger: true }))) return
     try {
       await api.post(`/users/${userId}/landing-exits/delete`, { host: ex.host, port: ex.port })
       toast('已删除'); reloadLanding()
@@ -303,7 +306,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                         <AdminRoleToggle state={st} onChange={bit => handleSetRole(n, bit)} />
                       </td>
                       <td className="text-right">
-                        <button onClick={() => deleteExit({ host: n.host, port: n.port })} className="text-red-600 text-xs font-semibold">删除</button>
+                        <button onClick={() => deleteExit({ host: n.host, port: n.port, name: n.name })} className="link-danger text-xs">删除</button>
                       </td>
                     </tr>
                   )
@@ -335,7 +338,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                       </td>
                       <td className="text-right"><span className="text-xs text-ink-mut">—</span></td>
                       <td className="text-right">
-                        <button onClick={() => deleteExit(ex)} className="text-red-600 text-xs font-semibold">删除</button>
+                        <button onClick={() => deleteExit(ex)} className="link-danger text-xs">删除</button>
                       </td>
                     </tr>
                   )
@@ -524,12 +527,7 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
                 options={folderOptions}
                 className="w-[220px] max-w-full"
               />
-              <input
-                className="input-field flex-1 min-w-[160px] text-sm"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="搜索名称、协议、地址、备注…"
-              />
+              <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、协议、地址…" className="w-[220px]" />
               <button
                 type="button"
                 onClick={toggleAllFiltered}

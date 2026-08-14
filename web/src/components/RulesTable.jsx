@@ -373,7 +373,7 @@ function MoreMenu({ items }) {
             <Link key={i} to={item.href} className="block px-3.5 py-2 text-[13px] text-ink hover:bg-raised transition-colors no-underline">{item.label}</Link>
           ) : (
             <button key={i} onClick={() => { setOpen(false); item.onClick() }}
-              className={`block w-full text-left px-3.5 py-2 text-[13px] transition-colors bg-transparent border-0 cursor-pointer ${item.danger ? 'text-red-600 hover:bg-red-50' : 'text-ink hover:bg-raised'}`}>{item.label}</button>
+              className={`block w-full text-left px-3.5 py-2 text-[13px] transition-colors bg-transparent border-0 cursor-pointer ${item.danger ? 'link-danger hover:bg-rose-50 dark:hover:bg-rose-950/30' : 'text-ink hover:bg-raised'}`}>{item.label}</button>
           ))}
         </div>
       )}

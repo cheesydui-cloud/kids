@@ -533,9 +533,12 @@ export function Select({ value, onChange, options = [], groups, placeholder = '�
       )}
       {searchable && (
         <div className="p-3 border-b border-line-soft flex-none">
-          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索…"
-            onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }}
-            className="input-field w-full text-[13px]" style={{ height: 34 }} />
+          <div className="relative">
+            <svg className="w-3.5 h-3.5 absolute left-[11px] top-1/2 -translate-y-1/2 text-ink-mut pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+            <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索…"
+              onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }}
+              className="search-field" />
+          </div>
         </div>
       )}
       <div className="overflow-y-auto py-1.5 px-1.5 min-h-0" style={{ maxHeight: listMaxH }}>

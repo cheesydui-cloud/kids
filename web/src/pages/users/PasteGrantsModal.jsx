@@ -78,7 +78,7 @@ export default function PasteGrantsModal({ open, onClose, onDone, allNodes, allU
               <thead><tr><th>节点</th><th>规则上限</th><th>流量配额</th><th>状态</th></tr></thead>
               <tbody>
                 {parsed.map((p, i) => (
-                  <tr key={i} className={p.found ? '' : 'bg-red-50 dark:bg-red-900/10'}>
+                  <tr key={i} className={p.found ? '' : 'outline outline-1 -outline-offset-1 outline-rose-400/50'}>
                     <td className={`font-mono text-sm ${p.found ? '' : 'text-red-500'}`}>{p.name}</td>
                     <td className="font-mono text-sm">{applySettings ? p.maxForwards : 10}</td>
                     <td className="font-mono text-sm">{applySettings ? `${p.quotaGB}GB` : '不限'}</td>

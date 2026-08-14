@@ -162,7 +162,7 @@ export default function Settings() {
           ))}
         </div>
         <div className="px-6 py-[26px]">
-          {error && <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded text-red-600 text-sm">{error}</div>}
+          {error && <div className="mb-4 px-3 py-2 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm">{error}</div>}
           <form onSubmit={submit}>
             {tab === 'panel' && (
               <>

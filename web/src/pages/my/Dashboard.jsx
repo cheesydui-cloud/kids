@@ -76,18 +76,18 @@ export default function MyDashboard() {
   return (
     <Layout>
       {user.disabled && (
-        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm font-medium">
+        <div className="mb-4 px-4 py-3 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm font-medium">
           您的账号已被禁用：{nullStr(user.disable_reason)}。请联系管理员。
         </div>
       )}
 
       {landingBanner && (
-        <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium border ${
+        <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium border-[1.5px] ${
           landingBanner.tone === 'danger'
-            ? 'bg-red-50 border-red-200 text-red-700'
+            ? 'bg-transparent border-rose-500/40 text-rose-700 dark:text-rose-300'
             : landingBanner.tone === 'warn'
-              ? 'bg-amber-50 border-amber-200 text-amber-800'
-              : 'bg-sky-50 border-sky-200 text-sky-800'
+              ? 'bg-transparent border-amber-500/45 text-amber-800 dark:text-amber-300'
+              : 'bg-transparent border-sky-500/40 text-sky-800 dark:text-sky-300'
         }`}>
           {landingBanner.text}
         </div>

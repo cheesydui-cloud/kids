@@ -45,7 +45,7 @@ export default function ChangePassword() {
 
           <div className="pt-[26px]">
             <h4 className="text-[14px] font-semibold text-ink-soft mb-[18px]">修改密码</h4>
-            {error && <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded text-red-600 text-sm">{error}</div>}
+            {error && <div className="mb-4 px-3 py-2 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm">{error}</div>}
             <form onSubmit={submitPassword}>
               <div className={rowClass}>
                 <label className={labelClass}>原密码</label>

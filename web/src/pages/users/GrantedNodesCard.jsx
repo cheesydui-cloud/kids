@@ -225,6 +225,8 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
   }
 
   const revokeOne = async (nodeId) => {
+    const n = nodes.find(x => x.id === nodeId)
+    if (!(await confirm({ title: '撤销授权', message: `确认撤销节点「${n?.name || nodeId}」的授权？`, confirmText: '撤销', danger: true }))) return
     try { await api.del(`/users/${userId}/grants/${nodeId}`); toast('已撤销'); onDone() } catch (err) { toast(err.message, 'error') }
   }
 

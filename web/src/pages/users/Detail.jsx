@@ -87,12 +87,15 @@ export default function UserDetail() {
     try { await api.post(`/users/${id}/toggle`); toast(user.disabled ? '已启用' : '已禁用'); load() } catch (err) { toast(err.message, 'error') }
   }
   const resetTraffic = async () => {
+    if (!(await confirm({ title: '重置流量', message: `清零用户「${user.username}」的已用流量？`, confirmText: '重置', danger: true }))) return
     try { await api.post(`/users/${id}/reset-traffic`); toast('已重置'); load() } catch (err) { toast(err.message, 'error') }
   }
   const deleteUser = async () => {
+    if (!(await confirm({ title: '删除用户', message: `删除用户「${user.username}」？关联的转发将被一并清除。`, confirmText: '删除', danger: true }))) return
     try { await api.del(`/users/${id}`); toast('已删除'); navigate('/users') } catch (err) { toast(err.message, 'error') }
   }
   const resetPassword = async () => {
+    if (!(await confirm({ title: '重置密码', message: `重置用户「${user.username}」的密码？新密码只显示一次，请及时复制保存。`, confirmText: '重置', danger: true }))) return
     try {
       const d = await api.post(`/users/${id}/reset-password`)
       if (d?.new_password) setNewPassword(d.new_password)
@@ -176,7 +179,7 @@ export default function UserDetail() {
             <button onClick={toggleUser} className="btn-secondary text-xs">{user.disabled ? '启用' : '禁用'}</button>
             <button onClick={resetTraffic} className="btn-secondary text-xs">重置流量</button>
             <button onClick={resetPassword} className="btn-secondary text-xs">重置密码</button>
-            <button onClick={deleteUser} className="btn-secondary text-xs text-red-600 border-red-200 hover:border-red-400">删除</button>
+            <button onClick={deleteUser} className="btn-danger text-xs">删除</button>
           </>
         ) : null}
       />
@@ -462,7 +465,7 @@ export default function UserDetail() {
                             <QRCodeButton text={ruleQRText} toast={toast} />
                             <button onClick={copyRuleLink} className="link-accent text-xs hover:underline">复制</button>
                             <button onClick={() => setEditRule(r)} className="link-accent text-xs hover:underline">编辑</button>
-                            <button onClick={deleteRule} className="text-red-600 text-xs font-semibold hover:underline">删除</button>
+                            <button onClick={deleteRule} className="link-danger text-xs">删除</button>
                           </div>
                         </td>
                       </tr>

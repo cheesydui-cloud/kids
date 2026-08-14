@@ -19,6 +19,7 @@ export default function FolderBar({
   const toast = useToast()
   const confirm = useConfirm()
   const [showCreate, setShowCreate] = useState(false)
+  const [showDeletePick, setShowDeletePick] = useState(false)
   const [renaming, setRenaming] = useState(null)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -68,13 +69,15 @@ export default function FolderBar({
       message: `删除「${f.name}」？其中的内容会回到「未分组」，不会被删除。`,
       confirmText: '删除',
       danger: true,
-    }))) return
+    }))) return false
     try {
       await onDelete(f.id)
       if (String(filter) === String(f.id)) onFilter('')
       toast('分组已删除')
+      return true
     } catch (err) {
       toast(err?.message || '删除失败', 'error')
+      return false
     }
   }
 
@@ -87,33 +90,31 @@ export default function FolderBar({
           options={options}
           className="w-[220px] max-w-full"
         />
-        {current && (
-          <span className="inline-flex items-center gap-0.5">
-            <button
-              type="button"
-              title="重命名"
-              className="icon-btn !w-8 !h-8"
-              onClick={() => { setRenaming(current); setName(current.name) }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            </button>
-            <button
-              type="button"
-              title="删除"
-              className="icon-btn-danger !w-8 !h-8"
-              onClick={() => remove(current)}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4h8v2"/></svg>
-            </button>
-          </span>
-        )}
         <button
           type="button"
           onClick={() => { setShowCreate(true); setName('') }}
-          className="btn-secondary !h-[42px] text-[13px]"
+          className="btn-secondary !h-[36px] text-[13px]"
         >
           ＋ 新建分组
         </button>
+        {current && (
+          <button
+            type="button"
+            className="btn-secondary !h-[36px] text-[13px]"
+            onClick={() => { setRenaming(current); setName(current.name) }}
+          >
+            重命名
+          </button>
+        )}
+        {folders.length > 0 && (
+          <button
+            type="button"
+            className="btn-danger !h-[36px] text-[13px]"
+            onClick={() => current ? remove(current) : setShowDeletePick(true)}
+          >
+            删除分组
+          </button>
+        )}
       </div>
 
       {showCreate && (
@@ -128,6 +129,32 @@ export default function FolderBar({
               <button type="button" disabled={busy} onClick={create} className="btn-primary flex-1">{busy ? '创建中…' : '创建'}</button>
               <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary">取消</button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {showDeletePick && (
+        <Modal open onClose={() => setShowDeletePick(false)} title="删除分组">
+          <p className="text-sm text-ink-soft mb-3">选择要删除的分组。组内内容会回到「未分组」，不会被删除。</p>
+          <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+            {folders.map(f => (
+              <div key={f.id} className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-line">
+                <span className="text-sm font-semibold min-w-0 truncate">{f.name}</span>
+                <span className="ml-auto text-xs text-ink-mut font-mono flex-none">{f.count || 0}</span>
+                <button
+                  type="button"
+                  className="btn-danger !h-8 text-xs flex-none"
+                  onClick={async () => {
+                    if (await remove(f)) setShowDeletePick(false)
+                  }}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end mt-4">
+            <button type="button" onClick={() => setShowDeletePick(false)} className="btn-secondary">取消</button>
           </div>
         </Modal>
       )}

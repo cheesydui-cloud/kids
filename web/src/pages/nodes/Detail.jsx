@@ -301,17 +301,13 @@ export default function NodeDetail() {
 
           {/* header actions */}
           <div className="flex flex-wrap gap-2.5 mt-4 md:mt-3">
-            {node.disabled ? (
-              <button onClick={toggle} className="inline-flex items-center px-3.5 py-[9px] rounded-[10px] text-[13px] font-semibold bg-[#eafaf1] text-[#0a8a4f] border border-[#c6ecd6] hover:brightness-95 transition cursor-pointer">启用节点</button>
-            ) : (
-              <button onClick={toggle} className="inline-flex items-center px-3.5 py-[9px] rounded-[10px] text-[13px] font-semibold bg-surface text-[#b42318] border border-[#f1c7c2] hover:bg-[#fef3f2] transition-colors cursor-pointer">禁用节点</button>
-            )}
+            <button onClick={toggle} className="btn-secondary text-xs">{node.disabled ? '启用节点' : '禁用节点'}</button>
             {!isComposite && (
-              <button onClick={resync} className="inline-flex items-center px-3.5 py-[9px] rounded-[10px] text-[13px] font-semibold bg-surface text-ink-soft border border-[#d7dce3] hover:bg-[#f7f9fc] transition-colors cursor-pointer">重新同步</button>
+              <button onClick={resync} className="btn-secondary text-xs">重新同步</button>
             )}
-            <button onClick={remove} className="hidden md:inline-flex items-center px-3.5 py-[9px] rounded-[10px] text-[13px] font-semibold bg-surface text-[#b42318] border border-[#f1c7c2] hover:bg-[#fef3f2] transition-colors cursor-pointer">删除节点</button>
+            <button onClick={remove} className="hidden md:inline-flex btn-danger text-xs">删除节点</button>
             {!isComposite && agentOutdated && (
-              <button onClick={upgrade} title={`推送升级到 ${latest_agent_version}`} className="hidden md:inline-flex btn-primary !h-auto py-[9px] max-w-[280px] truncate">⤴ 推送升级到 {latest_agent_version}</button>
+              <button onClick={upgrade} title={`推送升级到 ${latest_agent_version}`} className="hidden md:inline-flex btn-secondary text-xs max-w-[280px] truncate">⤴ 推送升级到 {latest_agent_version}</button>
             )}
           </div>
         </header>
@@ -351,7 +347,7 @@ export default function NodeDetail() {
                   {node.secret
                     ? <SensText blurred={blurred}><CopyText text={node.secret} /></SensText>
                     : <span className="text-ink-mut">{node.secret_legacy ? '旧版哈希 Token，无法显示，请重置' : '未设置'}</span>}
-                  <button onClick={resetToken} className="inline-flex items-center px-2.5 py-[3px] rounded-[7px] text-[12px] font-semibold bg-surface text-ink-soft border border-[#d7dce3] hover:bg-[#f7f9fc] transition-colors cursor-pointer">重置 Token</button>
+                  <button onClick={resetToken} className="btn-secondary !h-7 px-2.5 text-xs">重置 Token</button>
                 </span>
               </InfoRow>
               <InfoRow label="最近心跳">
@@ -373,12 +369,12 @@ export default function NodeDetail() {
               )}
             </div>
             {nullStr(node.last_error) && (
-              <div className="mt-2 text-[12.5px] text-red-700 dark:text-red-400 bg-red-500/[.08] border border-red-500/30 rounded-lg px-3 py-2 break-all">
+              <div className="mt-2 text-[12.5px] text-rose-700 dark:text-rose-300 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl px-3 py-2 break-all">
                 {nullStr(node.last_error)}
               </div>
             )}
             {node.last_warning && !nullStr(node.last_error) && (
-              <div className="mt-2 text-[12.5px] text-[#b25000] bg-[#fef6ec] border border-[#f6d9ac] rounded-lg px-3 py-2 break-all">
+              <div className="mt-2 text-[12.5px] text-amber-800 dark:text-amber-300 bg-transparent border-[1.5px] border-amber-500/45 rounded-xl px-3 py-2 break-all">
                 {node.last_warning}
               </div>
             )}
@@ -391,7 +387,7 @@ export default function NodeDetail() {
               <h2 className="m-0 text-[15px] font-bold">节点安装命令</h2>
             </div>
             {!panel_url_configured && (
-              <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-[13px]">
+              <div className="mb-3 px-3 py-2 bg-transparent border-[1.5px] border-amber-500/45 rounded-xl text-amber-800 dark:text-amber-300 text-[13px]">
                 尚未设置面板地址，下面用你当前访问的地址推断。如 agent 走不同地址，请到<Link to="/nodes" className="link-accent">节点页</Link>设置后再复制。
               </div>
             )}
@@ -578,7 +574,7 @@ export default function NodeDetail() {
                         if (!await confirm({ title: '取消授权', message: `确定取消 ${g.username} 对该节点的授权？`, confirmText: '取消授权', danger: true })) return
                         try { await api.del(`/users/${g.user_id}/grants/${node.id}`); toast('已取消授权'); load() }
                         catch (e) { toast(e.message, 'error') }
-                      }} className="text-red-500 text-xs font-semibold hover:underline cursor-pointer bg-transparent border-0 p-0">取消授权</button>
+                      }} className="link-danger text-xs cursor-pointer bg-transparent border-0 p-0">取消授权</button>
                     </td>
                   </tr>
                 ))}
@@ -593,7 +589,7 @@ export default function NodeDetail() {
       {/* One-time reveal of a freshly reset Token. Closing clears it from memory. */}
       <Modal open={!!revealedSecret} onClose={() => setRevealedSecret('')} title="新的 Token">
         <div className="text-[13px] text-ink-soft mb-3">请立即复制并保存。关闭后无法再次查看，只能重新重置。</div>
-        <div className="rounded-[10px] border border-line bg-[#f7f9fc] px-3.5 py-3 font-mono text-[13px] break-all">
+        <div className="rounded-[10px] border border-line bg-surface px-3.5 py-3 font-mono text-[13px] break-all">
           <CopyText text={revealedSecret} />
         </div>
         <div className="flex justify-end mt-5">
@@ -653,19 +649,19 @@ function ConfigField({ label, hint, children }) {
 function HeaderStatus({ node }) {
   let text, cls, dot
   if (node.disabled) {
-    text = '已禁用'; cls = 'text-[#c2520a] bg-[#fdeede] border-[#f6d4ac]'; dot = '#e0892f'
+    text = '已禁用'; cls = 'text-amber-700 dark:text-amber-300 border-amber-500/55'; dot = '#e0892f'
   } else if (nullStr(node.last_error)) {
-    text = '错误'; cls = 'text-[#b42318] bg-[#fef3f2] border-[#f1c7c2]'; dot = '#e5484d'
+    text = '错误'; cls = 'text-rose-700 dark:text-rose-300 border-rose-500/55'; dot = '#e5484d'
   } else if (node.last_warning) {
-    text = '警告'; cls = 'text-[#b25000] bg-[#fef6ec] border-[#f6d9ac]'; dot = '#e0892f'
+    text = '警告'; cls = 'text-amber-700 dark:text-amber-300 border-amber-500/55'; dot = '#e0892f'
   } else if (node.online === 1) {
     text = node.last_apply_at?.Valid ? '在线 · 已同步' : '在线 · 待同步'
-    cls = 'text-[#0a8a4f] bg-[#e7f7ee] border-[#c6ecd6]'; dot = '#22b46e'
+    cls = 'text-emerald-700 dark:text-emerald-300 border-emerald-500/55'; dot = '#22b46e'
   } else {
-    text = '离线'; cls = 'text-[#6b7685] bg-[#f1f3f6] border-[#e1e5ea]'; dot = '#9aa4b2'
+    text = '离线'; cls = 'text-ink-soft border-line'; dot = '#9aa4b2'
   }
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-2.5 py-[3px] rounded-full border ${cls}`}>
+    <span className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-2.5 py-[3px] rounded-full bg-transparent border-[1.5px] ${cls}`}>
       <span className="w-1.5 h-1.5 rounded-full" style={{ background: dot }} />
       {text}
     </span>

@@ -68,13 +68,13 @@ export function ToolbarActions({ children, className = '' }) {
   )
 }
 
-/* Search box with a leading magnifier; controlled via value/onChange. */
-export function SearchInput({ value, onChange, placeholder }) {
+/* Compact search box; magnifier sits in reserved left padding so it never overlaps text. */
+export function SearchInput({ value, onChange, placeholder, className = '' }) {
   return (
-    <div className="relative flex-1 min-w-0 md:min-w-[240px] md:max-w-[340px]">
-      <svg className="w-4 h-4 absolute left-[13px] top-1/2 -translate-y-1/2 text-ink-mut pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+    <div className={`relative w-[196px] max-w-full shrink-0 ${className}`}>
+      <svg className="w-3.5 h-3.5 absolute left-[11px] top-1/2 -translate-y-1/2 text-ink-mut pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="input-field !rounded-xl pl-[38px] pr-3.5" />
+        className="search-field" />
     </div>
   )
 }

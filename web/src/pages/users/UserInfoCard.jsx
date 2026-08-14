@@ -70,7 +70,7 @@ export default function UserInfoCard({ user, rules, isRegularUser, onToggle, onR
               <button onClick={onToggle} className="btn-secondary text-xs">{user.disabled ? '启用' : '禁用'}</button>
               <button onClick={onResetTraffic} className="btn-secondary text-xs">重置流量</button>
               <button onClick={handleResetPassword} className="btn-secondary text-xs">重置密码</button>
-              <button onClick={onDelete} className="btn-secondary text-xs">删除用户</button>
+              <button onClick={onDelete} className="btn-danger text-xs">删除用户</button>
             </div>
           )}
         </div>

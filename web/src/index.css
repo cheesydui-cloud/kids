@@ -122,24 +122,40 @@ html, body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-from) 16%, transparent);
 }
 
+/* Compact search field — extra left pad so the magnifier never overlaps text */
+.search-field {
+  @apply w-full h-[36px] rounded-xl text-[13px] transition-all outline-none;
+  padding: 0 10px 0 34px;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-line);
+  color: var(--color-ink);
+  box-shadow: none;
+}
+.search-field::placeholder { color: var(--color-ink-mut); opacity: 0.75; }
+.search-field:hover { border-color: color-mix(in srgb, var(--brand-from) 45%, var(--color-line)); }
+.search-field:focus {
+  border-color: var(--brand-from);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-from) 16%, transparent);
+}
+
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--brand-from);
 }
 
-/* Button: primary — terracotta outline, heavier than secondary */
+/* Button: primary — same outline as secondary (no special CTA color) */
 .btn-primary {
   @apply inline-flex items-center gap-1.5 h-[40px] px-5 rounded-xl text-[13.5px] font-semibold disabled:opacity-60 transition-all cursor-pointer;
   background: var(--color-surface);
-  border: 1.5px solid var(--brand-from);
-  color: var(--brand-from);
+  border: 1.5px solid var(--color-line);
+  color: var(--color-ink-soft);
   box-shadow: none;
 }
 .btn-primary:hover {
   transform: translateY(-1px);
-  color: var(--brand-to);
-  border-color: var(--brand-to);
-  background: color-mix(in srgb, var(--brand-from) 10%, var(--color-surface));
+  border-color: var(--brand-from);
+  color: var(--brand-from);
+  background: color-mix(in srgb, var(--brand-from) 8%, var(--color-surface));
   box-shadow: var(--shadow-float);
 }
 .btn-primary:active { transform: translateY(0); }
@@ -822,6 +838,13 @@ input[type="radio"] {
   font-weight: 600;
 }
 .link-accent:hover { text-decoration: underline; }
+.link-danger {
+  color: #b42318;
+  font-weight: 600;
+}
+.link-danger:hover { color: #8f1d14; text-decoration: underline; }
+.dark .link-danger { color: #f97066; }
+.dark .link-danger:hover { color: #fda29b; }
 .md-hr {
   border: 0;
   border-top: 1px solid var(--color-line);

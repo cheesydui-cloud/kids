@@ -2,14 +2,13 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { fmtTrafficGB, nullStr, nullInt } from '../../lib/fmt'
-import { Layout, useToast, useUser } from '../../components/Layout'
-import { Loading, Empty, Badge, Modal, useConfirm, Select, DateInput} from '../../components/ui'
+import { Layout, useToast } from '../../components/Layout'
+import { Loading, Empty, Badge, Modal, Select, DateInput } from '../../components/ui'
 import { copyToClipboard } from '../../lib/clipboard'
 import { PageHeader, Panel, PanelToolbar, SearchInput, ToolbarButton, ToolbarActions, TableScroll } from '../../components/page'
 import FolderBar, { MoveToFolderModal } from '../../components/FolderBar'
 import PasteGrantsModal from './PasteGrantsModal'
 import { useIsMobile } from '../../lib/useIsMobile'
-import { UserCardModal } from '../../components/UserCardModal'
 import { buildUserCardText, CARD_INITIAL_PASSWORD, loadPanelBranding } from '../../lib/userCard'
 
 export default function UserList() {
@@ -18,7 +17,6 @@ export default function UserList() {
   const [ungrouped, setUngrouped] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [newPassword, setNewPassword] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showPaste, setShowPaste] = useState(false)
   const [showMove, setShowMove] = useState(false)
@@ -28,10 +26,7 @@ export default function UserList() {
   const [folderFilter, setFolderFilter] = useState('') // '' all | '0' ungrouped | folder id
   const [sel, setSel] = useState(new Set())
   const [sortBy, setSortBy] = useState(null) // null | 'expires_asc' | 'expires_desc'
-  const [cardUser, setCardUser] = useState(null)
-  const { user: currentUser } = useUser()
   const toast = useToast()
-  const confirm = useConfirm()
   const navigate = useNavigate()
 
   const loadFolders = () => api.get('/user-folders').then(d => {
@@ -55,21 +50,6 @@ export default function UserList() {
 
   const { users = [] } = data || {}
   const folderName = (id) => folders.find(f => f.id === id)?.name || ''
-
-  const toggleUser = async (u) => {
-    try { await api.post(`/users/${u.id}/toggle`); toast(u.disabled ? '已启用' : '已禁用'); load() } catch (err) { toast(err.message, 'error') }
-  }
-  const resetPassword = async (u) => {
-    if (!(await confirm({ title: '重置密码', message: '重置该用户密码？新密码只显示一次，请及时复制保存。', confirmText: '重置', danger: true }))) return
-    try {
-      const d = await api.post(`/users/${u.id}/reset-password`)
-      if (d?.new_password) setNewPassword(d.new_password); else toast('已重置')
-    } catch (err) { toast(err.message, 'error') }
-  }
-  const deleteUser = async (u) => {
-    if (!(await confirm({ title: '删除用户', message: '删除该用户？关联的转发将被一并清除。', confirmText: '删除', danger: true }))) return
-    try { await api.del(`/users/${u.id}`); toast('已删除'); load() } catch (err) { toast(err.message, 'error') }
-  }
 
   const moveToFolder = async (folderId) => {
     if (sel.size === 0) { toast('请先勾选用户', 'error'); return }
@@ -150,12 +130,10 @@ export default function UserList() {
                 checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
               <th className="w-12">ID</th><th>用户名</th><th>分组</th><th>角色</th><th>规则配额</th><th>流量</th><th>状态</th>
               <th className="cursor-pointer select-none whitespace-nowrap" onClick={toggleExpirySort}>到期{sortBy === 'expires_asc' ? ' ↑' : sortBy === 'expires_desc' ? ' ↓' : ''}</th>
-              <th>备注</th><th className="text-right">操作</th>
+              <th>备注</th>
             </tr></thead>
             <tbody>
-              {filtered.map(u => {
-                const isSelf = u.id === currentUser?.id
-                return (
+              {filtered.map(u => (
                   <tr key={u.id} className="cursor-pointer" onClick={() => navigate(`/users/${u.id}`)}>
                     <td onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={sel.has(u.id)} onChange={e => toggleSel(u.id, e)} />
@@ -173,34 +151,8 @@ export default function UserList() {
                     </td>
                     <ExpiryCell unix={nullInt(u.expires_at)} />
                     <td className="text-ink-soft text-xs max-w-[200px] truncate" title={u.admin_note}>{u.admin_note}</td>
-                    <td className="text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                      {isSelf ? (
-                        <span className="text-xs text-ink-mut">(当前用户)</span>
-                      ) : (
-                        <div className="flex gap-2 justify-end">
-                          {u.role !== 'admin' && (
-                            <button onClick={() => setCardUser(u)} title="复制名片" className="icon-btn">
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h3M15 12h3M7 15h10"/></svg>
-                            </button>
-                          )}
-                          <button onClick={() => toggleUser(u)} title={u.disabled ? '启用' : '禁用'}
-                            className={u.disabled ? 'icon-btn !text-green-600 !border-green-500/30' : 'icon-btn'}>
-                            {u.disabled
-                              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-                              : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>}
-                          </button>
-                          {u.role !== 'admin' && <button onClick={() => resetPassword(u)} title="重置密码" className="icon-btn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.6-9.6"/><path d="m15.5 7.5 3 3"/><path d="m18 5 2.5 2.5"/></svg>
-                          </button>}
-                          {u.role !== 'admin' && <button onClick={() => deleteUser(u)} title="删除" className="icon-btn-danger">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-                          </button>}
-                        </div>
-                      )}
-                    </td>
                   </tr>
-                )
-              })}
+              ))}
             </tbody>
           </table>}
           {/* Mobile cards */}
@@ -247,19 +199,6 @@ export default function UserList() {
           onMove={moveToFolder}
         />
       )}
-
-      <Modal open={!!newPassword} onClose={() => setNewPassword(null)} title="新密码">
-        <p className="text-sm text-ink-soft mb-3">新密码只显示这一次，请复制并妥善保存。关闭后将无法再次查看。</p>
-        <div className="flex items-center gap-2">
-          <code className="flex-1 font-mono text-sm bg-raised border border-line rounded-lg px-3 py-2.5 break-all select-all">{newPassword}</code>
-          <button onClick={() => copyToClipboard(newPassword).then(() => toast('已复制')).catch(() => toast('复制失败', 'error'))} className="btn-secondary text-xs flex-none">复制</button>
-        </div>
-        <div className="flex justify-end mt-5">
-          <button onClick={() => setNewPassword(null)} className="btn-secondary">关闭</button>
-        </div>
-      </Modal>
-
-      <UserCardModal open={!!cardUser} onClose={() => setCardUser(null)} user={cardUser} toast={toast} />
     </Layout>
   )
 }

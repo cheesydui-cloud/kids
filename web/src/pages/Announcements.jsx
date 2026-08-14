@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { Layout, useToast } from '../components/Layout'
 import { Loading, Empty, Badge, useConfirm, DateInput} from '../components/ui'
-import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll } from '../components/page'
+import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
 import { fmtDate, isExpired } from '../lib/fmt'
 
 const COLOR_OPTS = [
@@ -141,7 +141,7 @@ export default function Announcements() {
                           {loginPopup ? '取消弹窗' : '登录弹窗'}
                         </button>
                         <button onClick={() => { setEditAnn(a); setFormOpen(true) }} className="text-xs font-semibold link-accent hover:underline">编辑</button>
-                        <button onClick={() => deleteAnn(a)} className="text-red-600 text-xs font-semibold hover:underline">删除</button>
+                        <button onClick={() => deleteAnn(a)} className="link-danger text-xs">删除</button>
                       </div>
                     </td>
                   </tr>
@@ -313,7 +313,7 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
             {targetMode === 'select' && (
               <div className="border border-line rounded-lg p-3 max-h-[200px] overflow-y-auto">
                 <div className="flex items-center gap-2 mb-2">
-                  <input className="input-field flex-1" placeholder="搜索用户名…" value={search} onChange={e => setSearch(e.target.value)} />
+                  <SearchInput value={search} onChange={setSearch} placeholder="搜索用户名…" className="w-[180px]" />
                   <button type="button" onClick={() => setSelectedIds(filteredUsers.map(u => u.id))} className="text-xs link-accent px-2 py-1 hover:underline whitespace-nowrap">全选</button>
                   <button type="button" onClick={() => setSelectedIds([])} className="text-xs text-ink-mut font-semibold px-2 py-1 hover:underline whitespace-nowrap">清空</button>
                 </div>

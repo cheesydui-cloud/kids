@@ -62,8 +62,8 @@ export default function Dashboard() {
       <PageHeader
         title="运营概览"
         badge={
-          <div className="inline-flex items-center gap-2 px-3.5 py-[6px] rounded-full text-[13px] font-semibold text-green-700 dark:text-green-400 bg-green-500/10 border border-green-500/[.28]">
-            <span className="w-[7px] h-[7px] rounded-full bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.2)]" />
+          <div className="inline-flex items-center gap-2 px-3.5 py-[6px] rounded-full text-[13px] font-semibold text-ink-soft bg-surface border-[1.5px] border-line">
+            <span className="w-[7px] h-[7px] rounded-full bg-green-500" />
             {onlineCount} 节点在线
           </div>
         }

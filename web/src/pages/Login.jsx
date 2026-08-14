@@ -81,7 +81,7 @@ export default function Login() {
         </div>
 
         {error && (
-          <div className="mb-4 px-3.5 py-2.5 bg-rose-500/[.08] border border-rose-500/30 rounded-xl text-rose-600 dark:text-rose-300 text-[13px]">{error}</div>
+          <div className="mb-4 px-3.5 py-2.5 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-[13px]">{error}</div>
         )}
 
         <form onSubmit={submit} className="flex flex-col gap-4">

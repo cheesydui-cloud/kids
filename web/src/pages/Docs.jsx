@@ -141,7 +141,7 @@ export default function Docs() {
                           <button type="button" onClick={() => setEditing({ id: d.id })}
                             className="text-xs font-semibold link-accent hover:underline">编辑</button>
                           <button type="button" onClick={() => del(d)}
-                            className="text-xs font-semibold text-red-600 hover:underline">删除</button>
+                            className="link-danger text-xs">删除</button>
                         </div>
                       </td>
                     </tr>

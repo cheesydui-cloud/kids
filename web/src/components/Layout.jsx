@@ -251,14 +251,14 @@ export function Layout({ children }) {
                   {user.username?.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[13.5px] sb-text font-semibold leading-tight truncate">{user.username}</div>
+                  <div className="text-[14.5px] sb-text font-semibold leading-tight truncate">{user.username}</div>
                   {/* Role label is admin-only; users only see their username. */}
                   {isAdmin && <div className="text-[12px] sb-text-mut mt-px">{user.role}</div>}
                 </div>
               </div>
               <div className="flex gap-2">
-                <NavLink to="/change-password" className="flex-1 text-center text-[12.5px] sb-btn py-2 rounded-lg transition-colors">账户设置</NavLink>
-                <button onClick={handleLogout} className="flex-1 text-center text-[12.5px] sb-btn py-2 rounded-lg transition-colors">退出登录</button>
+                <NavLink to="/change-password" className="flex-1 text-center text-[13.5px] sb-btn py-2 rounded-lg transition-colors">账户设置</NavLink>
+                <button onClick={handleLogout} className="flex-1 text-center text-[13.5px] sb-btn py-2 rounded-lg transition-colors">退出登录</button>
               </div>
             </>)}
             {/* Collapse toggle — desktop only */}
@@ -357,7 +357,7 @@ function NavGroup({ label, children }) {
   const collapsed = useContext(SidebarCtx)
   return (
     <div className="mt-5 first:mt-1">
-      {!collapsed && <div className="px-3 pb-2 text-[10.5px] font-semibold uppercase sb-group-label">{label}</div>}
+      {!collapsed && <div className="px-3 pb-2 text-[12px] font-semibold uppercase sb-group-label">{label}</div>}
       <div className="flex flex-col gap-0.5">{children}</div>
     </div>
   )
@@ -368,7 +368,7 @@ function SideLink({ to, icon, end, children }) {
   return (
     <NavLink to={to} end={end} title={collapsed ? children : undefined}
       className={({ isActive }) =>
-        `flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-[9px] rounded-xl text-[13.5px] font-medium transition-all relative border ${isActive
+        `flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-[9px] rounded-xl text-[15px] font-medium transition-all relative border ${isActive}
           ? 'sb-link-active'
           : 'sb-link'}`
       }>
