@@ -9,6 +9,35 @@
 
 ---
 
+## v0.1.2 — 2026-08-14
+
+落地仓库支持 SOCKS5 / Naive 用 IP、端口、账号、密码直接填表，不必再手拼分享链接。
+
+### 新增
+
+- 添加 / 编辑落地节点时，协议可选 **SOCKS5** 或 **Naive**，只需填 IP、端口、账号、密码
+- 保存时自动生成分享 URI：`socks5://user:pass@ip:port`、`naive+https://user:pass@ip:port`
+- 解析识别 `socks5://`、`socks5h://`、`naive+https://`、`naive+http://`、`naive://`
+- 表单粘贴常见 Naive 客户端地址 `https://user:pass@ip:port` 会识别为 Naive（仍拒绝把订阅 URL 当节点入库）
+
+### 改进
+
+- 落地仓库协议改为下拉选择，粘贴 URI 仍会自动填充地址、端口、账号密码
+- 批量导入占位提示补充 SOCKS5 / Naive 行格式
+- 转发规则仍然只用 IP 和端口，账号密码只写进可复制的分享 URI
+
+### 升级注意
+
+- 一键安装命令不变，默认仍拉 latest
+- 裸 `http://` / `https://` 订阅地址不会被当成落地节点；Naive 请用表单或 `naive+https://` 前缀
+- 已安装机器升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.1.1 — 2026-08-14
 
 安装体验与发布产物加固。固定一键安装命令不变，默认仍拉 latest。

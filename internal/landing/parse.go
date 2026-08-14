@@ -85,6 +85,10 @@ func normProto(scheme string) string {
 	switch scheme {
 	case "hy2":
 		return "hysteria2"
+	case "naive+https", "naive+http", "naive":
+		return "naive"
+	case "socks5h", "socks":
+		return "socks5"
 	default:
 		return scheme
 	}
@@ -107,7 +111,8 @@ func parseAuthority(uri, proto string) (Node, bool) {
 }
 
 // parseSnell handles Surge-style snell config lines:
-//   Name = snell, host, port, psk = xxx, version = 5, ...
+//
+//	Name = snell, host, port, psk = xxx, version = 5, ...
 func parseSnell(line string) (Node, bool) {
 	eqIdx := strings.Index(line, "=")
 	if eqIdx < 0 {

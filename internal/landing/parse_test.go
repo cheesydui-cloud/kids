@@ -88,6 +88,46 @@ func TestParseURIs_Protocols(t *testing.T) {
 			port:     443,
 			nodeName: "V6",
 		},
+		{
+			name:     "socks5",
+			uri:      "socks5://alice:s3cret@1.2.3.4:1080#S5",
+			proto:    "socks5",
+			host:     "1.2.3.4",
+			port:     1080,
+			nodeName: "S5",
+		},
+		{
+			name:     "socks5h-alias",
+			uri:      "socks5h://bob:pw@proxy.example.com:1080#S5H",
+			proto:    "socks5",
+			host:     "proxy.example.com",
+			port:     1080,
+			nodeName: "S5H",
+		},
+		{
+			name:     "naive-plus-https",
+			uri:      "naive+https://alice:s3cret@1.2.3.4:443#N",
+			proto:    "naive",
+			host:     "1.2.3.4",
+			port:     443,
+			nodeName: "N",
+		},
+		{
+			name:     "naive-plus-http",
+			uri:      "naive+http://alice:s3cret@n.example.com:8080#N2",
+			proto:    "naive",
+			host:     "n.example.com",
+			port:     8080,
+			nodeName: "N2",
+		},
+		{
+			name:     "naive-scheme",
+			uri:      "naive://alice:s3cret@n.example.com:443#N3",
+			proto:    "naive",
+			host:     "n.example.com",
+			port:     443,
+			nodeName: "N3",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -165,6 +205,7 @@ func TestParseURIs_SkipsInvalid(t *testing.T) {
 		"# a comment line",
 		"not-a-uri",
 		"http://example.com",
+		"https://alice:s3cret@1.2.3.4:443",
 		"vless://uuid@ok.example.com:443#OK",
 	})
 	if len(nodes) != 1 {
@@ -194,6 +235,28 @@ func TestRewriteEndpoint_PreservesEverythingElse(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := "trojan://pass@5.6.7.8:20000?sni=b.com#JP%20Tokyo"
+		if out != want {
+			t.Errorf("got  %q\nwant %q", out, want)
+		}
+	})
+	t.Run("socks5 keeps userinfo", func(t *testing.T) {
+		in := "socks5://alice:s3cret@1.2.3.4:1080#S5"
+		out, err := RewriteEndpoint(in, "9.9.9.9", 20001)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "socks5://alice:s3cret@9.9.9.9:20001#S5"
+		if out != want {
+			t.Errorf("got  %q\nwant %q", out, want)
+		}
+	})
+	t.Run("naive+https keeps userinfo", func(t *testing.T) {
+		in := "naive+https://alice:s3cret@1.2.3.4:443#N"
+		out, err := RewriteEndpoint(in, "relay.host", 10004)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "naive+https://alice:s3cret@relay.host:10004#N"
 		if out != want {
 			t.Errorf("got  %q\nwant %q", out, want)
 		}
@@ -285,6 +348,8 @@ func TestRewriteNameRoundTrip(t *testing.T) {
 	uris := []string{
 		"vless://u@1.2.3.4:443?type=tcp#Old",
 		"trojan://u@5.6.7.8:8443#Old",
+		"socks5://alice:s3cret@1.2.3.4:1080#Old",
+		"naive+https://alice:s3cret@1.2.3.4:443#Old",
 		"vless://u@1.2.3.4:443",
 		"vmess://" + base64.StdEncoding.EncodeToString([]byte(`{"add":"9.9.9.9","port":"443","ps":"Old"}`)),
 		"ss://YWVzLTEyOC1nY206cGFzcw==@1.2.3.4:8388#Old",

@@ -347,7 +347,84 @@ function parseRaw(uri) {
   if (scheme === 'vmess') return parseVMess(uri)
   if (scheme === 'ss') return parseSS(uri)
   if (scheme === 'http' || scheme === 'https') return null
-  return parseAuthority(uri, scheme === 'hy2' ? 'hysteria2' : scheme)
+  return parseAuthority(uri, normProto(scheme))
+}
+
+function normProto(scheme) {
+  if (scheme === 'hy2') return 'hysteria2'
+  if (scheme === 'naive+https' || scheme === 'naive+http' || scheme === 'naive') return 'naive'
+  if (scheme === 'socks5h' || scheme === 'socks') return 'socks5'
+  return scheme
+}
+
+/* Pull userinfo from scheme://user:pass@host:port... (socks5 / naive / trojan). */
+export function extractUserPass(uri) {
+  const raw = String(uri || '').trim()
+  const i = raw.indexOf('://')
+  if (i <= 0) return { username: '', password: '' }
+  let rest = raw.slice(i + 3)
+  const hash = rest.indexOf('#')
+  if (hash >= 0) rest = rest.slice(0, hash)
+  let end = rest.length
+  for (let j = 0; j < rest.length; j++) {
+    const c = rest[j]
+    if (c === '/' || c === '?') { end = j; break }
+  }
+  const authority = rest.slice(0, end)
+  const at = authority.lastIndexOf('@')
+  if (at < 0) return { username: '', password: '' }
+  const userinfo = authority.slice(0, at)
+  const colon = userinfo.indexOf(':')
+  if (colon < 0) return { username: safeDecode(userinfo), password: '' }
+  return {
+    username: safeDecode(userinfo.slice(0, colon)),
+    password: safeDecode(userinfo.slice(colon + 1)),
+  }
+}
+
+/* Form-only: accept a bare https://user:pass@host:port as Naive so operators
+   can paste the common client URL. Bulk import / server still reject http(s)
+   so subscription links are not stored as nodes. */
+export function tryParseNaiveHTTPS(uri) {
+  const raw = String(uri || '').trim()
+  if (!/^https?:\/\//i.test(raw)) return null
+  try {
+    const u = new URL(raw)
+    const port = Number(u.port)
+    if (!u.hostname || !Number.isInteger(port) || port < 1 || port > 65535) return null
+    if (!u.username && !u.password) return null
+    return {
+      name: u.hash ? safeDecode(u.hash.slice(1)) : '',
+      protocol: 'naive',
+      host: u.hostname,
+      port,
+      uri: raw,
+      username: safeDecode(u.username || ''),
+      password: safeDecode(u.password || ''),
+    }
+  } catch {
+    return null
+  }
+}
+
+export function isAuthFormProtocol(protocol) {
+  const p = String(protocol || '').toLowerCase()
+  return p === 'socks5' || p === 'socks5h' || p === 'naive'
+}
+
+/* SOCKS5 / Naive share-link from IP + port + user + pass.
+   Naive is stored as naive+https:// so the parser never confuses it with a
+   subscription https:// URL. Forwarding still uses host+port only. */
+export function buildSimpleAuthURI({ protocol, host, port, username, password, name } = {}) {
+  const proto = String(protocol || '').toLowerCase()
+  const scheme = proto === 'naive' ? 'naive+https' : (proto === 'socks5' || proto === 'socks5h' ? 'socks5' : '')
+  if (!scheme || !host || !port) return ''
+  const hp = joinHostPort(String(host).trim(), Number(port))
+  const u = String(username || '')
+  const p = String(password || '')
+  const auth = (u || p) ? `${encodeURIComponent(u)}:${encodeURIComponent(p)}@` : ''
+  const frag = name && String(name).trim() ? `#${encodeURIComponent(String(name).trim())}` : ''
+  return `${scheme}://${auth}${hp}${frag}`
 }
 
 /* Some panels (e.g. Remnawave) append "^~2~^"-style counters to same-named

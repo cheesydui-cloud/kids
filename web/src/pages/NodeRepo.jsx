@@ -5,7 +5,7 @@ import { Layout, useToast } from '../components/Layout'
 import { Loading, Empty, Badge, CopyText, Modal, useConfirm, DateInput } from '../components/ui'
 import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
 import FolderBar, { MoveToFolderModal } from '../components/FolderBar'
-import { parseURIs, tryParseURI } from '../lib/landing'
+import { parseURIs, tryParseURI, extractUserPass, tryParseNaiveHTTPS, isAuthFormProtocol, buildSimpleAuthURI } from '../lib/landing'
 import { fmtDate, expiryBadge, fmtTrafficGB } from '../lib/fmt'
 import { useIsMobile } from '../lib/useIsMobile'
 
@@ -483,14 +483,36 @@ function ChangeIPModal({ node, onClose, onDone, notifyCF }) {
   )
 }
 
+const REPO_PROTOCOLS = [
+  { value: '', label: '其他 / 粘贴 URI 自动识别' },
+  { value: 'socks5', label: 'SOCKS5' },
+  { value: 'naive', label: 'Naive' },
+  { value: 'vless', label: 'VLESS' },
+  { value: 'vmess', label: 'VMess' },
+  { value: 'trojan', label: 'Trojan' },
+  { value: 'ss', label: 'Shadowsocks' },
+  { value: 'hysteria2', label: 'Hysteria2' },
+  { value: 'tuic', label: 'TUIC' },
+  { value: 'snell', label: 'Snell' },
+]
+
+function credsFromURI(uri) {
+  const parsed = tryParseURI(uri) || tryParseNaiveHTTPS(uri)
+  const creds = extractUserPass(uri)
+  return { parsed, username: creds.username, password: creds.password }
+}
+
 function NodeRepoForm({ node, folders = [], onClose, onDone }) {
   const isEdit = !!node
+  const initialCreds = credsFromURI(node?.uri || '')
   const [form, setForm] = useState({
     name: node?.name || '',
     protocol: node?.protocol || '',
     host: node?.host || '',
     port: node?.port || '',
     uri: node?.uri || '',
+    username: initialCreds.username,
+    password: initialCreds.password,
     remark: node?.remark || '',
     group_id: node?.group_id > 0 ? String(node.group_id) : '0',
     expires_at: node?.expires_at > 0 ? new Date(node.expires_at * 1000).toISOString().slice(0, 10) : '',
@@ -503,26 +525,39 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
   const toast = useToast()
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const authForm = isAuthFormProtocol(form.protocol)
 
-  // Auto-parse URI: when user pastes a proxy URI into the URI field,
-  // extract protocol, host, port, and name automatically.
-  const handleURIBlur = () => {
-    const uri = form.uri.trim()
-    if (!uri || !uri.includes('://')) return
-    const parsed = tryParseURI(uri)
+  const applyParsed = (parsed, extras = {}) => {
     if (!parsed) return
     setForm(f => ({
       ...f,
       protocol: parsed.protocol || f.protocol,
       host: parsed.host || f.host,
       port: parsed.port || f.port,
-      // If URI host is an IP and target is empty domain path, seed backend_ip.
       backend_ip: (!f.backend_ip && parsed.host && /^\d+\.\d+\.\d+\.\d+$/.test(parsed.host))
         ? parsed.host
         : f.backend_ip,
       name: !f.name.trim() && parsed.name ? parsed.name : f.name,
+      ...extras,
     }))
     toast(`已识别 ${parsed.protocol} 节点：${parsed.host}:${parsed.port}`)
+  }
+
+  // Auto-parse URI: when user pastes a proxy URI into the URI field,
+  // extract protocol, host, port, name, and socks5/naive credentials.
+  const handleURIBlur = () => {
+    const uri = form.uri.trim()
+    if (!uri || !uri.includes('://')) return
+    const parsed = tryParseURI(uri)
+    if (parsed) {
+      const creds = extractUserPass(uri)
+      applyParsed(parsed, isAuthFormProtocol(parsed.protocol) ? creds : {})
+      return
+    }
+    const naive = tryParseNaiveHTTPS(uri)
+    if (naive) {
+      applyParsed(naive, { username: naive.username, password: naive.password })
+    }
   }
 
   const submit = async (e) => {
@@ -532,12 +567,24 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
     setSubmitting(true)
     try {
       const gid = Number(form.group_id) || 0
+      const protocol = form.protocol.trim()
+      let uri = form.uri.trim()
+      if (isAuthFormProtocol(protocol)) {
+        uri = buildSimpleAuthURI({
+          protocol,
+          host: form.host.trim(),
+          port: form.port,
+          username: form.username,
+          password: form.password,
+          name: form.name.trim(),
+        }) || uri
+      }
       const body = {
         name: form.name.trim(),
-        protocol: form.protocol.trim(),
+        protocol,
         host: form.host.trim(),
         port: Number(form.port),
-        uri: form.uri.trim(),
+        uri,
         remark: form.remark.trim(),
         group_id: gid,
         group_name: '',
@@ -574,7 +621,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
       <form onSubmit={submit} className="space-y-4">
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">URI <span className="text-ink-mut font-normal text-xs">(粘贴后自动识别)</span></label>
-            <input className="input-field font-mono text-xs" value={form.uri} onChange={e => set('uri', e.target.value)} onBlur={handleURIBlur} placeholder="粘贴代理 URI，自动填充下方字段" />
+            <input className="input-field font-mono text-xs" value={form.uri} onChange={e => set('uri', e.target.value)} onBlur={handleURIBlur} placeholder="粘贴代理 URI，或选 SOCKS5 / Naive 只填 IP 端口账号密码" />
           </div>
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">名称</label>
@@ -589,15 +636,42 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
           </div>
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">协议</label>
-            <input className="input-field" value={form.protocol} onChange={e => set('protocol', e.target.value)} placeholder="如 ss, vmess, trojan" />
+            <select className="input-field" value={form.protocol} onChange={e => set('protocol', e.target.value)}>
+              {REPO_PROTOCOLS.map(p => <option key={p.value || 'other'} value={p.value}>{p.label}</option>)}
+              {form.protocol && !REPO_PROTOCOLS.some(p => p.value === form.protocol) && (
+                <option value={form.protocol}>{form.protocol}</option>
+              )}
+            </select>
           </div>
+          {authForm && (
+            <div className="rounded-xl border border-line-soft bg-raised/40 p-3 space-y-3">
+              <div>
+                <div className="text-[13px] font-bold text-ink">账号密码</div>
+                <div className="text-[11px] text-ink-mut">
+                  {form.protocol === 'naive'
+                    ? '只需填 IP、端口、账号、密码；保存时自动生成 naive+https:// 分享链接。裸 https:// 订阅地址不会当节点入库。'
+                    : '只需填 IP、端口、账号、密码；保存时自动生成 socks5:// 分享链接。转发只用 IP 和端口。'}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[12px] font-semibold text-ink-soft mb-1">账号</label>
+                  <input className="input-field font-mono text-sm" value={form.username} onChange={e => set('username', e.target.value)} placeholder="用户名" autoComplete="off" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-semibold text-ink-soft mb-1">密码</label>
+                  <input className="input-field font-mono text-sm" type="password" value={form.password} onChange={e => set('password', e.target.value)} placeholder="密码" autoComplete="new-password" />
+                </div>
+              </div>
+            </div>
+          )}
           <div className="pt-1 border-t border-line-soft">
             <div className="text-[12px] font-bold text-ink-soft tracking-wide mb-2">转发目标</div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">目标地址</label>
-              <input className="input-field font-mono" value={form.host} onChange={e => set('host', e.target.value)} placeholder="域名（推荐）或 IP" />
+              <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">{authForm ? 'IP / 地址' : '目标地址'}</label>
+              <input className="input-field font-mono" value={form.host} onChange={e => set('host', e.target.value)} placeholder={authForm ? '落地 IP 或域名' : '域名（推荐）或 IP'} />
               <p className="text-[11px] text-ink-mut mt-1 m-0">规则认这个地址；填域名后换 IP 用户不用改链接</p>
             </div>
             <div>
@@ -714,7 +788,7 @@ function BulkImportForm({ folders = [], onClose, onDone }) {
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">节点 URI（每行一条）</label>
             <textarea className="input-field font-mono text-xs" value={text} onChange={e => setText(e.target.value)}
-              placeholder={'ss://…\nvmess://…\ntrojan://…\nvless://…'} rows={16} style={{ resize: 'vertical', minHeight: 300 }} autoFocus />
+              placeholder={'ss://…\nvmess://…\ntrojan://…\nvless://…\nsocks5://user:pass@ip:port\nnaive+https://user:pass@ip:port'} rows={16} style={{ resize: 'vertical', minHeight: 300 }} autoFocus />
           </div>
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">导入到分组</label>
