@@ -70,17 +70,20 @@ func TestProbeChainOwnershipGate(t *testing.T) {
 	}
 }
 
-func TestHopRTTTargetUsesRelayHost(t *testing.T) {
-	got, err := hopRTTTarget(&db.Node{Name: "a", RelayHost: "203.0.113.9"})
-	if err != nil || got != "203.0.113.9:80" {
+func TestHopRelayTargetUsesListenPort(t *testing.T) {
+	got, err := hopRelayTarget(&db.Node{Name: "a", RelayHost: "203.0.113.9"}, 23333)
+	if err != nil || got != "203.0.113.9:23333" {
 		t.Fatalf("v4: got %q err=%v", got, err)
 	}
-	got, err = hopRTTTarget(&db.Node{Name: "b", RelayHostV6: "2001:db8::1"})
-	if err != nil || got != "[2001:db8::1]:80" {
+	got, err = hopRelayTarget(&db.Node{Name: "b", RelayHostV6: "2001:db8::1"}, 10001)
+	if err != nil || got != "[2001:db8::1]:10001" {
 		t.Fatalf("v6: got %q err=%v", got, err)
 	}
-	if _, err := hopRTTTarget(&db.Node{Name: "empty"}); err == nil {
+	if _, err := hopRelayTarget(&db.Node{Name: "empty"}, 80); err == nil {
 		t.Fatal("empty relay host should error")
+	}
+	if _, err := hopRelayTarget(&db.Node{Name: "a", RelayHost: "203.0.113.9"}, 0); err == nil {
+		t.Fatal("port 0 should error")
 	}
 }
 

@@ -41,9 +41,13 @@ export default function UserDetail() {
   const [showCard, setShowCard] = useState(false)
   const confirm = useConfirm()
 
-  const load = () => {
-    setLoading(true)
+  const load = (silent) => {
+    if (!silent) setLoading(true)
     api.get(`/users/${id}`).then(setData).catch(console.error).finally(() => setLoading(false))
+  }
+  const refreshLandingForRules = () => {
+    load(true)
+    fetchNodeRoles().then(setNodeRoles).catch(() => setNodeRoles({}))
   }
   useEffect(load, [id])
   useEffect(() => { api.get('/users').then(d => setAllUsers(d?.users || [])) }, [])
@@ -341,6 +345,7 @@ export default function UserDetail() {
           nodes={landing_nodes}
           blurred={blurred}
           embedded
+          onChanged={refreshLandingForRules}
         />
       )}
 
@@ -371,8 +376,7 @@ export default function UserDetail() {
                 <thead>
                   <tr>
                     <th>ID</th><th>名称</th><th>节点</th><th>落地 IP</th><th>网速</th>
-                    <th className="text-right">真实用量</th>
-                    <th className="text-right">显示用量(×{rate})</th>
+                    <th className="text-right">{rate !== 1 ? `用量(×${rate})` : '用量'}</th>
                     <th className="text-right">操作</th>
                   </tr>
                 </thead>
@@ -454,7 +458,6 @@ export default function UserDetail() {
                             <span className="text-emerald-600">↓{fmtSpeed(sp.down)}</span>
                           </span>
                         </td>
-                        <td className="text-right font-mono text-xs text-ink-mut">{fmtBytes(r.exit_bytes || 0)}</td>
                         <td className="text-right font-mono text-xs">{fmtBytes(Math.round((r.exit_bytes || 0) * rate))}</td>
                         <td className="text-right">
                           <div className="inline-flex items-center gap-2.5 flex-wrap justify-end">

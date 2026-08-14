@@ -14,12 +14,8 @@ export default function NodeList() {
   const [error, setError] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [showComposite, setShowComposite] = useState(false)
-  // 搜索词与角色过滤存 sessionStorage：进详情返回后过滤还在，但不像 tab 那样
-  // 跨会话记住——隔天打开还带着旧搜索词会让列表看起来莫名缺节点。
+  // 搜索词存 sessionStorage：进详情返回后过滤还在，但不像 tab 那样跨会话记住。
   const [search, setSearch] = useState(() => sessionStorage.getItem('nodes.search') || '')
-  // 角色过滤位掩码，与 nodes.roles 同构（bit0 入口 / bit1 中间层）；0 表示不过滤，
-  // 选中多个时要求同时具备（用于收窄，而非并集）。
-  const [roleMask, setRoleMask] = useState(() => Number(sessionStorage.getItem('nodes.roleMask')) || 0)
   const [tab, setTab] = useState(() => localStorage.getItem('nodes.tab') || 'single')
   const [dragIndex, setDragIndex] = useState(null)
   const speeds = useSpeed()
@@ -36,7 +32,6 @@ export default function NodeList() {
 
   useEffect(() => { localStorage.setItem('nodes.tab', tab) }, [tab])
   useEffect(() => { sessionStorage.setItem('nodes.search', search) }, [search])
-  useEffect(() => { sessionStorage.setItem('nodes.roleMask', String(roleMask)) }, [roleMask])
 
   const load = () => {
     setLoading(true)
@@ -86,8 +81,7 @@ export default function NodeList() {
   const compositeNodes = nodes.filter(n => n.node_type === 'composite')
   const tabNodes = tab === 'composite' ? compositeNodes : singleNodes
   const q = search.trim().toLowerCase()
-  const roleFiltered = !roleMask ? tabNodes : tabNodes.filter(n => ((n.roles ?? 1) & roleMask) === roleMask)
-  const filtered0 = !q ? roleFiltered : roleFiltered.filter(n => (n.name || '').toLowerCase().includes(q))
+  const filtered0 = !q ? tabNodes : tabNodes.filter(n => (n.name || '').toLowerCase().includes(q))
 
   // 「原始流量」列只在单点 tab 渲染：带着它的排序切去组合 tab，排序仍生效却
   // 无处显示、无法取消，还会静默禁用拖拽调序——切走时清掉这个不可见排序。
@@ -119,7 +113,7 @@ export default function NodeList() {
   })
   // 任何过滤/排序生效时都不能拖拽调序：saveOrder 以可见列表为全量重建顺序，
   // 子集视图下会把被过滤掉的节点从顺序里丢掉。
-  const draggable = !sort.col && !q && !roleMask
+  const draggable = !sort.col && !q
   const saveOrder = async (visibleList) => {
     const otherIds = (tab === 'composite' ? singleNodes : compositeNodes).map(n => n.id)
     const tabIds = visibleList.map(n => n.id)
@@ -180,7 +174,6 @@ export default function NodeList() {
       <Panel fill>
         <PanelToolbar>
           <SearchInput value={search} onChange={setSearch} placeholder="搜索节点名称…" />
-          {latest_agent_version && <span className="text-xs text-ink-mut whitespace-nowrap">agent {latest_agent_version}</span>}
           <ToolbarActions className="hidden md:flex">
             <ToolbarButton onClick={resyncAll} secondary>同步所有</ToolbarButton>
             <ToolbarButton onClick={upgradeAll} secondary>一键升级全部</ToolbarButton>
@@ -195,14 +188,6 @@ export default function NodeList() {
                 tab === key ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-surface text-ink-soft border-line hover:border-ink-mut'
               }`}>{label} {n}</button>
           ))}
-          <span className="ml-3 text-xs text-ink-mut select-none">角色</span>
-          {[[1, '入口'], [2, '中间层']].map(([bit, label]) => (
-            <button key={bit} onClick={() => setRoleMask(m => m ^ bit)}
-              title="按节点角色筛选，可叠加（同时选中表示需兼具两种角色）；不选则显示全部"
-              className={`px-3.5 py-1 rounded-full text-xs border transition-colors ${
-                (roleMask & bit) !== 0 ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-surface text-ink-soft border-line hover:border-ink-mut'
-              }`}>{label}</button>
-          ))}
         </div>
         <TableScroll>
         {nodes.length === 0 ? (
@@ -210,7 +195,7 @@ export default function NodeList() {
         ) : tabNodes.length === 0 ? (
           <Empty title={tab === 'composite' ? '暂无组合节点' : '暂无单点节点'} desc={tab === 'composite' ? '点击右上角「组合节点」创建。' : '点击右上角「添加节点」创建。'} />
         ) : filtered.length === 0 ? (
-          <Empty title="无匹配节点" desc={roleMask ? '试试别的关键词，或取消上方的角色筛选。' : '试试别的关键词。'} />
+          <Empty title="无匹配节点" desc="试试别的关键词。" />
         ) : (<>
           {/* Desktop table */}
           {!isMobile && <div ref={listRef} className="relative">

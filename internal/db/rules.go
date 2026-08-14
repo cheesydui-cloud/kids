@@ -813,6 +813,36 @@ func RuleChainNodeIDs(d DBTX, ruleIDs []int64) (map[int64][]int64, error) {
 	return m, rows.Err()
 }
 
+// ListenPortsOnNodeFromPrev returns the listen ports already deployed on
+// toNodeID that a hop on fromNodeID dials (the next hop in a materialized
+// rule chain). These are the TCP ports the data plane actually uses.
+func ListenPortsOnNodeFromPrev(d DBTX, fromNodeID, toNodeID int64) ([]int, error) {
+	rows, err := d.Query(`
+		SELECT DISTINCT h2.listen_port
+		FROM rule_hops h1
+		JOIN rule_hops h2 ON h1.rule_id = h2.rule_id AND h2.position = h1.position + 1
+		WHERE h1.node_id=? AND h2.node_id=? AND h2.listen_port>0
+		ORDER BY h2.listen_port`, fromNodeID, toNodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ports []int
+	seen := map[int]bool{}
+	for rows.Next() {
+		var p int
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		if p <= 0 || seen[p] {
+			continue
+		}
+		seen[p] = true
+		ports = append(ports, p)
+	}
+	return ports, rows.Err()
+}
+
 func RuleHopCounts(d DBTX, ruleIDs []int64) (map[int64]int, error) {
 	if len(ruleIDs) == 0 {
 		return nil, nil

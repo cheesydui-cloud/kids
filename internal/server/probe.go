@@ -143,7 +143,7 @@ func (s *Server) probeCompositeToTarget(w http.ResponseWriter, compositeID int64
 	json.NewEncoder(w).Encode(probeResult{OK: allOK, Latency: total, Hops: results})
 }
 
-func hopRTTTarget(n *db.Node) (string, error) {
+func hopRelayHost(n *db.Node) (string, error) {
 	host := strings.TrimSpace(n.RelayHost)
 	if host == "" {
 		host = strings.TrimSpace(n.RelayHostV6)
@@ -155,13 +155,25 @@ func hopRTTTarget(n *db.Node) (string, error) {
 		}
 		return "", fmt.Errorf("节点 %s 没有中继地址", name)
 	}
-	return net.JoinHostPort(host, "80"), nil
+	return host, nil
 }
 
-// probeHopEndpoint measures first-hop → next-hop RTT for a composite line.
-// The first child's agent dials the next child's relay address (TCP RTT;
-// connection refused still counts). Admin-only — registered under the
-// admin router even though the handler itself does not re-check role.
+func hopRelayTarget(n *db.Node, port int) (string, error) {
+	if port <= 0 || port > 65535 {
+		return "", fmt.Errorf("无效端口")
+	}
+	host, err := hopRelayHost(n)
+	if err != nil {
+		return "", err
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil
+}
+
+// probeHopEndpoint measures first-hop → next-hop TCP reachability the same way
+// the data plane does: the first child's agent dials the next child's already
+// deployed listen port. Connection refused / timeout both count as 不通.
+// Admin-only — registered under the admin router even though the handler
+// itself does not re-check role.
 func (s *Server) probeHopEndpoint(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if u := userFromCtx(r.Context()); u == nil || u.Role != "admin" {
@@ -203,17 +215,43 @@ func (s *Server) probeHopEndpoint(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(probeResult{Error: "只能测单点中继之间的延迟"})
 		return
 	}
-	target, err := hopRTTTarget(to)
+	ports, err := db.ListenPortsOnNodeFromPrev(s.DB, from.ID, to.ID)
 	if err != nil {
 		json.NewEncoder(w).Encode(probeResult{Error: err.Error()})
 		return
 	}
-	ack, err := s.Hub.SendProbeMode(from.ID, target, "rtt")
-	if err != nil {
-		json.NewEncoder(w).Encode(probeResult{Error: err.Error()})
+	if len(ports) == 0 {
+		json.NewEncoder(w).Encode(probeResult{Error: "这两跳之间还没有已下发的规则，无法按真实中继端口测试"})
 		return
 	}
-	json.NewEncoder(w).Encode(probeResult{OK: ack.OK, Latency: ack.Latency, Error: ack.Error})
+	if len(ports) > 8 {
+		ports = ports[:8]
+	}
+	maxLat := 0
+	for _, p := range ports {
+		target, terr := hopRelayTarget(to, p)
+		if terr != nil {
+			json.NewEncoder(w).Encode(probeResult{Error: terr.Error()})
+			return
+		}
+		ack, perr := s.Hub.SendProbe(from.ID, target)
+		if perr != nil {
+			json.NewEncoder(w).Encode(probeResult{Error: perr.Error()})
+			return
+		}
+		if !ack.OK {
+			errMsg := ack.Error
+			if errMsg == "" {
+				errMsg = "不通"
+			}
+			json.NewEncoder(w).Encode(probeResult{Error: errMsg})
+			return
+		}
+		if ack.Latency > maxLat {
+			maxLat = ack.Latency
+		}
+	}
+	json.NewEncoder(w).Encode(probeResult{OK: true, Latency: maxLat})
 }
 
 func (s *Server) probeChainEndpoint(w http.ResponseWriter, r *http.Request) {

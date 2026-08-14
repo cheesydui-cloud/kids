@@ -102,7 +102,7 @@ function ExitNameCell({ userId, name, exit, onDone }) {
   )
 }
 
-export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred: blurredProp, embedded = false }) {
+export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred: blurredProp, embedded = false, onChanged }) {
   const blurred = blurredProp ?? useBlur()
   const [url, setUrl] = useState(subURL || '')
   const [text, setText] = useState(uris || '')
@@ -123,7 +123,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
   }, [userId])
   useEffect(() => { setSel(new Set()) }, [preview])
 
-  const reloadLanding = () => {
+  const reloadLanding = (opts = {}) => {
     api.get(`/users/${userId}/landing-exits`)
       .then(d => {
         const ex = d?.exits || []
@@ -137,6 +137,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
           protocol: e.protocol || '',
           expires_at: e.expires_at || 0,
         })))
+        if (opts.notify !== false) onChanged?.()
       })
       .catch(err => toast(err.message, 'error'))
   }
@@ -169,6 +170,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
     setRoles(next)
     try {
       await saveNodeRoles(next)
+      onChanged?.()
     } catch (err) {
       toast(err.message || '保存用途失败', 'error')
       fetchNodeRoles().then(setRoles).catch(() => {})
@@ -179,6 +181,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
     setRoles(next)
     try {
       await saveNodeRoles(next)
+      onChanged?.()
     } catch (err) {
       toast(err.message || '保存用途失败', 'error')
       fetchNodeRoles().then(setRoles).catch(() => {})
@@ -211,26 +214,10 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
 
   return (
     <div className={shellClass}>
-      <div className={embedded ? 'detail-panel-header' : 'card-header'}>
-        <div className="min-w-0">
-          <h3 className={embedded ? 'detail-panel-title' : 'text-sm font-bold'}>落地节点来源</h3>
-          {embedded && (
-            <div className="detail-panel-sub">
-              {preview.length} 个节点 · {landingCount} 落地 · {directCount} 直连 · {unconfiguredCount} 未配置
-            </div>
-          )}
-        </div>
-        {!embedded && <span className="text-xs text-ink-mut">{preview.length} 个节点</span>}
-      </div>
       <div className={embedded ? 'detail-panel-body space-y-4' : 'p-5'}>
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <label className="fl block mb-1.5">订阅地址 <span className="text-ink-mut font-normal text-xs">(可选，支持 Remnawave 等面板的订阅链接)</span></label>
-            <input className={`input-field font-mono w-full ${blurred ? 'blur-[5px]' : ''}`} value={url} onChange={e => setUrl(e.target.value)}
-              placeholder="https://example.com/api/sub/xxxx" />
-          </div>
-          <div>
-            <label className="fl block mb-1.5">手动节点 URI <span className="text-ink-mut font-normal text-xs">(可选，每行一条，可与订阅组合)</span></label>
+            <label className="fl block mb-1.5">手动节点 URI <span className="text-ink-mut font-normal text-xs">(可选，每行一条)</span></label>
             <textarea className={`input-field font-mono w-full min-h-[120px] h-auto py-2.5 ${blurred ? 'blur-[5px]' : ''}`} rows={6} value={text} onChange={e => setText(e.target.value)}
               placeholder={'vless://…\ntrojan://…'} />
           </div>
@@ -245,7 +232,20 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
             userId={userId}
             existingExits={exits}
             onClose={() => setShowRepoPicker(false)}
-            onDone={() => { setShowRepoPicker(false); reloadLanding() }}
+            onDone={async (assigned) => {
+              setShowRepoPicker(false)
+              const imported = (assigned || []).filter(n => n?.protocol && n?.host && n?.port)
+              if (imported.length) {
+                try {
+                  const next = applyNodeRoleBatch(roles, imported, ROLE_LANDING, true)
+                  setRoles(next)
+                  await saveNodeRoles(next)
+                } catch (err) {
+                  toast(err.message || '标记落地失败', 'error')
+                }
+              }
+              reloadLanding()
+            }}
           />
         )}
 
@@ -401,11 +401,11 @@ function ExitExpiresForm({ userId, host, port, exit, onDone }) {
   // so auto-saving here is safe and does not fire while flipping months.
   const onCommit = (v) => {
     setVal(v)
-    if (v) save(v)
+    save(v)
   }
   const expired = exit && exit.expires_at > 0 && exit.expires_at <= Math.floor(Date.now() / 1000)
   return (
-    <form onSubmit={e => { e.preventDefault(); save(val) }} className="inline-flex items-center gap-1 flex-wrap">
+    <div className="inline-flex items-center gap-1 flex-wrap">
       <DateInput
         value={val}
         onChange={onCommit}
@@ -414,12 +414,12 @@ function ExitExpiresForm({ userId, host, port, exit, onDone }) {
         placeholder="到期"
         allowClear={false}
       />
-      <button type="submit" disabled={saving} className="btn-secondary text-[11px]" title="保存当前输入">{saving ? '…' : '设'}</button>
+      {saving && <span className="text-[11px] text-ink-mut">…</span>}
       {expired && <Badge color="red">已过期</Badge>}
       {(expired || (exit && exit.expires_at > 0)) && (
         <button type="button" disabled={saving} onClick={() => { setVal(''); save('') }} className="text-[11px] text-ink-mut hover:text-red-600">清除</button>
       )}
-    </form>
+    </div>
   )
 }
 
@@ -498,7 +498,8 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
       const ids = [...selected]
       await api.post(`/users/${userId}/assign-repo`, { node_ids: ids })
       toast(`已分配 ${ids.length} 个节点`)
-      onDone()
+      const assigned = repoNodes.filter(n => selected.has(n.id))
+      onDone(assigned)
     } catch (err) { toast(err.message, 'error') } finally { setAssigning(false) }
   }
 
