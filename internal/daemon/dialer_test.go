@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -401,6 +402,28 @@ func TestDialerMigratesTuiRulesOnConnect(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("migrate_rules frame not found in server frames")
+	}
+}
+
+func TestDoProbeRTTCountsRefused(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	ack := doProbe(addr, "rtt")
+	if !ack.OK {
+		t.Fatalf("rtt refused: %+v", ack)
+	}
+	if ack.Latency < 0 {
+		t.Fatalf("latency = %d", ack.Latency)
+	}
+
+	ack = doProbe(addr, "")
+	if ack.OK {
+		t.Fatalf("service probe should fail on refused: %+v", ack)
 	}
 }
 

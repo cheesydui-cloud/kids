@@ -193,6 +193,10 @@ type UpgradeAck struct {
 
 type Probe struct {
 	Target string `json:"target"`
+	// Mode "rtt" measures reachability RTT: TCP connect success or
+	// connection-refused still counts (SYN/RST). Empty mode requires a
+	// completed connect (existing service probe).
+	Mode string `json:"mode,omitempty"`
 }
 
 type ProbeAck struct {

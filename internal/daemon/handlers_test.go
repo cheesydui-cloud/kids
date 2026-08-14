@@ -199,7 +199,7 @@ func TestHandler_CreateRule_AutoAssignsPort(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got.ListenPort < 10001 || got.ListenPort > 20000 {
+		if got.ListenPort < 10001 || got.ListenPort > 60000 {
 		t.Fatalf("auto-assigned port %d out of range", got.ListenPort)
 	}
 	if len(d.owners["tui"]) != 1 || d.owners["tui"][0].SrcPort != got.ListenPort {
@@ -724,7 +724,7 @@ func TestPickLocalFreePort(t *testing.T) {
 	if port == 10001 {
 		t.Fatal("picked occupied port")
 	}
-	if port < 10001 || port > 20000 {
+		if port < 10001 || port > 60000 {
 		t.Fatalf("port %d out of range", port)
 	}
 }

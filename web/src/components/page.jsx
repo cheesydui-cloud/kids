@@ -82,9 +82,9 @@ export function SearchInput({ value, onChange, placeholder }) {
 /* ---------- IdentityBar: sticky detail identity strip (ops console) ---------- */
 export function IdentityBar({ backTo, backLabel, avatar, title, badge, chips, meta, actions }) {
   return (
-    <div className="identity-bar sticky top-0 z-20 mb-4">
+    <div className="identity-bar">
       {backTo && (
-        <a href={backTo} className="inline-flex items-center gap-1 text-emerald-600 text-[13px] font-semibold hover:underline mb-3">
+        <a href={backTo} className="inline-flex items-center gap-1 text-emerald-600 text-[13px] font-semibold hover:underline mb-2">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
           {backLabel || '返回列表'}
         </a>

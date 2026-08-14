@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -602,7 +603,7 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 				}
 				id := env.ID
 				safeGo(func() {
-					ack := doProbe(p.Target)
+					ack := doProbe(p.Target, p.Mode)
 					raw, _ := json.Marshal(ack)
 					select {
 					case d.cmdCh <- wsproto.Envelope{Type: wsproto.TypeProbeAck, ID: id, Payload: raw}:
@@ -722,15 +723,31 @@ func jitter(d time.Duration) time.Duration {
 	return d + time.Duration((rand.Float64()*2-1)*delta)
 }
 
-func doProbe(target string) wsproto.ProbeAck {
+func doProbe(target string, mode string) wsproto.ProbeAck {
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", target, 5*time.Second)
 	elapsed := time.Since(start)
 	if err != nil {
+		// RTT mode: a refused SYN still reached the host, so count that as
+		// latency. Timeout / no-route stay failures.
+		if mode == "rtt" && isRefused(err) {
+			return wsproto.ProbeAck{OK: true, Latency: int(elapsed.Milliseconds())}
+		}
 		return wsproto.ProbeAck{Error: err.Error()}
 	}
 	conn.Close()
 	return wsproto.ProbeAck{OK: true, Latency: int(elapsed.Milliseconds())}
+}
+
+func isRefused(err error) bool {
+	if err == nil {
+		return false
+	}
+	var op *net.OpError
+	if errors.As(err, &op) && op.Err != nil {
+		err = op.Err
+	}
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 // probeOutboundIP dials target over the given UDP network ("udp4" or "udp6")

@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { fmtTime, fmtBytes, nullStr } from '../../lib/fmt'
 import { Layout, useToast, useBlur } from '../../components/Layout'
-import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText } from '../../components/ui'
+import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText, Spinner } from '../../components/ui'
 import { TableBox } from '../../components/page'
 import { copyToClipboard } from '../../lib/clipboard'
 
@@ -722,6 +722,41 @@ function GrantEditor({ nodeId, grantedUsers, onChanged }) {
   )
 }
 
+function HopLatency({ fromId, toId }) {
+  const [state, setState] = useState('idle')
+  const [label, setLabel] = useState('')
+  const probe = async () => {
+    if (!fromId || !toId) return
+    setState('loading')
+    try {
+      const d = await api.get(`/probe-hop?from=${fromId}&to=${toId}`)
+      if (d.ok) {
+        setState('ok')
+        setLabel(`${d.latency_ms}ms`)
+      } else {
+        setState('fail')
+        setLabel(d.error || '不通')
+      }
+    } catch (err) {
+      setState('fail')
+      setLabel(err.message || '请求失败')
+    }
+  }
+  const ready = !!fromId && !!toId
+  return (
+    <div className="flex items-center justify-center gap-2 py-1">
+      <span className="text-[11px] text-ink-mut">↓ 到下一跳</span>
+      <button type="button" onClick={probe} disabled={!ready || state === 'loading'}
+        title={ready ? '测试这一跳到下一跳的延迟' : '请先选好两跳节点'}
+        className="text-[11px] px-2 py-0.5 rounded border border-line bg-surface text-ink-soft hover:border-emerald-500 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed">
+        {state === 'loading' ? <Spinner className="w-3 h-3" /> : '测延迟'}
+      </button>
+      {state === 'ok' && <span className="text-[11px] text-green-700 font-semibold tabular-nums">{label}</span>}
+      {state === 'fail' && <span className="text-[11px] text-red-600 max-w-[220px] truncate" title={label}>{label}</span>}
+    </div>
+  )
+}
+
 function CompositeHopsCard({ nodeId, hops: initHops, singleNodes, onDone }) {
   const [rows, setRows] = useState(initHops.map(h => ({
     node_id: h.hop_node_id, node_name: h.node_name || `#${h.hop_node_id}`,
@@ -774,30 +809,35 @@ function CompositeHopsCard({ nodeId, hops: initHops, singleNodes, onDone }) {
         拖拽 ⠿ 调整顺序。模式作用于该跳到下一跳之间的段：线路稳定、低丢包用内核态（性能更好，支持 TCP/UDP/TCP+UDP）；
         跨境或网络不稳定、丢包高用用户态（更抗抖动，仅 TCP）。末跳模式在该组合被用作中间层时生效，被用作规则出口时由规则的出口模式覆盖。修改对此后新建的规则生效。
       </p>
-      <div className="space-y-2">
+      <div className="space-y-1">
         {rows.map((r, i) => (
-          <div key={i}
-            draggable onDragStart={() => setDragIdx(i)} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(i)}
-            className={`flex items-center gap-2 bg-raised rounded-lg px-3 py-2 ${dragIdx === i ? 'opacity-50' : ''}`}>
-            <span className="text-ink-mut cursor-move select-none" title="拖拽排序">⠿</span>
-            <span className="text-xs text-ink-mut w-5 text-center font-mono">{i + 1}</span>
-            <Select className="flex-1" placeholder="-- 选择节点 --" searchable value={r.node_id}
-              onChange={v => {
-                const nd = nodeById[v]
-                setField(i, 'node_id', v)
-                if (nd) setField(i, 'node_name', nd.name)
-              }}
-              options={singleNodes.filter(n => n.id === Number(r.node_id) || !rows.some((rr, j) => j !== i && Number(rr.node_id) === n.id)).map(n => ({ value: n.id, label: n.name }))} />
-            {/* 每一跳（含末跳）都可配模式：末跳模式在该组合被用作中间层时生效，
-                被用作规则出口时由规则的出口模式覆盖 */}
-            <Select value={r.mode} onChange={v => setField(i, 'mode', v)} style={{ width: 120 }}
-              title={i === rows.length - 1 ? '末跳模式：作为中间层时生效；作为规则出口时由规则的出口模式覆盖' : undefined}
-              options={[{ value: 'kernel', label: 'kernel' }, { value: 'userspace', label: 'userspace' }]} />
-            {i === rows.length - 1 && (
-              <span className="text-[11px] text-ink-mut shrink-0 cursor-help" title="末跳模式：作为中间层时生效；作为规则出口时由规则的出口模式覆盖">末</span>
-            )}
-            {rows.length > 2 && (
-              <button type="button" onClick={() => removeHop(i)} className="btn-danger-sm text-xs px-1.5">×</button>
+          <div key={i}>
+            <div
+              draggable onDragStart={() => setDragIdx(i)} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(i)}
+              className={`flex items-center gap-2 bg-raised rounded-lg px-3 py-2 ${dragIdx === i ? 'opacity-50' : ''}`}>
+              <span className="text-ink-mut cursor-move select-none" title="拖拽排序">⠿</span>
+              <span className="text-xs text-ink-mut w-5 text-center font-mono">{i + 1}</span>
+              <Select className="flex-1" placeholder="-- 选择节点 --" searchable value={r.node_id}
+                onChange={v => {
+                  const nd = nodeById[v]
+                  setField(i, 'node_id', v)
+                  if (nd) setField(i, 'node_name', nd.name)
+                }}
+                options={singleNodes.filter(n => n.id === Number(r.node_id) || !rows.some((rr, j) => j !== i && Number(rr.node_id) === n.id)).map(n => ({ value: n.id, label: n.name }))} />
+              {/* 每一跳（含末跳）都可配模式：末跳模式在该组合被用作中间层时生效，
+                  被用作规则出口时由规则的出口模式覆盖 */}
+              <Select value={r.mode} onChange={v => setField(i, 'mode', v)} style={{ width: 120 }}
+                title={i === rows.length - 1 ? '末跳模式：作为中间层时生效；作为规则出口时由规则的出口模式覆盖' : undefined}
+                options={[{ value: 'kernel', label: 'kernel' }, { value: 'userspace', label: 'userspace' }]} />
+              {i === rows.length - 1 && (
+                <span className="text-[11px] text-ink-mut shrink-0 cursor-help" title="末跳模式：作为中间层时生效；作为规则出口时由规则的出口模式覆盖">末</span>
+              )}
+              {rows.length > 2 && (
+                <button type="button" onClick={() => removeHop(i)} className="btn-danger-sm text-xs px-1.5">×</button>
+              )}
+            </div>
+            {i < rows.length - 1 && (
+              <HopLatency fromId={r.node_id} toId={rows[i + 1].node_id} />
             )}
           </div>
         ))}

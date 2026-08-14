@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,6 +141,79 @@ func (s *Server) probeCompositeToTarget(w http.ResponseWriter, compositeID int64
 		results[i] = hp
 	}
 	json.NewEncoder(w).Encode(probeResult{OK: allOK, Latency: total, Hops: results})
+}
+
+func hopRTTTarget(n *db.Node) (string, error) {
+	host := strings.TrimSpace(n.RelayHost)
+	if host == "" {
+		host = strings.TrimSpace(n.RelayHostV6)
+	}
+	if host == "" {
+		name := n.Name
+		if name == "" {
+			name = fmt.Sprintf("#%d", n.ID)
+		}
+		return "", fmt.Errorf("节点 %s 没有中继地址", name)
+	}
+	return net.JoinHostPort(host, "80"), nil
+}
+
+// probeHopEndpoint measures first-hop → next-hop RTT for a composite line.
+// The first child's agent dials the next child's relay address (TCP RTT;
+// connection refused still counts). Admin-only — registered under the
+// admin router even though the handler itself does not re-check role.
+func (s *Server) probeHopEndpoint(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if u := userFromCtx(r.Context()); u == nil || u.Role != "admin" {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(probeResult{Error: "无权操作"})
+		return
+	}
+	fromID, err := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
+	if err != nil || fromID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(probeResult{Error: "缺少起始节点"})
+		return
+	}
+	toID, err := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
+	if err != nil || toID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(probeResult{Error: "缺少下一跳"})
+		return
+	}
+	if fromID == toID {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(probeResult{Error: "不能测同一节点"})
+		return
+	}
+	from, err := db.GetNode(s.DB, fromID)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(probeResult{Error: "起始节点不存在"})
+		return
+	}
+	to, err := db.GetNode(s.DB, toID)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(probeResult{Error: "下一跳不存在"})
+		return
+	}
+	if from.NodeType == "composite" || to.NodeType == "composite" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(probeResult{Error: "只能测单点中继之间的延迟"})
+		return
+	}
+	target, err := hopRTTTarget(to)
+	if err != nil {
+		json.NewEncoder(w).Encode(probeResult{Error: err.Error()})
+		return
+	}
+	ack, err := s.Hub.SendProbeMode(from.ID, target, "rtt")
+	if err != nil {
+		json.NewEncoder(w).Encode(probeResult{Error: err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(probeResult{OK: ack.OK, Latency: ack.Latency, Error: ack.Error})
 }
 
 func (s *Server) probeChainEndpoint(w http.ResponseWriter, r *http.Request) {

@@ -660,6 +660,7 @@ func (s *Server) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAPIAuth, s.requireRole("admin"))
 
+			r.Get("/probe-hop", s.probeHopEndpoint)
 			r.Get("/nodes", s.apiListNodes)
 			r.Post("/nodes", s.apiCreateNode)
 			r.Get("/nodes/{id}", s.apiGetNode)

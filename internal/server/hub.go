@@ -413,6 +413,10 @@ func (h *Hub) SendApplyRuleset(nodeID int64, rules []nft.Rule, rev string) (stri
 }
 
 func (h *Hub) SendProbe(nodeID int64, target string) (wsproto.ProbeAck, error) {
+	return h.SendProbeMode(nodeID, target, "")
+}
+
+func (h *Hub) SendProbeMode(nodeID int64, target, mode string) (wsproto.ProbeAck, error) {
 	h.mu.RLock()
 	ac, ok := h.conns[nodeID]
 	h.mu.RUnlock()
@@ -430,7 +434,7 @@ func (h *Hub) SendProbe(nodeID int64, target string) (wsproto.ProbeAck, error) {
 		ac.pendMu.Unlock()
 	}()
 
-	payload, _ := json.Marshal(wsproto.Probe{Target: target})
+	payload, _ := json.Marshal(wsproto.Probe{Target: target, Mode: mode})
 	ac.enqueueWrite(wsproto.Envelope{Type: wsproto.TypeProbe, ID: id, Payload: payload})
 
 	select {

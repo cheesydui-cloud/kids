@@ -69,3 +69,54 @@ func TestProbeChainOwnershipGate(t *testing.T) {
 		t.Errorf("admin: want non-403, got 403")
 	}
 }
+
+func TestHopRTTTargetUsesRelayHost(t *testing.T) {
+	got, err := hopRTTTarget(&db.Node{Name: "a", RelayHost: "203.0.113.9"})
+	if err != nil || got != "203.0.113.9:80" {
+		t.Fatalf("v4: got %q err=%v", got, err)
+	}
+	got, err = hopRTTTarget(&db.Node{Name: "b", RelayHostV6: "2001:db8::1"})
+	if err != nil || got != "[2001:db8::1]:80" {
+		t.Fatalf("v6: got %q err=%v", got, err)
+	}
+	if _, err := hopRTTTarget(&db.Node{Name: "empty"}); err == nil {
+		t.Fatal("empty relay host should error")
+	}
+}
+
+func TestProbeHopAdminOnly(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	a, _ := db.CreateNode(d, "a", "", "")
+	b, _ := db.CreateNode(d, "b", "", "")
+	_ = db.UpdateNodeRelayHost(d, b.ID, "203.0.113.20")
+	_, userCookie := loginAsUser(t, d, 10)
+	adminCookie := loginAsAdmin(t, d)
+
+	url := fmt.Sprintf("/api/probe-hop?from=%d&to=%d", a.ID, b.ID)
+	req := newTestRequest("GET", url, nil)
+	req.AddCookie(userCookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("user: want 403, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = newTestRequest("GET", url, nil)
+	req.AddCookie(adminCookie)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("admin: want non-403, got 403 %s", rec.Body.String())
+	}
+	var res probeResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rec.Body.String())
+	}
+	if res.OK {
+		t.Fatalf("no agent connected → probe must not be OK: %+v", res)
+	}
+	if res.Error == "" {
+		t.Fatalf("want an error when hop agent is offline, got %+v", res)
+	}
+}
