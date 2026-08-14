@@ -73,10 +73,23 @@ func TestServeInstallAgentBakesPanelURL(t *testing.T) {
 	if strings.Contains(body, "__KIDS_PANEL_URL__") {
 		t.Fatal("placeholder left in served script")
 	}
-	if !strings.Contains(body, "KIDS_PANEL_URL_BAKED='http://31.40.214.186:7788'") {
-		t.Fatalf("baked assignment missing: %s", body[:min(400, len(body))])
+		if !strings.Contains(body, "KIDS_PANEL_URL_BAKED='http://31.40.214.186:7788'") {
+			t.Fatalf("baked assignment missing: %s", body[:min(400, len(body))])
+		}
+		// Regression: ReplaceAll used to rewrite the "still unset?" checks into
+		// [[ $PANEL_URL != http://panel ]], which rejected a correct URL.
+		if strings.Contains(body, `" != "http://31.40.214.186:7788"`) ||
+			strings.Contains(body, `" == "http://31.40.214.186:7788"`) {
+			t.Fatal("baked URL leaked into comparisons; valid panel-url would be rejected")
+		}
 	}
-}
+
+	func TestInstallScriptPlaceholderOnce(t *testing.T) {
+		n := strings.Count(installscript.AgentInstall, "__KIDS_PANEL_URL__")
+		if n != 1 {
+			t.Fatalf("bake token must appear exactly once (assignment only), got %d", n)
+		}
+	}
 
 func TestNormalizeAgentArch(t *testing.T) {
 	cases := map[string]string{

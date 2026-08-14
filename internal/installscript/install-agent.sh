@@ -62,15 +62,21 @@ H
   esac
 done
 
-if [[ -z "$PANEL_URL" || "$PANEL_URL" == "__KIDS_PANEL_URL__" ]]; then
+# The bake token must appear exactly once in this file (the assignment above).
+# Never compare against that token here — ReplaceAll would turn
+#   [[ $PANEL_URL != TOKEN ]]
+# into "reject the real panel URL" and die with 「缺少面板地址」.
+if [[ -z "$PANEL_URL" ]]; then
   PANEL_URL="${KIDS_PANEL_URL_BAKED:-}"
 fi
-if [[ -z "$PANEL_URL" || "$PANEL_URL" == "__KIDS_PANEL_URL__" ]]; then
-  if [[ -r "$ETC_DIR/panel.url" ]]; then
-    PANEL_URL="$(tr -d '[:space:]' <"$ETC_DIR/panel.url")"
-  fi
+if [[ -z "$PANEL_URL" && -r "$ETC_DIR/panel.url" ]]; then
+  PANEL_URL="$(tr -d '[:space:]' <"$ETC_DIR/panel.url")"
 fi
-[[ -n "$PANEL_URL" && "$PANEL_URL" != "__KIDS_PANEL_URL__" ]] || die "缺少面板地址：加 --panel-url http://面板IP:7788（和 curl 同一个地址）"
+case "$PANEL_URL" in
+  http://*|https://*|ws://*|wss://*) ;;
+  *.*) PANEL_URL="http://$PANEL_URL" ;;
+  *) die "缺少面板地址：加 --panel-url http://面板IP:7788（和 curl 同一个地址）" ;;
+esac
 [[ -n "$TOKEN" ]] || die "缺少 --token（在面板节点详情页复制）"
 
 case "$PANEL_URL" in
