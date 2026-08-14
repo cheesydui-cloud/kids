@@ -287,12 +287,39 @@ func (s *Server) serveBinary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveInstallAgent(w http.ResponseWriter, r *http.Request) {
-	base := panelBaseURL(s.DB, r)
+	// Prefer the origin the node just used to fetch this script. settings.panel_url
+	// is often empty on a fresh panel, which used to bake an empty string and the
+	// installer then died with 「缺少面板地址」even though curl already knew the URL.
+	base := requestOrigin(r)
+	if base == "" {
+		base = panelBaseURL(s.DB, r)
+	}
 	body := strings.ReplaceAll(installscript.AgentInstall, "__KIDS_PANEL_URL__", base)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Kids-Panel", base)
 	_, _ = io.WriteString(w, body)
+}
+
+// requestOrigin is scheme://host from the incoming request (and forwarded proto/host).
+func requestOrigin(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := strings.TrimSpace(r.Host)
+	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+		if h := strings.TrimSpace(strings.Split(fwd, ",")[0]); h != "" {
+			host = h
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + host
 }
 
 // upgradeAckTimeout covers download + replace + ack on slow links. The agent

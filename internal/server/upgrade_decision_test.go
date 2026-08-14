@@ -73,6 +73,9 @@ func TestServeInstallAgentBakesPanelURL(t *testing.T) {
 	if strings.Contains(body, "__KIDS_PANEL_URL__") {
 		t.Fatal("placeholder left in served script")
 	}
+	if !strings.Contains(body, "KIDS_PANEL_URL_BAKED='http://31.40.214.186:7788'") {
+		t.Fatalf("baked assignment missing: %s", body[:min(400, len(body))])
+	}
 }
 
 func TestNormalizeAgentArch(t *testing.T) {

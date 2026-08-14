@@ -9,6 +9,27 @@
 
 ---
 
+## v0.1.6 — 2026-08-15
+
+修复节点从面板安装时报「缺少面板地址」。
+
+### 修复
+
+- `/v1/install-agent` 用节点刚才访问的地址写入脚本（不再依赖系统设置里的 `panel_url`）
+- 节点详情里的安装命令补上 `--panel-url`，旧面板也能装
+
+### 升级注意
+
+- **先升级面板**，再在节点上重新执行详情页命令
+- 若暂时不能升级面板，在现有命令里加一行 `--panel-url http://面板IP:7788` 即可
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.1.5 — 2026-08-15
 
 落地仓库可以从 Cloudflare 把当前 A 记录拉回「当前 IP」，不必手抄。

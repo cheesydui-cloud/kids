@@ -65,7 +65,12 @@ done
 if [[ -z "$PANEL_URL" || "$PANEL_URL" == "__KIDS_PANEL_URL__" ]]; then
   PANEL_URL="${KIDS_PANEL_URL_BAKED:-}"
 fi
-[[ -n "$PANEL_URL" && "$PANEL_URL" != "__KIDS_PANEL_URL__" ]] || die "缺少面板地址：加 --panel-url http://IP:7788"
+if [[ -z "$PANEL_URL" || "$PANEL_URL" == "__KIDS_PANEL_URL__" ]]; then
+  if [[ -r "$ETC_DIR/panel.url" ]]; then
+    PANEL_URL="$(tr -d '[:space:]' <"$ETC_DIR/panel.url")"
+  fi
+fi
+[[ -n "$PANEL_URL" && "$PANEL_URL" != "__KIDS_PANEL_URL__" ]] || die "缺少面板地址：加 --panel-url http://面板IP:7788（和 curl 同一个地址）"
 [[ -n "$TOKEN" ]] || die "缺少 --token（在面板节点详情页复制）"
 
 case "$PANEL_URL" in
@@ -130,6 +135,7 @@ printf '%s' "$got" >"$ETC_DIR/agent.sha"
 umask 077
 printf '%s' "$TOKEN" >"$ETC_DIR/panel.token"
 chmod 600 "$ETC_DIR/panel.token"
+printf '%s' "$PANEL_URL" >"$ETC_DIR/panel.url"
 
 ws="$PANEL_URL"
 case "$ws" in

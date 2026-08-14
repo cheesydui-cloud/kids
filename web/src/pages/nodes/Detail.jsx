@@ -274,7 +274,7 @@ export default function NodeDetail() {
   // lands. Legacy v3.0.0 nodes (secret_legacy) have an unusable hashed value —
   // node.secret is empty there, so prompt a reset instead.
   const tokenForCmd = revealedSecret || node.secret || (node.secret_legacy ? '<请先点“重置 Token”>' : '')
-  const installCmd = `curl -fsSL ${normalizedPanelUrl}/v1/install-agent | bash -s -- \\\n  --token ${tokenForCmd}${portRangePart}${relayHostPart}${relayHostV6Part}${insecurePart}`
+  const installCmd = `curl -fsSL ${normalizedPanelUrl}/v1/install-agent | bash -s -- \\\n  --panel-url ${normalizedPanelUrl} \\\n  --token ${tokenForCmd}${portRangePart}${relayHostPart}${relayHostV6Part}${insecurePart}`
 
   return (
     <Layout>

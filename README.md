@@ -2,7 +2,7 @@
 
 基于 nftables 的轻量多节点端口转发平台。**两个二进制（`nft-server` + `nft-agent`），零外部依赖**——面板管理多节点并推送规则，节点 agent 反向连入面板，节点零端口暴露。支持内核态 DNAT 与用户态 split-TCP 逐跳混用、多租户配额、组合节点自动编排多跳链路。
 
-当前版本：**v0.1.5**（下面这条安装命令固定不变，永远装最新版）  
+当前版本：**v0.1.6**（下面这条安装命令固定不变，永远装最新版）  
 仓库：https://github.com/cheesydui-cloud/kids
 
 > 衍生自 [xjetry/nft-forward](https://github.com/xjetry/nft-forward)，以 MIT 许可证发布（见 [LICENSE](./LICENSE)）。
@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.s
 curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s server --addr 0.0.0.0:7788
 
 # 远程节点：在面板「节点详情」复制命令（从面板下载，不经过 GitHub）
-curl -fsSL http://面板IP:7788/v1/install-agent | bash -s -- --token <hex> --insecure
+curl -fsSL http://面板IP:7788/v1/install-agent | bash -s -- --panel-url http://面板IP:7788 --token <hex> --insecure
 
 # 单机 TUI（不装 Web 面板）
 curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s tui
