@@ -23,6 +23,7 @@
 
 - 精简 VPS 没有 `sudo` 时，安装命令不再依赖 `sudo`（用 root 直接跑 `bash`）
 - 面板二进制默认监听地址与安装脚本对齐为 `:7788`，避免手跑 `nft-server` 和一键安装端口不一致
+- `.gitignore` 不再误忽略 `cmd/nft-server` 源码
 
 ### 改进
 
