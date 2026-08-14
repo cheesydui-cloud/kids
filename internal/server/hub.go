@@ -71,6 +71,7 @@ func NewHub(d *sql.DB) *Hub {
 
 type agentConn struct {
 	nodeID  int64
+	arch    string
 	ws      *websocket.Conn
 	writeCh chan []byte
 	closed  chan struct{}
@@ -101,6 +102,16 @@ func (h *Hub) IsOnline(nodeID int64) bool {
 	_, ok := h.conns[nodeID]
 	h.mu.RUnlock()
 	return ok
+}
+
+func (h *Hub) NodeArch(nodeID int64) string {
+	h.mu.RLock()
+	ac, ok := h.conns[nodeID]
+	h.mu.RUnlock()
+	if !ok || ac == nil {
+		return ""
+	}
+	return ac.arch
 }
 
 // ServeWS handles the /v1/agents WS endpoint. Upgrades the request,
@@ -144,6 +155,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// "hello_ack visible => conn is in the hub map".
 	ac := &agentConn{
 		nodeID:  node.ID,
+		arch:    hello.Arch,
 		ws:      ws,
 		writeCh: make(chan []byte, 16),
 		closed:  make(chan struct{}),

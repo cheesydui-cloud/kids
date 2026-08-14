@@ -632,7 +632,8 @@ func (s *Server) Router() http.Handler {
 	r.Use(logRequests)
 	r.Get("/healthz", s.healthz)
 	r.HandleFunc("/v1/agents", s.Hub.ServeWS)
-	r.Get("/v1/binary", s.serveBinary)
+		r.Get("/v1/binary", s.serveBinary)
+		r.Get("/v1/install-agent", s.serveInstallAgent)
 
 	// --- JSON API ---
 	r.Route("/api", func(r chi.Router) {

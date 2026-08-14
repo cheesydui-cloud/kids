@@ -1490,17 +1490,18 @@ func (s *Server) apiUpgradeNode(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "bad id")
 		return
 	}
-	art, err := s.loadAgentArtifact()
-	if err != nil {
-		jsonErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	node, err := db.GetNode(s.DB, id)
 	if err != nil {
 		jsonErr(w, http.StatusNotFound, "节点不存在")
 		return
 	}
-	err = s.Hub.SendUpgrade(id, upgradeFor(node, art, panelBaseURL(s.DB, r)))
+	arch := s.Hub.NodeArch(id)
+	art, err := s.loadAgentArtifactFor(arch)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	err = s.Hub.SendUpgrade(id, upgradeFor(node, art, panelBaseURL(s.DB, r), arch))
 	// Record the dispatch outcome so the node detail can surface a silent
 	// failure later (an acked upgrade whose version never takes).
 	status, errText := "acked", ""
@@ -1661,11 +1662,6 @@ func (s *Server) apiResyncAllNodes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	art, err := s.loadAgentArtifact()
-	if err != nil {
-		jsonErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	panelURL := panelBaseURL(s.DB, r)
 	nodes, err := db.ListNodes(s.DB)
 	if err != nil {
@@ -1677,7 +1673,14 @@ func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 		if n.NodeType == "composite" || n.Disabled {
 			continue
 		}
-		err := s.Hub.SendUpgrade(n.ID, upgradeFor(n, art, panelURL))
+		arch := s.Hub.NodeArch(n.ID)
+		art, err := s.loadAgentArtifactFor(arch)
+		if err != nil {
+			db.RecordUpgradeResult(s.DB, n.ID, serverVersion(), "error", err.Error())
+			fail++
+			continue
+		}
+		err = s.Hub.SendUpgrade(n.ID, upgradeFor(n, art, panelURL, arch))
 		status, errText := "acked", ""
 		if err != nil {
 			status, errText = "error", err.Error()

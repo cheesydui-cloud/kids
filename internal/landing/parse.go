@@ -75,6 +75,10 @@ func parseOne(uri string) (Node, bool) {
 		return parseSS(uri)
 	case "http", "https":
 		return Node{}, false
+	case "mierus":
+		return parseMierus(uri)
+	case "mieru":
+		return parseMieru(uri)
 	default:
 		return parseAuthority(uri, normProto(scheme))
 	}
@@ -89,9 +93,148 @@ func normProto(scheme string) string {
 		return "naive"
 	case "socks5h", "socks":
 		return "socks5"
+	case "mieru", "mierus":
+		return "mieru"
 	default:
 		return scheme
 	}
+}
+
+// parseMierus handles the official simple share link:
+//
+//	mierus://user:pass@host?profile=NAME&port=1234&protocol=TCP
+//
+// The server address has no :port in the authority; ports live in repeated
+// `port` query values (a single number or a "lo-hi" range). Forwarding only
+// needs one host+port, so we take the first binding's start port.
+func parseMierus(uri string) (Node, bool) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return Node{}, false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return Node{}, false
+	}
+	port := firstMieruPort(u.Query()["port"])
+	if port == 0 {
+		port, _ = strconv.Atoi(u.Port())
+	}
+	if port < 1 || port > 65535 {
+		return Node{}, false
+	}
+	name := u.Query().Get("profile")
+	if u.Fragment != "" {
+		name, _ = url.PathUnescape(u.Fragment)
+	}
+	return Node{Name: name, Protocol: "mieru", Host: host, Port: port, URI: uri}, true
+}
+
+// parseMieru accepts a typed-in authority form (mieru://user:pass@host:port)
+// or a base64 JSON client config. Official mieru:// links are protobuf and
+// are skipped — operators should paste mierus:// or use the form.
+func parseMieru(uri string) (Node, bool) {
+	if n, ok := parseAuthority(uri, "mieru"); ok {
+		return n, true
+	}
+	rest := uri
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	name := ""
+	if h := strings.Index(rest, "#"); h >= 0 {
+		name, _ = url.PathUnescape(rest[h+1:])
+		rest = rest[:h]
+	}
+	dec, ok := b64Decode(rest)
+	if !ok {
+		return Node{}, false
+	}
+	n, ok := parseMieruConfigJSON(dec)
+	if !ok {
+		return Node{}, false
+	}
+	if name != "" {
+		n.Name = name
+	}
+	n.URI = uri
+	return n, true
+}
+
+func parseMieruConfigJSON(dec []byte) (Node, bool) {
+	var root map[string]any
+	if err := json.Unmarshal(dec, &root); err != nil {
+		return Node{}, false
+	}
+	profiles, _ := root["profiles"].([]any)
+	var prof map[string]any
+	if len(profiles) > 0 {
+		prof, _ = profiles[0].(map[string]any)
+	} else {
+		prof = root
+	}
+	if prof == nil {
+		return Node{}, false
+	}
+	name, _ := prof["profileName"].(string)
+	if name == "" {
+		name, _ = root["activeProfile"].(string)
+	}
+	servers, _ := prof["servers"].([]any)
+	if len(servers) == 0 {
+		return Node{}, false
+	}
+	srv, _ := servers[0].(map[string]any)
+	if srv == nil {
+		return Node{}, false
+	}
+	host, _ := srv["ipAddress"].(string)
+	if host == "" {
+		host, _ = srv["domainName"].(string)
+	}
+	if host == "" {
+		return Node{}, false
+	}
+	port := 0
+	if bindings, ok := srv["portBindings"].([]any); ok {
+		for _, raw := range bindings {
+			b, _ := raw.(map[string]any)
+			if b == nil {
+				continue
+			}
+			if p := jsonPort(b["port"]); p >= 1 && p <= 65535 {
+				port = p
+				break
+			}
+			if r, _ := b["portRange"].(string); r != "" {
+				if p := firstMieruPort([]string{r}); p >= 1 {
+					port = p
+					break
+				}
+			}
+		}
+	}
+	if port < 1 || port > 65535 {
+		return Node{}, false
+	}
+	return Node{Name: name, Protocol: "mieru", Host: host, Port: port}, true
+}
+
+func firstMieruPort(vals []string) int {
+	for _, raw := range vals {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if i := strings.Index(raw, "-"); i > 0 {
+			raw = strings.TrimSpace(raw[:i])
+		}
+		n, err := strconv.Atoi(raw)
+		if err == nil && n >= 1 && n <= 65535 {
+			return n
+		}
+	}
+	return 0
 }
 
 // parseAuthority handles the common scheme://[userinfo@]host:port?query#name
@@ -200,9 +343,45 @@ func RewriteEndpoint(uri, newHost string, newPort int) (string, error) {
 		return rewriteVMess(uri, newHost, newPort)
 	case "ss":
 		return rewriteSS(uri, newHost, newPort)
+	case "mierus":
+		return rewriteMierus(uri, newHost, newPort)
 	default:
 		return rewriteAuthority(uri, newHost, newPort)
 	}
+}
+
+// rewriteMierus swaps the server host and every `port` query value for the
+// relay's single entry, keeping userinfo and the rest of the query (profile,
+// protocol, mtu, …) so a client can still import the rewritten URI.
+func rewriteMierus(uri, newHost string, newPort int) (string, error) {
+	u, err := url.Parse(uri)
+	if err != nil || u.Hostname() == "" {
+		return "", errInvalid
+	}
+	q := u.Query()
+	ports := q["port"]
+	replaced := strconv.Itoa(newPort)
+	if len(ports) == 0 {
+		q.Add("port", replaced)
+		if q.Get("protocol") == "" {
+			q.Add("protocol", "TCP")
+		}
+	} else {
+		for i := range ports {
+			ports[i] = replaced
+		}
+		q["port"] = ports
+	}
+	if q.Get("profile") == "" {
+		q.Set("profile", "default")
+	}
+	if strings.Contains(newHost, ":") && !strings.HasPrefix(newHost, "[") {
+		u.Host = "[" + newHost + "]"
+	} else {
+		u.Host = newHost
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
 // rewriteAuthority replaces the host:port of an authority-style URI without

@@ -17,7 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"nft/internal/agentbin"
 	"nft/internal/db"
+	"nft/internal/installscript"
 	"nft/internal/wsproto"
 )
 
@@ -40,8 +42,9 @@ type agentArtifact struct {
 }
 
 var (
-	agentArtMu    sync.Mutex
-	agentArtCache *agentArtifact
+	agentArtMu     sync.Mutex
+	agentArtCache  *agentArtifact
+	agentArtByArch = map[string]*agentArtifact{}
 )
 
 // buildVersion is injected at link time via -ldflags in release builds so the
@@ -73,44 +76,85 @@ func stripPseudoVersion(v string) string {
 	return v
 }
 
-// loadAgentArtifact returns the nft-agent for the panel's release version,
-// fetching+caching it on first use. A "dev" panel build has no matching release,
-// so push/upgrade is unavailable there.
+func normalizeAgentArch(arch string) string {
+	switch strings.ToLower(strings.TrimSpace(arch)) {
+	case "amd64", "x86_64", "x64":
+		return "amd64"
+	case "arm64", "aarch64":
+		return "arm64"
+	default:
+		return "amd64"
+	}
+}
+
+// loadAgentArtifact returns the default (amd64) nft-agent for the panel's
+// release. Used by upgrade status and older callers that don't know node arch.
 func (s *Server) loadAgentArtifact() (*agentArtifact, error) {
+	return s.loadAgentArtifactFor("amd64")
+}
+
+// loadAgentArtifactFor returns nft-agent for linux/$arch. Prefer the binary
+// packed into this nft-server at release time so a node never needs GitHub.
+func (s *Server) loadAgentArtifactFor(arch string) (*agentArtifact, error) {
+	arch = normalizeAgentArch(arch)
 	v := serverVersion()
 	agentArtMu.Lock()
 	defer agentArtMu.Unlock()
-	// A warmed cache for the current version short-circuits the download (and
-	// lets a dev build push a pre-seeded agent).
-	if agentArtCache != nil && agentArtCache.Version == v {
+	if cached, ok := agentArtByArch[arch]; ok && cached != nil && cached.Version == v {
+		return cached, nil
+	}
+	if agentArtCache != nil && agentArtCache.Version == v && arch == "amd64" {
 		return agentArtCache, nil
 	}
-	if v == "dev" {
-		return nil, errors.New("dev 构建无对应 agent release，无法推送升级")
+
+	if data, ok := agentbin.Linux(arch); ok {
+		sum := sha256.Sum256(data)
+		art := &agentArtifact{Version: v, SHA: hex.EncodeToString(sum[:]), Data: data}
+		agentArtByArch[arch] = art
+		if arch == "amd64" {
+			agentArtCache = art
+		}
+		return art, nil
 	}
-	data, sha, err := fetchAgentBinary(v)
+
+	if v == "dev" {
+		return nil, errors.New("dev 构建未内置 agent，无法推送升级")
+	}
+	data, sha, err := fetchAgentBinary(v, arch)
 	if err != nil {
 		return nil, err
 	}
-	agentArtCache = &agentArtifact{Version: v, SHA: sha, Data: data}
-	return agentArtCache, nil
+	art := &agentArtifact{Version: v, SHA: sha, Data: data}
+	agentArtByArch[arch] = art
+	if arch == "amd64" {
+		agentArtCache = art
+	}
+	return art, nil
 }
 
-// fetchAgentBinary loads nft-agent for version from the on-disk cache, else
+// fetchAgentBinary loads nft-agent for version+arch from the on-disk cache, else
 // downloads it from the GitHub release and verifies it against that release's
-// SHA256SUMS before caching.
-func fetchAgentBinary(version string) ([]byte, string, error) {
-	cacheBin := filepath.Join(agentCacheRoot, version, "nft-agent")
+// SHA256SUMS before caching. Only used when this panel was not built with
+// embedded agents (dev / old install).
+func fetchAgentBinary(version, arch string) ([]byte, string, error) {
+	arch = normalizeAgentArch(arch)
+	asset := "nft-agent-linux-" + arch
+	cacheBin := filepath.Join(agentCacheRoot, version, asset)
 	if data, err := os.ReadFile(cacheBin); err == nil {
 		sum := sha256.Sum256(data)
 		return data, hex.EncodeToString(sum[:]), nil
 	}
 	base := fmt.Sprintf("https://github.com/%s/releases/download/%s", agentRepo, version)
-	want, err := fetchSumFor(base+"/SHA256SUMS", "nft-agent")
+	want, err := fetchSumFor(base+"/SHA256SUMS", asset)
+	if err != nil && arch == "amd64" {
+		// v0.1.0 only published the unsuffixed name.
+		want, err = fetchSumFor(base+"/SHA256SUMS", "nft-agent")
+		asset = "nft-agent"
+	}
 	if err != nil {
 		return nil, "", err
 	}
-	data, err := httpGetBytes(base + "/nft-agent")
+	data, err := httpGetBytes(base + "/" + asset)
 	if err != nil {
 		return nil, "", err
 	}
@@ -211,7 +255,7 @@ func panelBaseURL(d *sql.DB, r *http.Request) string {
 // WebSocket write (hubWriteTimeout used to be a hard 10s), which closed the
 // connection and surfaced as 「连接在升级期间断开」even though the agent was
 // fine. HTTP range-friendly GETs tolerate flaky bandwidth far better.
-func upgradeFor(node *db.Node, art *agentArtifact, panelURL string) wsproto.Upgrade {
+func upgradeFor(node *db.Node, art *agentArtifact, panelURL, arch string) wsproto.Upgrade {
 	if node.AgentSHA != "" && node.AgentSHA == art.SHA {
 		return wsproto.Upgrade{Version: art.Version, SHA256: art.SHA}
 	}
@@ -220,12 +264,16 @@ func upgradeFor(node *db.Node, art *agentArtifact, panelURL string) wsproto.Upgr
 		Version:    art.Version,
 		SHA256:     art.SHA,
 		Size:       int64(len(art.Data)),
-		DownloadAt: base + "/v1/binary",
+		DownloadAt: base + "/v1/binary?arch=" + normalizeAgentArch(arch),
 	}
 }
 
 func (s *Server) serveBinary(w http.ResponseWriter, r *http.Request) {
-	art, err := s.loadAgentArtifact()
+	arch := r.URL.Query().Get("arch")
+	if arch == "" {
+		arch = r.URL.Query().Get("goarch")
+	}
+	art, err := s.loadAgentArtifactFor(arch)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -233,7 +281,18 @@ func (s *Server) serveBinary(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(len(art.Data)))
 	w.Header().Set("X-SHA256", art.SHA)
+	w.Header().Set("X-Agent-Version", art.Version)
+	w.Header().Set("X-Agent-Arch", normalizeAgentArch(arch))
 	w.Write(art.Data)
+}
+
+func (s *Server) serveInstallAgent(w http.ResponseWriter, r *http.Request) {
+	base := panelBaseURL(s.DB, r)
+	body := strings.ReplaceAll(installscript.AgentInstall, "__KIDS_PANEL_URL__", base)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Kids-Panel", base)
+	_, _ = io.WriteString(w, body)
 }
 
 // upgradeAckTimeout covers download + replace + ack on slow links. The agent

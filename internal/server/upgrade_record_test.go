@@ -96,7 +96,12 @@ func TestApiUpgradeNodeRecordsError(t *testing.T) {
 	agentArtMu.Lock()
 	agentArtCache = &agentArtifact{Version: serverVersion(), SHA: "deadbeef", Data: []byte("agent-binary")}
 	agentArtMu.Unlock()
-	defer func() { agentArtMu.Lock(); agentArtCache = nil; agentArtMu.Unlock() }()
+	defer func() {
+		agentArtMu.Lock()
+		agentArtCache = nil
+		agentArtByArch = map[string]*agentArtifact{}
+		agentArtMu.Unlock()
+	}()
 
 	// Node not connected -> SendUpgrade fails -> must be recorded as error.
 	req := newTestRequest("POST", "/api/nodes/"+strconv.FormatInt(n.ID, 10)+"/upgrade", bytes.NewReader([]byte("{}")))

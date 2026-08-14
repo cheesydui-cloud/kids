@@ -128,6 +128,39 @@ func TestParseURIs_Protocols(t *testing.T) {
 			port:     443,
 			nodeName: "N3",
 		},
+		{
+			name:     "mierus-simple",
+			uri:      "mierus://baozi:manlianpenfen@1.2.3.4?profile=HK&port=6666&protocol=TCP&port=9998-9999&protocol=TCP#HK",
+			proto:    "mieru",
+			host:     "1.2.3.4",
+			port:     6666,
+			nodeName: "HK",
+		},
+		{
+			name:     "mierus-profile-name",
+			uri:      "mierus://alice:s3cret@m.example.com?profile=JP-01&port=2012-2022&protocol=TCP",
+			proto:    "mieru",
+			host:     "m.example.com",
+			port:     2012,
+			nodeName: "JP-01",
+		},
+		{
+			name:     "mieru-authority",
+			uri:      "mieru://alice:s3cret@1.2.3.4:8964#M",
+			proto:    "mieru",
+			host:     "1.2.3.4",
+			port:     8964,
+			nodeName: "M",
+		},
+		{
+			name: "mieru-json-config",
+			uri: "mieru://" + base64.StdEncoding.EncodeToString([]byte(
+				`{"profiles":[{"profileName":"default","user":{"name":"u","password":"p"},"servers":[{"ipAddress":"12.34.56.78","portBindings":[{"portRange":"2012-2022","protocol":"TCP"},{"port":2027,"protocol":"TCP"}]}]}]}`)),
+			proto:    "mieru",
+			host:     "12.34.56.78",
+			port:     2012,
+			nodeName: "default",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -261,6 +294,26 @@ func TestRewriteEndpoint_PreservesEverythingElse(t *testing.T) {
 			t.Errorf("got  %q\nwant %q", out, want)
 		}
 	})
+	t.Run("mierus rewrites host and every port query", func(t *testing.T) {
+		in := "mierus://alice:s3cret@1.2.3.4?profile=HK&port=6666&protocol=TCP&port=9998-9999&protocol=UDP"
+		out, err := RewriteEndpoint(in, "relay.host", 10005)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes := ParseURIs([]string{out})
+		if len(nodes) != 1 || nodes[0].Host != "relay.host" || nodes[0].Port != 10005 || nodes[0].Protocol != "mieru" {
+			t.Fatalf("rewrite did not take effect: %q -> %+v", out, nodes)
+		}
+		if !strings.Contains(out, "alice:s3cret@") {
+			t.Errorf("userinfo lost: %q", out)
+		}
+		if !strings.Contains(out, "profile=HK") {
+			t.Errorf("profile lost: %q", out)
+		}
+		if strings.Contains(out, "6666") || strings.Contains(out, "9998") {
+			t.Errorf("old ports still present: %q", out)
+		}
+	})
 	t.Run("ipv6 host in original, ipv4 replacement", func(t *testing.T) {
 		in := "vless://uuid@[2001:db8::1]:443?security=tls#V6"
 		out, err := RewriteEndpoint(in, "9.9.9.9", 443)
@@ -350,6 +403,8 @@ func TestRewriteNameRoundTrip(t *testing.T) {
 		"trojan://u@5.6.7.8:8443#Old",
 		"socks5://alice:s3cret@1.2.3.4:1080#Old",
 		"naive+https://alice:s3cret@1.2.3.4:443#Old",
+		"mierus://alice:s3cret@1.2.3.4?profile=Old&port=6666&protocol=TCP",
+		"mieru://alice:s3cret@1.2.3.4:8964#Old",
 		"vless://u@1.2.3.4:443",
 		"vmess://" + base64.StdEncoding.EncodeToString([]byte(`{"add":"9.9.9.9","port":"443","ps":"Old"}`)),
 		"ss://YWVzLTEyOC1nY206cGFzcw==@1.2.3.4:8388#Old",

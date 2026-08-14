@@ -487,6 +487,7 @@ const REPO_PROTOCOLS = [
   { value: '', label: '其他 / 粘贴 URI 自动识别' },
   { value: 'socks5', label: 'SOCKS5' },
   { value: 'naive', label: 'Naive' },
+  { value: 'mieru', label: 'Mieru' },
   { value: 'vless', label: 'VLESS' },
   { value: 'vmess', label: 'VMess' },
   { value: 'trojan', label: 'Trojan' },
@@ -621,7 +622,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
       <form onSubmit={submit} className="space-y-4">
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">URI <span className="text-ink-mut font-normal text-xs">(粘贴后自动识别)</span></label>
-            <input className="input-field font-mono text-xs" value={form.uri} onChange={e => set('uri', e.target.value)} onBlur={handleURIBlur} placeholder="粘贴代理 URI，或选 SOCKS5 / Naive 只填 IP 端口账号密码" />
+            <input className="input-field font-mono text-xs" value={form.uri} onChange={e => set('uri', e.target.value)} onBlur={handleURIBlur} placeholder="粘贴代理 URI，或选 SOCKS5 / Naive / Mieru 只填 IP 端口账号密码" />
           </div>
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">名称</label>
@@ -650,6 +651,8 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
                 <div className="text-[11px] text-ink-mut">
                   {form.protocol === 'naive'
                     ? '只需填 IP、端口、账号、密码；保存时自动生成 naive+https:// 分享链接。裸 https:// 订阅地址不会当节点入库。'
+                    : form.protocol === 'mieru'
+                    ? '只需填 IP、端口、账号、密码；保存时自动生成官方 mierus:// 分享链接（端口写在查询参数里）。转发只用第一个端口。'
                     : '只需填 IP、端口、账号、密码；保存时自动生成 socks5:// 分享链接。转发只用 IP 和端口。'}
                 </div>
               </div>
@@ -788,7 +791,7 @@ function BulkImportForm({ folders = [], onClose, onDone }) {
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">节点 URI（每行一条）</label>
             <textarea className="input-field font-mono text-xs" value={text} onChange={e => setText(e.target.value)}
-              placeholder={'ss://…\nvmess://…\ntrojan://…\nvless://…\nsocks5://user:pass@ip:port\nnaive+https://user:pass@ip:port'} rows={16} style={{ resize: 'vertical', minHeight: 300 }} autoFocus />
+              placeholder={'ss://…\nvmess://…\ntrojan://…\nvless://…\nsocks5://user:pass@ip:port\nnaive+https://user:pass@ip:port\nmierus://user:pass@ip?profile=default&port=8964&protocol=TCP'} rows={16} style={{ resize: 'vertical', minHeight: 300 }} autoFocus />
           </div>
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">导入到分组</label>

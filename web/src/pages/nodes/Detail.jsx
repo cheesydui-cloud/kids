@@ -46,8 +46,6 @@ export default function NodeDetail() {
   const [rateMult, setRateMult] = useState('1')
   const [unidirectional, setUnidirectional] = useState(false)
   const [noDirectExit, setNoDirectExit] = useState(false)
-  const [useGhProxy, setUseGhProxy] = useState(false)
-  const [ghProxy, setGhProxy] = useState('https://gh-proxy.com/')
   const [cmdRelayHost, setCmdRelayHost] = useState('')
   const [cmdRelayHostV6, setCmdRelayHostV6] = useState('')
   // CF DNS for line entry domain (same idea as 落地仓库).
@@ -250,12 +248,6 @@ export default function NodeDetail() {
     try { await api.del(`/nodes/${id}`); toast('节点已删除'); navigate('/nodes') } catch (err) { toast(err.message, 'error') }
   }
 
-  // gh-proxy is a URL prefix: enabling it routes both the install.sh fetch and
-  // the binary downloads (via --gh-proxy passed to the script) through the mirror
-  // so nodes behind a GitHub-blocked network can still install.
-  const proxyPrefix = useGhProxy && ghProxy.trim()
-    ? (ghProxy.trim().endsWith('/') ? ghProxy.trim() : ghProxy.trim() + '/')
-    : ''
   // Normalize panel_url: ensure protocol prefix, detect insecure scheme for --insecure flag.
   let normalizedPanelUrl = (panel_url || '').trim()
   let needsInsecure = false
@@ -277,13 +269,12 @@ export default function NodeDetail() {
   const relayHostPart = cmdRelayHost.trim() ? ` \\\n  --relay-host ${cmdRelayHost.trim()}` : ''
   const relayHostV6Part = cmdRelayHostV6.trim() ? ` \\\n  --relay-host-v6 ${cmdRelayHostV6.trim()}` : ''
   const insecurePart = needsInsecure ? ' \\\n  --insecure' : ''
-  const ghProxyPart = proxyPrefix ? ` \\\n  --gh-proxy ${proxyPrefix}` : ''
   // Tokens are stored in plaintext, so node.secret carries the real value for
   // the command. revealedSecret (a fresh reset) takes priority before the reload
   // lands. Legacy v3.0.0 nodes (secret_legacy) have an unusable hashed value —
   // node.secret is empty there, so prompt a reset instead.
   const tokenForCmd = revealedSecret || node.secret || (node.secret_legacy ? '<请先点“重置 Token”>' : '')
-  const installCmd = `curl -fsSL ${proxyPrefix}https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s agent \\\n  --panel-url ${normalizedPanelUrl} \\\n  --token ${tokenForCmd}${portRangePart}${relayHostPart}${relayHostV6Part}${insecurePart}${ghProxyPart}`
+  const installCmd = `curl -fsSL ${normalizedPanelUrl}/v1/install-agent | bash -s -- \\\n  --token ${tokenForCmd}${portRangePart}${relayHostPart}${relayHostV6Part}${insecurePart}`
 
   return (
     <Layout>
@@ -431,23 +422,13 @@ export default function NodeDetail() {
           <section className={`${card} px-[26px] py-[22px] hidden md:block`}>
             <div className="flex items-baseline gap-3 mb-3.5 flex-wrap">
               <h2 className="m-0 text-[15px] font-bold">节点安装命令</h2>
-              <span className="text-[12.5px] text-ink-mut">在目标节点（已安装 nftables，root 用户）执行下列命令即可</span>
+              <span className="text-[12.5px] text-ink-mut">节点只需能访问面板。脚本和二进制都从面板下载，不经过 GitHub。</span>
             </div>
             {!panel_url_configured && (
               <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-[13px]">
-                尚未设置面板地址，下面用你当前访问的域名 <code className="bg-amber-100 px-1 rounded">{panel_url}</code> 推断。如 agent 走不同地址，请到<Link to="/nodes" className="text-emerald-600 font-semibold">节点页</Link>设置后再复制。
+                尚未设置面板地址，下面用你当前访问的地址推断。如 agent 走不同地址，请到<Link to="/nodes" className="text-emerald-600 font-semibold">节点页</Link>设置后再复制。
               </div>
             )}
-            <div className="mb-3 flex items-center gap-2.5 flex-wrap text-[13px]">
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
-                <input type="checkbox" checked={useGhProxy} onChange={e => setUseGhProxy(e.target.checked)} className="accent-emerald-600" />
-                <span className="text-ink-soft">使用 gh-proxy（GitHub 受限网络）</span>
-              </label>
-              {useGhProxy && (
-                <input className="input-field font-mono" style={{ height: 30, maxWidth: 280 }} value={ghProxy}
-                  onChange={e => setGhProxy(e.target.value)} placeholder="https://gh-proxy.com/" />
-              )}
-            </div>
             <div className="mb-3 flex items-center gap-2.5 flex-wrap text-[13px]">
               <span className="text-ink-soft">中继地址声明（双出口机器用，可空）</span>
               <input className="input-field font-mono" style={{ height: 30, maxWidth: 220 }} value={cmdRelayHost}

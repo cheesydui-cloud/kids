@@ -484,12 +484,45 @@ fetch_and_verify() {
   verify_asset "$base" "$asset" "$dest" "$strictness"
 }
 
+# Agent install: pull nft-agent from the panel itself. Nodes that can reach
+# the panel never need GitHub (or gh-proxy). Echoes the file sha256 hex.
+download_agent_from_panel() {
+  local dest="$1" panel="$2"
+  local hdr size want actual ver
+  hdr="$(dirname "$dest")/agent.hdr"
+  case "$panel" in
+    https://*|http://*) ;;
+    ws://*) panel="http://${panel#ws://}" ;;
+    wss://*) panel="https://${panel#wss://}" ;;
+    *) panel="http://$panel" ;;
+  esac
+  panel="${panel%/}"
+  note "    从面板下载 $panel/v1/binary?arch=$HOST_GOARCH" >&2
+  curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
+    -D "$hdr" "$panel/v1/binary?arch=$HOST_GOARCH" -o "$dest" \
+    || die "从面板下载 nft-agent 失败（请确认本机能访问面板，且面板已升级到 v0.1.4+）"
+  size="$(wc -c < "$dest" | tr -d ' ')"
+  if [[ -z "$size" || "$size" -lt 1048576 ]]; then
+    die "面板返回的不是 agent 二进制（${size:-0} bytes）。请先升级面板后再装节点"
+  fi
+  want="$(awk 'BEGIN{IGNORECASE=1} /^X-SHA256:/{print $2}' "$hdr" | tr -d '\r' | tail -1)"
+  actual="$(sha256sum "$dest" | awk '{print $1}')"
+  if [[ -n "$want" && "$actual" != "$want" ]]; then
+    die "sha256 校验失败: 面板声明 ${want:0:12}…，实际 ${actual:0:12}…"
+  fi
+  ver="$(awk 'BEGIN{IGNORECASE=1} /^X-Agent-Version:/{print $2}' "$hdr" | tr -d '\r' | tail -1)"
+  if [[ -n "$ver" ]]; then
+    release_tag="$ver"
+  fi
+  echo "$actual"
+}
+
 # Download nft-server / nft-agent for this host arch, trying suffixed names first.
 download_role_binary() {
   local base="$1" kind="$2" dest="$3"
   local name size
   for name in $(asset_candidates "$kind"); do
-    note "    尝试 $name ..."
+    note "    尝试 $name ..." >&2
     rm -f "$dest"
     if ! curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
          "$base/$name" -o "$dest"; then
@@ -860,9 +893,14 @@ trap 'rm -rf "$tmp"' EXIT
 release_tag="$(resolve_release_tag)"
 
 # Every role installs nft-agent (the node daemon + TUI); only server adds the
-# panel binary on top.
+# panel binary on top. Agent mode prefers the panel's /v1/binary so the node
+# never talks to GitHub.
 note "[1/3] 下载 nft-agent ($RELEASE / linux-$HOST_GOARCH) ..."
-agent_sha="$(download_role_binary "$base" nft-agent "$tmp/nft-agent")"
+if [[ "$mode" == "agent" && -n "${panel_url:-}" ]]; then
+  agent_sha="$(download_agent_from_panel "$tmp/nft-agent" "$panel_url")"
+else
+  agent_sha="$(download_role_binary "$base" nft-agent "$tmp/nft-agent")"
+fi
 if [[ "$mode" == "server" ]]; then
   note "      下载 nft-server ($RELEASE / linux-$HOST_GOARCH) ..."
   download_role_binary "$base" nft-server "$tmp/nft-server" >/dev/null

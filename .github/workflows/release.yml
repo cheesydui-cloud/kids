@@ -59,10 +59,16 @@ jobs:
           LDFLAGS="-s -w -X nft/internal/server.buildVersion=$VERSION"
           mkdir -p dist
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" \
-              -o dist/nft-server-linux-$arch ./cmd/nft-server
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" \
               -o dist/nft-agent-linux-$arch ./cmd/nft-agent
+          done
+          # Pack both agents into nft-server so nodes install from the panel,
+          # never GitHub. Placeholders in git stay tiny for tests.
+          cp dist/nft-agent-linux-amd64 internal/agentbin/linux-amd64
+          cp dist/nft-agent-linux-arm64 internal/agentbin/linux-arm64
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" \
+              -o dist/nft-server-linux-$arch ./cmd/nft-server
           done
           # Unsuffixed names keep older install.sh (v0.1.0) working on amd64.
           cp dist/nft-server-linux-amd64 dist/nft-server

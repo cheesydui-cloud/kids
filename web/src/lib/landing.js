@@ -260,6 +260,7 @@ export function rewriteEndpoint(uri, host, port) {
   const scheme = uri.slice(0, i).toLowerCase()
   if (scheme === 'vmess') return rewriteVMess(uri, host, port)
   if (scheme === 'ss') return rewriteSS(uri, host, port)
+  if (scheme === 'mierus') return rewriteMierus(uri, host, port)
   return rewriteAuthority(uri, host, port)
 }
 
@@ -347,6 +348,8 @@ function parseRaw(uri) {
   if (scheme === 'vmess') return parseVMess(uri)
   if (scheme === 'ss') return parseSS(uri)
   if (scheme === 'http' || scheme === 'https') return null
+  if (scheme === 'mierus') return parseMierus(uri)
+  if (scheme === 'mieru') return parseMieru(uri)
   return parseAuthority(uri, normProto(scheme))
 }
 
@@ -354,6 +357,7 @@ function normProto(scheme) {
   if (scheme === 'hy2') return 'hysteria2'
   if (scheme === 'naive+https' || scheme === 'naive+http' || scheme === 'naive') return 'naive'
   if (scheme === 'socks5h' || scheme === 'socks') return 'socks5'
+  if (scheme === 'mieru' || scheme === 'mierus') return 'mieru'
   return scheme
 }
 
@@ -409,21 +413,36 @@ export function tryParseNaiveHTTPS(uri) {
 
 export function isAuthFormProtocol(protocol) {
   const p = String(protocol || '').toLowerCase()
-  return p === 'socks5' || p === 'socks5h' || p === 'naive'
+  return p === 'socks5' || p === 'socks5h' || p === 'naive' || p === 'mieru' || p === 'mierus'
 }
 
-/* SOCKS5 / Naive share-link from IP + port + user + pass.
+/* SOCKS5 / Naive / Mieru share-link from IP + port + user + pass.
    Naive is stored as naive+https:// so the parser never confuses it with a
-   subscription https:// URL. Forwarding still uses host+port only. */
+   subscription https:// URL. Mieru uses official mierus:// (port in query).
+   Forwarding still uses host+port only. */
 export function buildSimpleAuthURI({ protocol, host, port, username, password, name } = {}) {
   const proto = String(protocol || '').toLowerCase()
-  const scheme = proto === 'naive' ? 'naive+https' : (proto === 'socks5' || proto === 'socks5h' ? 'socks5' : '')
-  if (!scheme || !host || !port) return ''
-  const hp = joinHostPort(String(host).trim(), Number(port))
+  const h = String(host || '').trim()
+  const portNum = Number(port)
   const u = String(username || '')
   const p = String(password || '')
+  const label = name && String(name).trim() ? String(name).trim() : ''
+  if (proto === 'mieru' || proto === 'mierus') {
+    if (!h || !portNum) return ''
+    const q = new URLSearchParams()
+    q.set('profile', label || 'default')
+    q.set('port', String(portNum))
+    q.set('protocol', 'TCP')
+    const auth = (u || p) ? `${encodeURIComponent(u)}:${encodeURIComponent(p)}@` : ''
+    const hostPart = h.includes(':') ? `[${h}]` : h
+    const frag = label ? `#${encodeURIComponent(label)}` : ''
+    return `mierus://${auth}${hostPart}?${q.toString()}${frag}`
+  }
+  const scheme = proto === 'naive' ? 'naive+https' : (proto === 'socks5' || proto === 'socks5h' ? 'socks5' : '')
+  if (!scheme || !h || !portNum) return ''
+  const hp = joinHostPort(h, portNum)
   const auth = (u || p) ? `${encodeURIComponent(u)}:${encodeURIComponent(p)}@` : ''
-  const frag = name && String(name).trim() ? `#${encodeURIComponent(String(name).trim())}` : ''
+  const frag = label ? `#${encodeURIComponent(label)}` : ''
   return `${scheme}://${auth}${hp}${frag}`
 }
 
@@ -464,6 +483,98 @@ function parseVMess(uri) {
   const port = Number(m.port)
   if (!host || !(port >= 1 && port <= 65535)) return null
   return { name: m.ps || '', protocol: 'vmess', host, port, uri }
+}
+
+function firstMieruPort(vals) {
+  for (const raw0 of vals || []) {
+    let raw = String(raw0 || '').trim()
+    if (!raw) continue
+    const dash = raw.indexOf('-')
+    if (dash > 0) raw = raw.slice(0, dash).trim()
+    const n = Number(raw)
+    if (Number.isInteger(n) && n >= 1 && n <= 65535) return n
+  }
+  return 0
+}
+
+function parseMierus(uri) {
+  const i = uri.indexOf('://')
+  let rest = uri.slice(i + 3)
+  let name = ''
+  const h = rest.indexOf('#')
+  if (h >= 0) { name = safeDecode(rest.slice(h + 1)); rest = rest.slice(0, h) }
+  const q = rest.indexOf('?')
+  let authority = q >= 0 ? rest.slice(0, q) : rest
+  const query = q >= 0 ? rest.slice(q + 1) : ''
+  const at = authority.lastIndexOf('@')
+  if (at >= 0) authority = authority.slice(at + 1)
+  let host = authority
+  let authPort = 0
+  const hp = splitHostPort(authority)
+  if (hp) { host = hp.host; authPort = hp.port }
+  const params = new URLSearchParams(query)
+  const port = firstMieruPort(params.getAll('port')) || authPort
+  if (!host || !port) return null
+  if (!name) name = params.get('profile') || ''
+  return { name, protocol: 'mieru', host, port, uri }
+}
+
+function parseMieru(uri) {
+  const auth = parseAuthority(uri, 'mieru')
+  if (auth) return auth
+  let rest = uri.slice('mieru://'.length)
+  let name = ''
+  const h = rest.indexOf('#')
+  if (h >= 0) { name = safeDecode(rest.slice(h + 1)); rest = rest.slice(0, h) }
+  const dec = b64decode(rest)
+  if (!dec) return null
+  let root
+  try { root = JSON.parse(dec) } catch { return null }
+  const profiles = Array.isArray(root.profiles) ? root.profiles : []
+  const prof = profiles[0] || root
+  if (!prof || typeof prof !== 'object') return null
+  const servers = Array.isArray(prof.servers) ? prof.servers : []
+  const srv = servers[0]
+  if (!srv) return null
+  const host = srv.ipAddress || srv.domainName
+  let port = 0
+  for (const b of srv.portBindings || []) {
+    const p = Number(b?.port)
+    if (Number.isInteger(p) && p >= 1 && p <= 65535) { port = p; break }
+    const fromRange = firstMieruPort([b?.portRange])
+    if (fromRange) { port = fromRange; break }
+  }
+  if (!host || !port) return null
+  return { name: name || prof.profileName || root.activeProfile || '', protocol: 'mieru', host, port, uri }
+}
+
+function rewriteMierus(uri, newHost, newPort) {
+  const i = uri.indexOf('://')
+  if (i <= 0) return null
+  const prefix = uri.slice(0, i + 3)
+  const rest = uri.slice(i + 3)
+  let frag = ''
+  let body = rest
+  const hash = body.indexOf('#')
+  if (hash >= 0) { frag = body.slice(hash); body = body.slice(0, hash) }
+  const q = body.indexOf('?')
+  const authority = q >= 0 ? body.slice(0, q) : body
+  const query = q >= 0 ? body.slice(q + 1) : ''
+  let userinfo = ''
+  const at = authority.lastIndexOf('@')
+  if (at >= 0) userinfo = authority.slice(0, at + 1)
+  const params = new URLSearchParams(query)
+  const ports = params.getAll('port')
+  params.delete('port')
+  if (ports.length === 0) {
+    params.append('port', String(newPort))
+    if (!params.get('protocol')) params.append('protocol', 'TCP')
+  } else {
+    for (let n = 0; n < ports.length; n++) params.append('port', String(newPort))
+  }
+  if (!params.get('profile')) params.set('profile', 'default')
+  const hostPart = String(newHost).includes(':') ? `[${newHost}]` : newHost
+  return `${prefix}${userinfo}${hostPart}?${params.toString()}${frag}`
 }
 
 function parseSS(uri) {

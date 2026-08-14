@@ -9,6 +9,38 @@
 
 ---
 
+## v0.1.4 — 2026-08-15
+
+节点 agent 改为从面板安装：脚本和二进制都走面板，不再经过 GitHub。落地仓库增加 Mieru。
+
+### 新增
+
+- 面板提供 `/v1/install-agent`：节点一条 `curl | bash` 即可安装
+- 面板按架构下发 `/v1/binary?arch=amd64|arm64`，并带 `X-SHA256` 供校验
+- 发版时把 amd64 / arm64 的 `nft-agent` 打进 `nft-server`，节点装机不必访问 GitHub
+- 落地仓库支持 **Mieru**：表单填 IP、端口、账号、密码，保存时生成官方 `mierus://user:pass@host?profile=&port=&protocol=TCP`
+- 解析识别 `mierus://`（端口在查询参数，含 `port=2012-2022` 区间取起始端口）以及 `mieru://user:pass@host:port`
+
+### 改进
+
+- 节点详情里的安装命令改为从当前面板下载，去掉 gh-proxy 选项
+- 旧 `install.sh agent --panel-url …` 也会优先从面板拉二进制
+- 推送升级按节点上报的 CPU 架构选择对应 agent
+- 复制中继 URI 时会改写 `mierus://` 的主机和全部 `port` 查询项
+
+### 升级注意
+
+- **先升级面板**，再在节点上执行详情页里的新命令
+- 节点只需能访问面板地址（例如 `http://31.40.214.186:7788`）
+- 官方 `mieru://` 是 protobuf 整包配置，请改贴 `mierus://` 或用表单录入
+- 面板仍用原来的固定命令升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.1.3 — 2026-08-15
 
 修复节点 agent 一键安装在 sha256 校验阶段必失败的问题。固定安装命令不变。
