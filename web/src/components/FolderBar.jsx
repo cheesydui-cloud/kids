@@ -90,6 +90,15 @@ export default function FolderBar({
           options={options}
           className="w-[220px] max-w-full"
         />
+        {folders.length > 0 && (
+          <button
+            type="button"
+            className="btn-danger !h-[36px] text-[13px]"
+            onClick={() => current ? remove(current) : setShowDeletePick(true)}
+          >
+            删除
+          </button>
+        )}
         <button
           type="button"
           onClick={() => { setShowCreate(true); setName('') }}
@@ -104,15 +113,6 @@ export default function FolderBar({
             onClick={() => { setRenaming(current); setName(current.name) }}
           >
             重命名
-          </button>
-        )}
-        {folders.length > 0 && (
-          <button
-            type="button"
-            className="btn-danger !h-[36px] text-[13px]"
-            onClick={() => current ? remove(current) : setShowDeletePick(true)}
-          >
-            删除分组
           </button>
         )}
       </div>

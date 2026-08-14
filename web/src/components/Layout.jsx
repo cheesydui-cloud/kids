@@ -251,14 +251,14 @@ export function Layout({ children }) {
                   {user.username?.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[14.5px] sb-text font-semibold leading-tight truncate">{user.username}</div>
+                  <div className="text-[14px] sb-text font-semibold leading-tight truncate">{user.username}</div>
                   {/* Role label is admin-only; users only see their username. */}
-                  {isAdmin && <div className="text-[12px] sb-text-mut mt-px">{user.role}</div>}
+                  {isAdmin && <div className="text-[11.5px] sb-text-mut mt-px">{user.role}</div>}
                 </div>
               </div>
               <div className="flex gap-2">
-                <NavLink to="/change-password" className="flex-1 text-center text-[13.5px] sb-btn py-2 rounded-lg transition-colors">账户设置</NavLink>
-                <button onClick={handleLogout} className="flex-1 text-center text-[13.5px] sb-btn py-2 rounded-lg transition-colors">退出登录</button>
+                <NavLink to="/change-password" className="flex-1 text-center text-[13px] sb-btn py-[7px] rounded-lg transition-colors">账户设置</NavLink>
+                <button onClick={handleLogout} className="flex-1 text-center text-[13px] sb-btn py-[7px] rounded-lg transition-colors">退出登录</button>
               </div>
             </>)}
             {/* Collapse toggle — desktop only */}
@@ -356,9 +356,9 @@ const SidebarCtx = createContext(false)
 function NavGroup({ label, children }) {
   const collapsed = useContext(SidebarCtx)
   return (
-    <div className="mt-5 first:mt-1">
-      {!collapsed && <div className="px-3 pb-2 text-[12px] font-semibold uppercase sb-group-label">{label}</div>}
-      <div className="flex flex-col gap-0.5">{children}</div>
+    <div className="mt-4 first:mt-1">
+      {!collapsed && <div className="px-3 pb-1.5 text-[11px] font-semibold uppercase sb-group-label">{label}</div>}
+      <div className="flex flex-col gap-px">{children}</div>
     </div>
   )
 }
@@ -368,11 +368,11 @@ function SideLink({ to, icon, end, children }) {
   return (
     <NavLink to={to} end={end} title={collapsed ? children : undefined}
       className={({ isActive }) =>
-        `flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-[9px] rounded-xl text-[15px] font-medium transition-all relative border ${isActive}
+        `flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'} py-[8px] rounded-xl text-[14.5px] font-medium transition-all relative border ${isActive
           ? 'sb-link-active'
           : 'sb-link'}`
       }>
-      <span className="w-[18px] h-[18px] flex-none opacity-90">{icon}</span>
+      <span className="w-[17px] h-[17px] flex-none opacity-90">{icon}</span>
       {!collapsed && <span className="tracking-tight">{children}</span>}
     </NavLink>
   )

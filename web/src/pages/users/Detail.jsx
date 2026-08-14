@@ -253,8 +253,7 @@ export default function UserDetail() {
                       <th>名称</th>
                       <th>节点</th>
                       <th>实时</th>
-                      <th className="text-right">真实用量</th>
-                      <th className="text-right">显示用量</th>
+                      <th className="text-right">{rate !== 1 ? `用量(×${rate})` : '用量'}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -278,7 +277,6 @@ export default function UserDetail() {
                               {' '}
                               <span className="text-emerald-600">↓{fmtSpeed(sp.down)}</span>
                             </td>
-                            <td className="text-right font-mono text-xs text-ink-mut">{fmtBytes(r.exit_bytes || 0)}</td>
                             <td className="text-right font-mono text-xs">{fmtBytes(Math.round((r.exit_bytes || 0) * rate))}</td>
                           </tr>
                         )
