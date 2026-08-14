@@ -21,6 +21,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog for this version
+        run: |
+          chmod +x scripts/release-notes.sh
+          scripts/release-notes.sh "${{ steps.ver.outputs.version }}" > release-notes.md
+          echo "===== Release notes ====="
+          cat release-notes.md
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -42,10 +55,10 @@ jobs:
 
       - name: Build binaries (linux/amd64)
         run: |
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          LDFLAGS="-X nft/internal/server.buildVersion=$VERSION"
+          VERSION="${{ steps.ver.outputs.version }}"
+          LDFLAGS="-s -w -X nft/internal/server.buildVersion=$VERSION"
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o nft-server ./cmd/nft-server
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o nft-agent ./cmd/nft-agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o nft-agent ./cmd/nft-agent
 
       - name: Generate checksums
         run: sha256sum nft-server nft-agent > SHA256SUMS
@@ -53,11 +66,16 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.version }}
+          body_path: release-notes.md
           files: |
             nft-server
             nft-agent
             SHA256SUMS
             install.sh
-          generate_release_notes: true
+            CHANGELOG.md
+          generate_release_notes: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

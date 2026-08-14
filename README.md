@@ -278,7 +278,9 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
 
 依赖：Go ≥ 1.24，Node.js（前端构建），无 CGO。运行时需 nftables + iproute2（仅 Linux）。
 
-推送 `v*` 标签会触发 GitHub Actions，编译 linux/amd64 二进制并发布到 Releases。
+推送 `v*` 标签会触发 GitHub Actions：从 [CHANGELOG.md](./CHANGELOG.md) 抽出该版本的升级详情作为 Release 正文，编译 linux/amd64 二进制，并把 `nft-server` / `nft-agent` / `SHA256SUMS` / `install.sh` / `CHANGELOG.md` 一起上传。
+
+**每个版本必须先写 CHANGELOG 再打 tag。** 缺章节或内容过短时发版会失败。模板见 `CHANGELOG.md` 文件头，完整流程见 `.claude/commands/release.md`。
 
 ---
 
