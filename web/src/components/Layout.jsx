@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import { NavLink, useNavigate, Navigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { resolvedDark, getStoredTheme, setStoredTheme } from '../lib/theme'
-import { hasLocalURIs, hasLocalProxies } from '../lib/landing'
+import { hasLocalProxies } from '../lib/landing'
 import { Loading } from './ui'
 import { BrandBadge } from './BrandMark'
 import { LoginAnnouncementModal, clearLoginAnnouncementSession } from './LoginAnnouncementModal'
@@ -220,16 +220,9 @@ export function Layout({ children }) {
                 </NavGroup>
               </>
             ) : (
-              <>
-                <NavGroup label="概况">
-                  <SideLink to="/my" icon={<IconDashboard />} end>我的概览</SideLink>
-                </NavGroup>
-                <NavGroup label="转发">
-                  <SideLink to="/my/rules" icon={<IconForwards />}>我的规则</SideLink>
-                  {(hasLocalProxies(user.username) || user.has_landing_source) && <SideLink to="/my/landing" icon={<IconProxy />}>落地节点</SideLink>}
-                  {(hasLocalProxies(user.username) || user.has_landing_source) && <SideLink to="/proxies" icon={<IconProxy />}>我的代理</SideLink>}
-                </NavGroup>
-              </>
+              <NavGroup label="订阅">
+                <SideLink to="/my" icon={<IconProxy />} end>我的订阅</SideLink>
+              </NavGroup>
             )}
           </nav>
           </SidebarCtx.Provider>

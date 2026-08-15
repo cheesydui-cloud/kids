@@ -96,10 +96,11 @@ type ruleListItem struct {
 		// LandingExpiresAt is the owner's assigned landing-exit expiry
 		// (user_landing_exits.expires_at) for this rule's exit host:port.
 		// Used by clipboard rename (`用户名-8月5日`); not node_repo warehouse expiry.
-		LandingExpiresAt int64   `json:"landing_expires_at,omitempty"`
-		RelayURI         string  `json:"relay_uri,omitempty"`
-		RateMultiplier   float64 `json:"rate_multiplier"`
-		BillingRate      float64 `json:"billing_rate"`
+			LandingExpiresAt int64   `json:"landing_expires_at,omitempty"`
+			RelayURI         string  `json:"relay_uri,omitempty"`
+			RelayURIV6       string  `json:"relay_uri_v6,omitempty"`
+			RateMultiplier   float64 `json:"rate_multiplier"`
+			BillingRate      float64 `json:"billing_rate"`
 	// Chain is the flattened physical path (entry → the hop that dials the
 	// target, target excluded), with composite segments already expanded into
 	// their member nodes. Sourced from rule_hops so it reflects what is actually
@@ -165,18 +166,25 @@ func (it *ruleListItem) classifyExit(idx map[string]landing.Node, withURI bool) 
 	it.ExitKind = "custom"
 	relayHost, relayPort, entryOK := splitEntry(it.Entry)
 	if node, ok := idx[it.Exit]; ok {
-			it.ExitKind = "landing"
-			it.LandingName = node.Name
-			it.LandingProtocol = node.Protocol
-			it.LandingURI = node.URI
-			it.LandingExpiresAt = node.ExpiresAt
-			if withURI && entryOK {
-				if u, err := landing.RewriteEndpoint(node.URI, relayHost, relayPort); err == nil {
-					it.RelayURI = u
+		it.ExitKind = "landing"
+		it.LandingName = node.Name
+		it.LandingProtocol = node.Protocol
+		it.LandingURI = node.URI
+		it.LandingExpiresAt = node.ExpiresAt
+		if withURI && entryOK {
+			if u, err := landing.RewriteEndpoint(node.URI, relayHost, relayPort); err == nil {
+				it.RelayURI = u
+			}
+		}
+		if withURI && it.EntryV6 != "" {
+			if h6, p6, ok6 := splitEntry(it.EntryV6); ok6 {
+				if u, err := landing.RewriteEndpoint(node.URI, h6, p6); err == nil {
+					it.RelayURIV6 = u
 				}
 			}
 		}
 	}
+}
 
 // splitEntry parses a "host:port" entry string; entry is "—" before the rule's
 // first regeneration, which fails the split and reports ok=false.

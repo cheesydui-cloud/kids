@@ -18,10 +18,7 @@ import Announcements from './pages/Announcements'
 import NodeRepo from './pages/NodeRepo'
 import Docs from './pages/Docs'
 
-import MyDashboard from './pages/my/Dashboard'
-import MyRules from './pages/my/Rules'
-import MyRuleDetail from './pages/my/RuleDetail'
-import MyLandingNodes from './pages/my/LandingNodes'
+import MySubscribe from './pages/my/Subscribe'
 import Proxies from './pages/Proxies'
 
 // ErrorBoundary: catches render errors in any child component and shows a
@@ -95,6 +92,14 @@ function UserRoute({ children }) {
   return children
 }
 
+function UserProxiesGate({ children }) {
+  const { user } = useUser()
+  if (user === undefined) return <Loading />
+  if (user === null) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/my" replace />
+  return children
+}
+
 function RootRedirect() {
   const { user } = useUser()
   if (user === undefined) return <Loading />
@@ -139,15 +144,15 @@ export default function App() {
           <Route path="/docs" element={<AdminRoute><Docs /></AdminRoute>} />
           <Route path="/node-repo" element={<AdminRoute><NodeRepo /></AdminRoute>} />
 
-          {/* Regular user routes */}
-          <Route path="/my" element={<UserRoute><MyDashboard /></UserRoute>} />
-          <Route path="/my/rules" element={<UserRoute><MyRules /></UserRoute>} />
-          <Route path="/my/rules/:id" element={<UserRoute><MyRuleDetail /></UserRoute>} />
-          <Route path="/my/landing" element={<UserRoute><MyLandingNodes /></UserRoute>} />
+          {/* Regular user: subscription only */}
+          <Route path="/my" element={<UserRoute><MySubscribe /></UserRoute>} />
+          <Route path="/my/rules" element={<UserRoute><Navigate to="/my" replace /></UserRoute>} />
+          <Route path="/my/rules/:id" element={<UserRoute><Navigate to="/my" replace /></UserRoute>} />
+          <Route path="/my/landing" element={<UserRoute><Navigate to="/my" replace /></UserRoute>} />
           <Route path="/my/docs" element={<UserRoute><Navigate to="/my" replace /></UserRoute>} />
 
           {/* Shared routes */}
-          <Route path="/proxies" element={<ProtectedRoute><Proxies /></ProtectedRoute>} />
+          <Route path="/proxies" element={<UserProxiesGate><Proxies /></UserProxiesGate>} />
           <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
 
           <Route path="*" element={<NotFound />} />

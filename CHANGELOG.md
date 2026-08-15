@@ -9,6 +9,32 @@
 
 ---
 
+## v0.2.9 — 2026-08-15
+
+用户端整页改成订阅中心：小火箭扫码、V2rayN 复制链接、Clash Verge / Mihomo 拉 YAML。
+
+### 新增
+
+- 普通用户登录后只剩「我的订阅」：小火箭二维码、V2rayN 订阅/节点链接、Clash Verge 订阅地址、Mihomo YAML 下载与拉取地址
+- 订阅收录已启用且能改写到入口的落地中转规则（多条规则各一条；有 IPv6 入口再多一条），以及管理员标记为「直连」的落地原始 URI
+- 自定义 host:port、尚未生成入口、已停用的规则不进订阅，页面会说明原因
+- 每名用户有独立明文订阅口令，可重置；旧地址立刻失效
+
+### 改进
+
+- 旧的用户概览 / 规则 / 落地 / 文档入口全部跳回订阅页
+
+### 升级注意
+
+- 只改面板，节点 agent 不用动
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.8 — 2026-08-15
 
 落地仓库和线路监控可按 IP 从 Cloudflare 同步域名到记录名；用户详情规则表拉开列距。

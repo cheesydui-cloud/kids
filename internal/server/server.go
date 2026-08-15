@@ -725,8 +725,10 @@ func (s *Server) Router() http.Handler {
 		// User routes
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAPIAuth, s.requireRole("user"))
-			r.Get("/my", s.apiMyDashboard)
-			r.Get("/my/landing-nodes", s.apiMyLandingNodes)
+				r.Get("/my", s.apiMyDashboard)
+				r.Get("/my/subscribe", s.apiMySubscribe)
+				r.Post("/my/subscribe/rotate", s.apiMyRotateSubscribe)
+				r.Get("/my/landing-nodes", s.apiMyLandingNodes)
 			r.Get("/my/announcements", s.apiMyAnnouncements)
 			r.Get("/my/login-announcement", s.apiMyLoginAnnouncement)
 			r.Get("/my/docs", s.apiMyDocs)
@@ -751,11 +753,19 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 
-	// Public API (token auth)
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(s.requireTokenAuth)
-		r.Get("/info", s.apiTokenInfo)
-	})
+		// Outbound client subscription — plaintext sub_tokens, not hashed api_tokens.
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireSubTokenAuth)
+			r.Get("/api/v1/sub", s.apiPublicSub)
+			r.Get("/api/v1/clash.yaml", s.apiPublicClash)
+			r.Get("/api/v1/mihomo.yaml", s.apiPublicClash)
+		})
+
+		// Public API (token auth)
+		r.Route("/api/v1", func(r chi.Router) {
+			r.Use(s.requireTokenAuth)
+			r.Get("/info", s.apiTokenInfo)
+		})
 
 	r.NotFound(spaHandler().ServeHTTP)
 
