@@ -9,6 +9,25 @@
 
 ---
 
+## v0.2.19 — 2026-08-15
+
+登录页「记住账号密码」靠左，和用户名、密码对齐。
+
+### 改进
+
+- 记住账号密码不再居中，和上方输入框左对齐
+
+### 升级注意
+
+- 只改面板，节点 agent 不用动
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.18 — 2026-08-15
 
 登录按钮缩小并和输入框区分开。

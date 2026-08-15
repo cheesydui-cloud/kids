@@ -97,7 +97,7 @@ export default function Login() {
             className="login-submit mt-1 self-center min-w-[88px] h-[42px] px-5 justify-center text-[13.5px] disabled:opacity-60">
             {loading ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : '登录'}
           </button>
-          <label className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold text-ink-soft cursor-pointer select-none">
+          <label className="inline-flex items-center self-start gap-2 text-[13px] font-semibold text-ink-soft cursor-pointer select-none">
             <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
             记住账号密码
           </label>
