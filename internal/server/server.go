@@ -726,8 +726,9 @@ func (s *Server) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAPIAuth, s.requireRole("user"))
 				r.Get("/my", s.apiMyDashboard)
-				r.Get("/my/subscribe", s.apiMySubscribe)
-				r.Post("/my/subscribe/rotate", s.apiMyRotateSubscribe)
+					r.Get("/my/subscribe", s.apiMySubscribe)
+					r.Get("/my/subscribe/latency", s.apiMySubscribeLatency)
+					r.Post("/my/subscribe/rotate", s.apiMyRotateSubscribe)
 				r.Get("/my/landing-nodes", s.apiMyLandingNodes)
 			r.Get("/my/announcements", s.apiMyAnnouncements)
 			r.Get("/my/login-announcement", s.apiMyLoginAnnouncement)

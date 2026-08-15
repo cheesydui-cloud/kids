@@ -7,11 +7,16 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"nft/internal/db"
 	"nft/internal/landing"
 )
+
+// googleTCPTarget is the user-facing “到谷歌” latency: last-hop agent TCP
+// connect to Google HTTPS. Hop probes stay TCP, never ICMP.
+const googleTCPTarget = "www.google.com:443"
 
 // subItem is one client-importable node in a user's outbound subscription.
 type subItem struct {
@@ -440,4 +445,116 @@ func (s *Server) apiMyRotateSubscribe(w http.ResponseWriter, r *http.Request) {
 		"clash_url":  clashURL,
 		"mihomo_url": mihomoURL,
 	})
+}
+
+type subLatencyItem struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	RuleID    int64  `json:"rule_id,omitempty"`
+	Family    string `json:"family,omitempty"`
+	OK        bool   `json:"ok"`
+	LatencyMS int    `json:"latency_ms,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// apiMySubscribeLatency measures last-hop TCP connect time to Google for
+// each of the caller's subscription items. Direct landings have no agent,
+// so they return an explicit skip rather than a panel-side SSRF dial.
+func (s *Server) apiMySubscribeLatency(w http.ResponseWriter, r *http.Request) {
+	u := userFromCtx(r.Context())
+	p := s.collectUserSub(u)
+	exitOf := map[int64]int64{}
+	need := map[int64]struct{}{}
+	for _, it := range p.Items {
+		if it.Kind != "relay" || it.RuleID <= 0 {
+			continue
+		}
+		if _, ok := exitOf[it.RuleID]; ok {
+			continue
+		}
+		nid := s.ruleExitNodeID(it.RuleID)
+		exitOf[it.RuleID] = nid
+		if nid > 0 {
+			need[nid] = struct{}{}
+		}
+	}
+
+	probed := make(map[int64]probeResult, len(need))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for nid := range need {
+		nid := nid
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pr := s.probeGoogleViaNode(nid)
+			mu.Lock()
+			probed[nid] = pr
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	out := make([]subLatencyItem, 0, len(p.Items))
+	for _, it := range p.Items {
+		row := subLatencyItem{Kind: it.Kind, Name: it.Name, RuleID: it.RuleID, Family: it.Family}
+		if it.Kind != "relay" {
+			row.Error = "直连节点无法测到谷歌"
+			out = append(out, row)
+			continue
+		}
+		nid := exitOf[it.RuleID]
+		if nid <= 0 {
+			row.Error = "无法探测"
+			out = append(out, row)
+			continue
+		}
+		pr := probed[nid]
+		row.OK = pr.OK
+		row.LatencyMS = pr.Latency
+		row.Error = pr.Error
+		out = append(out, row)
+	}
+	jsonOK(w, map[string]any{
+		"target": googleTCPTarget,
+		"items":  out,
+	})
+}
+
+func (s *Server) ruleExitNodeID(ruleID int64) int64 {
+	hops, err := db.ListRuleHops(s.DB, ruleID)
+	if err != nil || len(hops) == 0 {
+		return 0
+	}
+	return hops[len(hops)-1].NodeID
+}
+
+func (s *Server) probeGoogleViaNode(nodeID int64) probeResult {
+	n, err := db.GetNode(s.DB, nodeID)
+	if err != nil || n == nil {
+		return probeResult{Error: "节点不存在"}
+	}
+	if n.Disabled {
+		return probeResult{Error: "节点已停用"}
+	}
+	probeID := nodeID
+	if n.NodeType == "composite" {
+		hops, herr := db.ListNodeHops(s.DB, nodeID)
+		if herr != nil || len(hops) == 0 {
+			return probeResult{Error: "组合节点无子节点"}
+		}
+		probeID = hops[len(hops)-1].HopNodeID
+	}
+	ack, perr := s.Hub.SendProbe(probeID, googleTCPTarget)
+	if perr != nil {
+		return probeResult{Error: perr.Error()}
+	}
+	if !ack.OK {
+		msg := ack.Error
+		if msg == "" {
+			msg = "不通"
+		}
+		return probeResult{Error: msg}
+	}
+	return probeResult{OK: true, Latency: ack.Latency}
 }

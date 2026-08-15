@@ -4,16 +4,17 @@ import { api } from '../../lib/api'
 import { copyToClipboard } from '../../lib/clipboard'
 import { fmtDate, fmtTrafficGB, isExpired, nullStr, pct } from '../../lib/fmt'
 import { Layout, useToast } from '../../components/Layout'
-import { Badge, Loading, useConfirm } from '../../components/ui'
+import { UserPortalHead } from '../../components/UserPortalHead'
+import { Badge, Loading } from '../../components/ui'
 
 export default function MySubscribe() {
   const toast = useToast()
-  const confirm = useConfirm()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [qr, setQr] = useState('')
   const [qrErr, setQrErr] = useState('')
   const [copied, setCopied] = useState('')
+  const [latency, setLatency] = useState({})
 
   const load = () => api.get('/my/subscribe')
     .then(setData)
@@ -42,13 +43,27 @@ export default function MySubscribe() {
   const items = data?.items || []
   const skipped = data?.skipped || []
   const account = data?.account || {}
-  const relays = items.filter((it) => it.kind === 'relay')
-  const directs = items.filter((it) => it.kind === 'direct')
   const v2rayLines = useMemo(
     () => items.map((it) => it.uri).filter(Boolean).join('\n'),
     [items],
   )
   const profileName = account.username || 'kids'
+
+  useEffect(() => {
+    if (!data) return
+    let cancelled = false
+    api.get('/my/subscribe/latency').then((d) => {
+      if (cancelled) return
+      const map = {}
+      for (const it of d?.items || []) {
+        map[latencyKey(it)] = it
+      }
+      setLatency(map)
+    }).catch(() => {
+      if (!cancelled) setLatency({})
+    })
+    return () => { cancelled = true }
+  }, [data])
 
   const copy = async (text, key, ok = '已复制') => {
     if (!text) { toast('暂无可复制内容', 'error'); return }
@@ -94,23 +109,6 @@ export default function MySubscribe() {
     }, 1100)
   }
 
-  const rotate = async () => {
-    const ok = await confirm({
-      title: '重置订阅地址',
-      message: '旧的订阅链接会立刻失效，已导入的客户端需要重新添加。确定重置吗？',
-      confirmText: '重置',
-      danger: true,
-    })
-    if (!ok) return
-    try {
-      const next = await api.post('/my/subscribe/rotate')
-      setData((d) => ({ ...d, ...next }))
-      toast('订阅地址已重置')
-    } catch (e) {
-      toast(e.message || '重置失败', 'error')
-    }
-  }
-
   if (loading) return <Layout><Loading /></Layout>
 
   const expiresAt = account.expires_at && account.expires_at > 0 ? account.expires_at : null
@@ -123,17 +121,7 @@ export default function MySubscribe() {
   return (
     <Layout>
       <div className="sub-page">
-        <header className="sub-hero">
-          <div className="min-w-0">
-            <p className="sub-kicker">Subscription</p>
-            <h1 className="sub-title">我的订阅</h1>
-          </div>
-          <div className="sub-hero-meta">
-            <MetaChip label="节点">{items.length}</MetaChip>
-            <MetaChip label="中转">{relays.length}</MetaChip>
-            <MetaChip label="直连">{directs.length}</MetaChip>
-          </div>
-        </header>
+        <UserPortalHead title="我的订阅" />
 
         {account.disabled && (
           <div className="mb-4 px-4 py-3 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm font-medium">
@@ -235,29 +223,19 @@ export default function MySubscribe() {
         </section>
 
         <section className="sub-nodes">
-          <div className="sub-nodes-head">
-            <h2>节点清单</h2>
-            <button type="button" className="btn-secondary" onClick={rotate}>重置订阅地址</button>
-          </div>
-
-          {relays.length > 0 && (
-            <NodeGroup title={`中转 · ${relays.length}`}>
-              {relays.map((it) => (
-                <NodeRow key={`${it.kind}-${it.rule_id}-${it.family}-${it.name}`} item={it}
+          <h2>节点清单</h2>
+          {items.length > 0 && (
+            <div className="sub-node-grid">
+              {items.map((it) => (
+                <NodeCard
+                  key={`${it.kind}-${it.rule_id}-${it.family}-${it.name}`}
+                  item={it}
+                  probe={latency[latencyKey(it)]}
                   onCopy={() => copy(it.uri, `n-${it.name}`, '已复制节点')}
-                  copied={copied === `n-${it.name}`} />
+                  copied={copied === `n-${it.name}`}
+                />
               ))}
-            </NodeGroup>
-          )}
-
-          {directs.length > 0 && (
-            <NodeGroup title={`直连 · ${directs.length}`}>
-              {directs.map((it) => (
-                <NodeRow key={`${it.kind}-${it.name}`} item={it}
-                  onCopy={() => copy(it.uri, `n-${it.name}`, '已复制节点')}
-                  copied={copied === `n-${it.name}`} />
-              ))}
-            </NodeGroup>
+            </div>
           )}
 
           {skipped.length > 0 && items.length > 0 && (
@@ -300,6 +278,10 @@ export default function MySubscribe() {
   )
 }
 
+function latencyKey(it) {
+  return `${it.kind || ''}|${it.rule_id || 0}|${it.family || ''}|${it.name || ''}`
+}
+
 function importHrefs(uriURL, clashURL, mihomoURL, name) {
   const label = encodeURIComponent(name || 'kids')
   const enc = (u) => encodeURIComponent(u)
@@ -330,15 +312,6 @@ function btoaUtf8(text) {
   return btoa(bin)
 }
 
-function MetaChip({ label, children }) {
-  return (
-    <div className="sub-chip">
-      <span>{label}</span>
-      <strong>{children}</strong>
-    </div>
-  )
-}
-
 function FieldRow({ label, value, onCopy, copied, multiline, placeholder }) {
   return (
     <div className="sub-field">
@@ -353,33 +326,30 @@ function FieldRow({ label, value, onCopy, copied, multiline, placeholder }) {
   )
 }
 
-function NodeGroup({ title, children }) {
+function NodeCard({ item, probe, onCopy, copied }) {
+  const st = statusView(item)
   return (
-    <div className="sub-group">
-      <div className="sub-group-head">
-        <h3>{title}</h3>
+    <article className="sub-node-card">
+      <div className="sub-node-card-top">
+        <div className={`sub-status is-${st.tone}`}>
+          <i />
+          {st.label}
+        </div>
+        <div className="sub-latency">{latencyLabel(probe)}</div>
       </div>
-      <div className="sub-group-list">{children}</div>
-    </div>
+      <h3>{item.name}</h3>
+      <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" onClick={onCopy}>
+        {copied ? '已复制' : '复制链接'}
+      </button>
+    </article>
   )
 }
 
-function NodeRow({ item, onCopy, copied }) {
-  const st = statusView(item)
-  return (
-    <div className="sub-node">
-      <div className="min-w-0">
-        <span className="font-semibold text-[14px]">{item.name}</span>
-      </div>
-      <div className={`sub-status is-${st.tone}`}>
-        <i />
-        {st.label}
-      </div>
-      <button type="button" className="btn-secondary h-[34px] px-3 text-[12px] flex-none" onClick={onCopy}>
-        {copied ? '已复制' : '复制链接'}
-      </button>
-    </div>
-  )
+function latencyLabel(probe) {
+  if (!probe) return '测速中…'
+  if (probe.ok) return `${probe.latency_ms || 0} ms`
+  if (probe.kind === 'direct' || (probe.error || '').includes('直连')) return '—'
+  return '超时'
 }
 
 function statusView(item) {

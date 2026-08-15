@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Layout, useToast, useUser } from '../components/Layout'
+import { UserPortalHead } from '../components/UserPortalHead'
 
 export default function ChangePassword() {
   const [form, setForm] = useState({ old_password: '', new_password: '', confirm: '' })
@@ -36,8 +36,15 @@ export default function ChangePassword() {
 
   return (
     <Layout>
+      {user?.role !== 'admin' && (
+        <div className="sub-page">
+          <UserPortalHead title="账户设置" />
+        </div>
+      )}
       <div className="card" style={{ maxWidth: 980 }}>
-        <div className="card-header"><h3 className="text-[16px] font-bold">账户设置</h3></div>
+        {user?.role === 'admin' && (
+          <div className="card-header"><h3 className="text-[16px] font-bold">账户设置</h3></div>
+        )}
         <div className="px-6 py-[26px]">
           <div className={`${rowClass} pb-[22px] border-b border-line-soft`}>
             <label className={labelClass}>用户名</label>
@@ -45,11 +52,6 @@ export default function ChangePassword() {
           </div>
 
           <div className="pt-[26px]">
-            {user?.role !== 'admin' && (
-              <div className="mb-5">
-                <Link to="/my" className="text-[13px] text-ink-soft hover:text-ink">← 返回订阅</Link>
-              </div>
-            )}
             <h4 className="text-[14px] font-semibold text-ink-soft mb-[18px]">修改密码</h4>
             {error && <div className="mb-4 px-3 py-2 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm">{error}</div>}
             <form onSubmit={submitPassword}>

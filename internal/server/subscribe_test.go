@@ -85,13 +85,13 @@ func TestSubscribeCollectsRelayAndDirect(t *testing.T) {
 		Token    string `json:"token"`
 		URIURL   string `json:"uri_url"`
 		ClashURL string `json:"clash_url"`
-			Items    []struct {
-				Kind     string `json:"kind"`
-				Name     string `json:"name"`
-				URI      string `json:"uri"`
-				RuleName string `json:"rule_name"`
-				Status   string `json:"status"`
-			} `json:"items"`
+		Items    []struct {
+			Kind     string `json:"kind"`
+			Name     string `json:"name"`
+			URI      string `json:"uri"`
+			RuleName string `json:"rule_name"`
+			Status   string `json:"status"`
+		} `json:"items"`
 		Skipped []struct {
 			Reason string `json:"reason"`
 			Detail string `json:"detail"`
@@ -106,28 +106,28 @@ func TestSubscribeCollectsRelayAndDirect(t *testing.T) {
 	var relay, direct int
 	for _, it := range body.Items {
 		switch it.Kind {
-			case "relay":
-				relay++
-				if !strings.Contains(it.URI, "relay.example:") {
-					t.Errorf("relay uri should use entry host, got %s", it.URI)
-				}
-				if strings.Contains(it.URI, "1.2.3.4") {
-					t.Errorf("relay uri still points at landing: %s", it.URI)
-				}
-				if it.Status == "" {
-					t.Errorf("relay missing status")
-				}
-			case "direct":
-				direct++
-				if !strings.Contains(it.URI, "5.6.7.8:8443") {
-					t.Errorf("direct uri should keep landing endpoint, got %s", it.URI)
-				}
-				if !strings.Contains(it.Name, "直连") {
-					t.Errorf("direct name = %q", it.Name)
-				}
-				if it.Status != "direct" {
-					t.Errorf("direct status = %q", it.Status)
-				}
+		case "relay":
+			relay++
+			if !strings.Contains(it.URI, "relay.example:") {
+				t.Errorf("relay uri should use entry host, got %s", it.URI)
+			}
+			if strings.Contains(it.URI, "1.2.3.4") {
+				t.Errorf("relay uri still points at landing: %s", it.URI)
+			}
+			if it.Status == "" {
+				t.Errorf("relay missing status")
+			}
+		case "direct":
+			direct++
+			if !strings.Contains(it.URI, "5.6.7.8:8443") {
+				t.Errorf("direct uri should keep landing endpoint, got %s", it.URI)
+			}
+			if !strings.Contains(it.Name, "直连") {
+				t.Errorf("direct name = %q", it.Name)
+			}
+			if it.Status != "direct" {
+				t.Errorf("direct status = %q", it.Status)
+			}
 		}
 	}
 	if relay != 1 || direct != 1 {
@@ -290,6 +290,56 @@ func TestSubscribePacksEveryLandingRule(t *testing.T) {
 	}
 	if !strings.Contains(yml, "5.6.7.8") {
 		t.Fatalf("clash yaml missing direct landing:\n%s", yml)
+	}
+}
+
+func TestSubscribeLatencyEndpoint(t *testing.T) {
+	d := openDB(t)
+	_, cookie, _ := seedSubUser(t, d)
+	s := newServer(t, d)
+
+	req := newTestRequest("GET", "/api/my/subscribe/latency", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("latency: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Target string `json:"target"`
+		Items  []struct {
+			Kind      string `json:"kind"`
+			OK        bool   `json:"ok"`
+			LatencyMS int    `json:"latency_ms"`
+			Error     string `json:"error"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Target != googleTCPTarget {
+		t.Fatalf("target = %q", body.Target)
+	}
+	var relay, direct int
+	for _, it := range body.Items {
+		switch it.Kind {
+		case "relay":
+			relay++
+			if it.OK {
+				t.Fatalf("relay probe should fail without a live agent: %+v", it)
+			}
+			if it.Error == "" {
+				t.Fatalf("relay probe missing error: %+v", it)
+			}
+		case "direct":
+			direct++
+			if it.OK || it.Error == "" {
+				t.Fatalf("direct should skip google probe: %+v", it)
+			}
+		}
+	}
+	if relay != 1 || direct != 1 {
+		t.Fatalf("latency items relay=%d direct=%d body=%s", relay, direct, rec.Body.String())
 	}
 }
 

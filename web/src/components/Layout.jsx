@@ -176,26 +176,7 @@ export function Layout({ children }) {
   if (!isAdmin) {
     return (
       <div className="flex h-screen overflow-hidden bg-app flex-col">
-        <header className="sub-portal-bar">
-          <NavLink to="/my" className="sub-portal-brand">
-            <BrandBadge src={logoUrl} size={34} markClassName="w-[20px] h-[20px]" />
-            <span className="truncate">{panelName || 'kids'}</span>
-          </NavLink>
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="hidden sm:inline text-[13px] text-ink-soft truncate max-w-[140px]">{user.username}</span>
-            <button type="button" onClick={toggleTheme} title={isDark ? '切换到浅色' : '切换到深色'}
-              className="topbar-toggle" aria-label={isDark ? '切换到浅色' : '切换到深色'}>
-              {isDark ? (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-              ) : (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-              )}
-            </button>
-            <NavLink to="/change-password" className="btn-secondary h-[36px] px-3 text-[13px]">账户设置</NavLink>
-            <button type="button" onClick={handleLogout} className="btn-secondary h-[36px] px-3 text-[13px]">退出登录</button>
-          </div>
-        </header>
-        <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-8 pb-14">
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 pt-3 sm:pt-4 pb-14">
           <div className="max-w-[1180px] mx-auto">
             {children}
           </div>
