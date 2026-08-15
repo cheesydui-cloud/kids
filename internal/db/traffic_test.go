@@ -483,6 +483,45 @@ func TestYesterdayUserTrafficBytesShanghaiDay(t *testing.T) {
 	}
 }
 
+func TestLast24hRawTrafficFillsMissingHours(t *testing.T) {
+	d := openTestDB(t)
+	now := time.Now()
+	cur := hourKey(now)
+	prev := hourKey(now.Add(-2 * time.Hour))
+	if err := AddHourlyRawTraffic(d, 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec(`INSERT INTO hourly_raw_traffic(hour, raw_bytes) VALUES(?,?)`, prev, 50); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Last24hRawTraffic(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 24 {
+		t.Fatalf("len=%d want 24", len(got))
+	}
+	if got[23].Hour != cur {
+		t.Fatalf("last hour=%s want %s", got[23].Hour, cur)
+	}
+	if got[23].Bytes != 100 {
+		t.Fatalf("current hour bytes=%d want 100", got[23].Bytes)
+	}
+	if got[21].Hour != prev || got[21].Bytes != 50 {
+		t.Fatalf("hour-2 = %+v want %s/50", got[21], prev)
+	}
+	if got[22].Bytes != 0 {
+		t.Fatalf("missing hour should be 0, got %d", got[22].Bytes)
+	}
+	var sum int64
+	for _, p := range got {
+		sum += p.Bytes
+	}
+	if sum != 150 {
+		t.Fatalf("sum=%d want 150", sum)
+	}
+}
+
 // --- test helpers ---
 
 func openTestDB(t *testing.T) *sql.DB {

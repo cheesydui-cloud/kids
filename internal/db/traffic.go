@@ -139,6 +139,71 @@ func TodayRawTrafficBytes(d *sql.DB) (int64, error) {
 	return total, err
 }
 
+// hourKey returns the Asia/Shanghai hour bucket as YYYY-MM-DDTHH.
+func hourKey(t time.Time) string {
+	return t.In(panelBusinessLocation).Format("2006-01-02T15")
+}
+
+// HourKeyNow is the Asia/Shanghai hour bucket for "this hour".
+func HourKeyNow() string {
+	return hourKey(time.Now())
+}
+
+// AddHourlyRawTraffic folds delta raw bytes into the current hour bucket.
+// Same actual-traffic semantics as AddNodeDailyRawTraffic (no billing multiplier).
+func AddHourlyRawTraffic(d DBTX, delta int64) error {
+	if delta == 0 {
+		return nil
+	}
+	hour := hourKey(time.Now())
+	_, err := d.Exec(`INSERT INTO hourly_raw_traffic(hour, raw_bytes) VALUES(?,?)
+		ON CONFLICT(hour) DO UPDATE SET raw_bytes = raw_bytes + excluded.raw_bytes`,
+		hour, delta)
+	return err
+}
+
+// HourlyTrafficPoint is one hour on the 24h ops curve.
+type HourlyTrafficPoint struct {
+	Hour  string `json:"hour"`
+	Bytes int64  `json:"bytes"`
+}
+
+// Last24hRawTraffic returns 24 consecutive Asia/Shanghai hour buckets ending
+// at the current hour. Missing rows are 0 so the chart always has a full day.
+func Last24hRawTraffic(d *sql.DB) ([]HourlyTrafficPoint, error) {
+	now := time.Now().In(panelBusinessLocation)
+	start := now.Add(-23 * time.Hour)
+	start = time.Date(start.Year(), start.Month(), start.Day(), start.Hour(), 0, 0, 0, panelBusinessLocation)
+	endHour := hourKey(now)
+
+	rows, err := d.Query(`SELECT hour, raw_bytes FROM hourly_raw_traffic WHERE hour>=? AND hour<=?`,
+		hourKey(start), endHour)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	got := map[string]int64{}
+	for rows.Next() {
+		var hour string
+		var bytes int64
+		if err := rows.Scan(&hour, &bytes); err != nil {
+			return nil, err
+		}
+		got[hour] = bytes
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]HourlyTrafficPoint, 24)
+	for i := 0; i < 24; i++ {
+		t := start.Add(time.Duration(i) * time.Hour)
+		k := hourKey(t)
+		out[i] = HourlyTrafficPoint{Hour: k, Bytes: got[k]}
+	}
+	return out, nil
+}
+
 // AddUserDailyTraffic folds delta raw bytes into today's per-user ledger.
 // Delta is the same raw final-hop volume that advances users.traffic_used_bytes
 // (not rate-multiplied). "Today" is the Asia/Shanghai calendar day.

@@ -900,6 +900,12 @@ func (h *Hub) applyCounters(nodeID int64, samples []wsproto.CounterSample) {
 						ok = false
 					}
 				}
+				if ok {
+					if err := db.AddHourlyRawTraffic(tx, rawAdd); err != nil {
+						log.Printf("hub: hourly raw traffic add: %v", err)
+						ok = false
+					}
+				}
 			}
 			for id, w := range hopWrites {
 				if !ok {

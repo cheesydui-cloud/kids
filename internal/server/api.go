@@ -305,6 +305,10 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 	totalBytes, _ := db.TotalRuleTrafficBytes(s.DB)
 	// today_raw_bytes is operator actual traffic (raw up+down), not billable.
 	todayRawBytes, _ := db.TodayRawTrafficBytes(s.DB)
+	hourly, _ := db.Last24hRawTraffic(s.DB)
+	if hourly == nil {
+		hourly = []db.HourlyTrafficPoint{}
+	}
 	userCount, _ := db.CountUsers(s.DB)
 	// Landing exits due within 7 days (and already expired present rows) for
 	// the admin expiry calendar on the ops overview.
@@ -319,6 +323,7 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 		"rule_count_by_node": ruleCountByNode,
 		"total_bytes":        totalBytes,
 		"today_raw_bytes":    todayRawBytes,
+		"hourly_raw":         hourly,
 		"user_count":         userCount,
 		"landing_expiring":   landingSoon,
 	})
