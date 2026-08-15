@@ -105,6 +105,10 @@ type HelloAck struct {
 	Name     string `json:"name,omitempty"`
 	Error    string `json:"error,omitempty"`
 	PoolSize int    `json:"pool_size,omitempty"`
+	// PanelLeaseSeconds is how long the agent may keep panel-pushed
+	// listens after the WebSocket dies. 0 = agent keeps its current
+	// value (24h default, or NFT_PANEL_LEASE / last push).
+	PanelLeaseSeconds int `json:"panel_lease_seconds,omitempty"`
 }
 
 type ApplyRuleset struct {
@@ -223,5 +227,6 @@ type Error struct {
 }
 
 type ConfigUpdate struct {
-	PoolSize int `json:"pool_size"`
+	PoolSize          int `json:"pool_size"`
+	PanelLeaseSeconds int `json:"panel_lease_seconds,omitempty"`
 }

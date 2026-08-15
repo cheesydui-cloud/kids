@@ -1800,15 +1800,42 @@ func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 
 // --- Settings ---
 
-func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
-	panelURL, _ := db.GetSetting(s.DB, "panel_url")
-	panelName, _ := db.GetSetting(s.DB, "panel_name")
-	showRate, _ := db.GetSetting(s.DB, "show_rate_to_user")
-	poolSizeStr, _ := db.GetSetting(s.DB, "pool_size")
+const (
+	defaultPanelLeaseHours = 24
+	minPanelLeaseHours     = 1
+	maxPanelLeaseHours     = 168
+)
+
+func parsePanelLeaseHours(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < minPanelLeaseHours {
+		return defaultPanelLeaseHours
+	}
+	if n > maxPanelLeaseHours {
+		return maxPanelLeaseHours
+	}
+	return n
+}
+
+func panelLeaseHoursFromDB(database *sql.DB) int {
+	s, _ := db.GetSetting(database, "panel_lease_hours")
+	return parsePanelLeaseHours(s)
+}
+
+func poolSizeFromDB(database *sql.DB) int {
+	poolSizeStr, _ := db.GetSetting(database, "pool_size")
 	poolSize := 4
 	if n, err := strconv.Atoi(poolSizeStr); err == nil && n >= 0 {
 		poolSize = n
 	}
+	return poolSize
+}
+
+func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
+	panelURL, _ := db.GetSetting(s.DB, "panel_url")
+	panelName, _ := db.GetSetting(s.DB, "panel_name")
+	showRate, _ := db.GetSetting(s.DB, "show_rate_to_user")
+	poolSize := poolSizeFromDB(s.DB)
 	cfToken, _ := db.GetSetting(s.DB, "cf_api_token")
 	cfZone, _ := db.GetSetting(s.DB, "cf_zone_name")
 	cfTTLStr, _ := db.GetSetting(s.DB, "cf_ttl")
@@ -1832,6 +1859,7 @@ func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 		"panel_url": panelURL, "panel_name": panelName,
 		"logo_url":          logoURLFor(logoName),
 		"show_rate_to_user": showRate == "1", "pool_size": poolSize,
+		"panel_lease_hours":   panelLeaseHoursFromDB(s.DB),
 		"cf_token_configured": cfConfigured,
 		"cf_token_prefix":     cfPrefix,
 		"cf_zone_name":        cfZone,
@@ -1842,10 +1870,11 @@ func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	var body struct {
-		PanelURL       string  `json:"panel_url"`
-		PanelName      *string `json:"panel_name"`
-		ShowRateToUser *bool   `json:"show_rate_to_user"`
-		PoolSize       *int    `json:"pool_size"`
+		PanelURL        string  `json:"panel_url"`
+		PanelName       *string `json:"panel_name"`
+		ShowRateToUser  *bool   `json:"show_rate_to_user"`
+		PoolSize        *int    `json:"pool_size"`
+		PanelLeaseHours *int    `json:"panel_lease_hours"`
 		// Cloudflare: empty token string means "leave unchanged"; explicit clear via cf_clear_token.
 		CFAPIToken   *string `json:"cf_api_token"`
 		CFClearToken bool    `json:"cf_clear_token"`
@@ -1892,7 +1921,21 @@ func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		s.Hub.BroadcastConfigUpdate(ps)
+	}
+	if body.PanelLeaseHours != nil {
+		h := *body.PanelLeaseHours
+		if h < minPanelLeaseHours || h > maxPanelLeaseHours {
+			jsonErr(w, http.StatusBadRequest, "面板离线租约必须在 1–168 小时之间")
+			return
+		}
+		if err := db.SetSetting(s.DB, "panel_lease_hours", strconv.Itoa(h)); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		db.WriteAudit(s.DB, u.ID, "settings.panel_lease_hours", strconv.Itoa(h), "")
+	}
+	if body.PoolSize != nil || body.PanelLeaseHours != nil {
+		s.Hub.BroadcastConfigUpdate(poolSizeFromDB(s.DB), panelLeaseHoursFromDB(s.DB)*3600)
 	}
 	if body.CFClearToken {
 		if err := db.SetSetting(s.DB, "cf_api_token", ""); err != nil {

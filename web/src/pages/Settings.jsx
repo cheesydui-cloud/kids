@@ -20,6 +20,7 @@ export default function Settings() {
     logo_url: '',
     show_rate_to_user: false,
     pool_size: 4,
+    panel_lease_hours: 24,
     cf_token_configured: false,
     cf_token_prefix: '',
     cf_api_token: '',
@@ -49,6 +50,7 @@ export default function Settings() {
         logo_url: data.logo_url || '',
         show_rate_to_user: !!data.show_rate_to_user,
         pool_size: data.pool_size ?? 4,
+        panel_lease_hours: data.panel_lease_hours ?? 24,
         cf_token_configured: !!data.cf_token_configured,
         cf_token_prefix: data.cf_token_prefix || '',
         cf_api_token: '',
@@ -76,6 +78,11 @@ export default function Settings() {
       setError('TCP 连接池数必须在 0-64 之间')
       return
     }
+    const leaseH = parseInt(form.panel_lease_hours, 10)
+    if (isNaN(leaseH) || leaseH < 1 || leaseH > 168) {
+      setError('面板离线租约必须在 1–168 小时之间')
+      return
+    }
     const ttl = parseInt(form.cf_ttl, 10)
     if (isNaN(ttl) || ttl < 1) {
       setError('CF TTL 至少为 1（1 = Auto）')
@@ -88,6 +95,7 @@ export default function Settings() {
         panel_name: form.panel_name,
         show_rate_to_user: form.show_rate_to_user,
         pool_size: ps,
+        panel_lease_hours: leaseH,
         cf_zone_name: form.cf_zone_name,
         cf_ttl: ttl,
         cf_clear_token: !!form.cf_clear_token,
@@ -303,10 +311,15 @@ export default function Settings() {
                   </button>
                   <span className="text-[13px] text-ink-mut">向普通用户展示节点/链路倍率</span>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-6 mb-[22px]">
                   <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">TCP 连接池</label>
                   <input className="input-field w-[100px]" type="number" min="0" max="64" value={form.pool_size} onChange={e => set('pool_size', e.target.value)} />
                   <span className="text-[13px] text-ink-mut">每端口预建立连接数（0 = 禁用，默认 4）</span>
+                </div>
+                <div className="flex items-center gap-6">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">离线租约</label>
+                  <input className="input-field w-[100px]" type="number" min="1" max="168" value={form.panel_lease_hours} onChange={e => set('panel_lease_hours', e.target.value)} />
+                  <span className="text-[13px] text-ink-mut">小时。面板连不上超过此时长，转发节点自动关入口（默认 24，最长 7 天）</span>
                 </div>
               </>
             )}

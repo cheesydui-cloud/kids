@@ -170,7 +170,12 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 			poolSize = n
 		}
 	}
-	ackPayload, _ := json.Marshal(wsproto.HelloAck{NodeID: node.ID, Name: node.Name, PoolSize: poolSize})
+	ackPayload, _ := json.Marshal(wsproto.HelloAck{
+		NodeID:            node.ID,
+		Name:              node.Name,
+		PoolSize:          poolSize,
+		PanelLeaseSeconds: panelLeaseHoursFromDB(h.DB) * 3600,
+	})
 	if err := writeEnvelope(ctx, ws, wsproto.Envelope{Type: wsproto.TypeHelloAck, ID: helloEnv.ID, Payload: ackPayload}); err != nil {
 		ws.Close(websocket.StatusInternalError, "ack write failed")
 		return
@@ -451,8 +456,8 @@ func (h *Hub) SendProbeMode(nodeID int64, target, mode string) (wsproto.ProbeAck
 	}
 }
 
-func (h *Hub) BroadcastConfigUpdate(poolSize int) {
-	payload, _ := json.Marshal(wsproto.ConfigUpdate{PoolSize: poolSize})
+func (h *Hub) BroadcastConfigUpdate(poolSize, leaseSeconds int) {
+	payload, _ := json.Marshal(wsproto.ConfigUpdate{PoolSize: poolSize, PanelLeaseSeconds: leaseSeconds})
 	env := wsproto.Envelope{Type: wsproto.TypeConfigUpdate, Payload: payload}
 	h.mu.RLock()
 	conns := make([]*agentConn, 0, len(h.conns))

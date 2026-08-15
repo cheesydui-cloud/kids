@@ -25,10 +25,10 @@ const (
 	DefaultGroupName  = "nft"
 
 	// defaultPanelLease is how long a connected agent keeps panel-pushed
-	// listens after the WebSocket dies. Short enough that a dead or
-	// reinstalled panel stops user traffic; long enough that a panel
-	// restart or brief network blip does not flap every entry port.
-	defaultPanelLease = 2 * time.Minute
+	// listens after the WebSocket dies. Long enough that a panel
+	// restart, upgrade, or overnight reboot does not flap entry ports;
+	// a reinstalled panel still drops immediately via hello reject.
+	defaultPanelLease = 24 * time.Hour
 	// panelLeaseTick is how often the lease loop re-checks the last
 	// successful panel session. Must be well under defaultPanelLease.
 	panelLeaseTick = 15 * time.Second
@@ -276,7 +276,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 			OnMigrated:          d.clearTuiSegment,
 			CountersFn:          d.counterSamples,
 			CountersReadd:       d.reAddCounters,
-			OnConfigUpdate: func(poolSize int) {
+			OnConfigUpdate: func(poolSize int, lease time.Duration) {
+				if lease > 0 {
+					d.panelLease = lease
+				}
 				if dp, ok := d.dp.(*forward.Dataplane); ok {
 					dp.SetPoolSize(poolSize)
 				}
@@ -380,23 +383,25 @@ func (d *Daemon) RunWithSignals() error {
 	return d.Run(ctx)
 }
 
-// panelLease honours NFT_PANEL_LEASE for operators who need a longer
-// blip window. Zero / invalid / unset falls back to defaultPanelLease.
-// Tests set d.panelLease directly and never go through this helper.
-func panelLease() time.Duration {
+// envPanelLease is a per-node override (NFT_PANEL_LEASE). Empty / invalid
+// means follow the panel setting or the 24h default.
+func envPanelLease() time.Duration {
 	if s := os.Getenv("NFT_PANEL_LEASE"); s != "" {
 		if d, err := time.ParseDuration(s); err == nil && d > 0 {
 			return d
 		}
 	}
-	return defaultPanelLease
+	return 0
 }
 
 func (d *Daemon) effectivePanelLease() time.Duration {
+	if env := envPanelLease(); env > 0 {
+		return env
+	}
 	if d.panelLease > 0 {
 		return d.panelLease
 	}
-	return panelLease()
+	return defaultPanelLease
 }
 
 // markPanelSeen records that this process currently has (or just got)

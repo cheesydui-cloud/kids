@@ -102,9 +102,10 @@ type DialerConfig struct {
 	// silently lost (which would systematically undercount quota/billing).
 	CountersReadd func([]wsproto.CounterSample)
 
-	// OnConfigUpdate is called when the panel pushes a pool_size change,
-	// either via HelloAck on connect or via a config_update frame at runtime.
-	OnConfigUpdate func(poolSize int)
+	// OnConfigUpdate is called when the panel pushes pool_size and/or
+	// panel lease, either via HelloAck on connect or via a config_update
+	// frame at runtime. lease==0 means leave the current lease alone.
+	OnConfigUpdate func(poolSize int, lease time.Duration)
 }
 
 type upgradeResult struct {
@@ -443,8 +444,8 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 	d.nodeName = ha.Name
 	d.nodeMu.Unlock()
 
-	if ha.PoolSize > 0 && d.cfg.OnConfigUpdate != nil {
-		d.cfg.OnConfigUpdate(ha.PoolSize)
+	if d.cfg.OnConfigUpdate != nil && (ha.PoolSize > 0 || ha.PanelLeaseSeconds > 0) {
+		d.cfg.OnConfigUpdate(ha.PoolSize, time.Duration(ha.PanelLeaseSeconds)*time.Second)
 	}
 
 	// Migrate local tui rules to the server on first connect so they become
@@ -637,7 +638,7 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 					continue
 				}
 				if d.cfg.OnConfigUpdate != nil {
-					d.cfg.OnConfigUpdate(cu.PoolSize)
+					d.cfg.OnConfigUpdate(cu.PoolSize, time.Duration(cu.PanelLeaseSeconds)*time.Second)
 				}
 			case wsproto.TypeRuleCmdAck:
 				var ack wsproto.RuleCmdAck
