@@ -192,9 +192,6 @@ export default function UserDetail() {
               <span className="text-[11px] text-ink-mut tabular-nums">{todayDay || '北京时间'} · 0:00–23:59</span>
             </div>
             <div className="text-[18px] font-bold tabular-nums text-ink leading-tight">{fmtBytes(todayBillable)}</div>
-            {rate !== 1 && (
-              <div className="text-[11px] text-ink-mut mt-1">×{rate}</div>
-            )}
           </div>
           <div className="rounded-2xl border border-line-soft bg-surface/80 px-4 py-3">
             <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -202,9 +199,6 @@ export default function UserDetail() {
               <span className="text-[11px] text-ink-mut tabular-nums">{yesterdayDay || '上一自然日'}</span>
             </div>
             <div className="text-[18px] font-bold tabular-nums text-ink leading-tight">{fmtBytes(yesterdayBillable)}</div>
-            {rate !== 1 && (
-              <div className="text-[11px] text-ink-mut mt-1">×{rate}</div>
-            )}
           </div>
         </div>
       )}

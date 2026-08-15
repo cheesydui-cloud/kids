@@ -429,7 +429,7 @@ function RowActions({ n, busy, onProbe, onChangeIP, onEdit, onDelete, compact })
       )}
       <div className="inline-flex items-center gap-1.5">
         {n.uri && (
-          <CopyText text={n.uri}>
+          <CopyText text={n.uri} hideIcon>
             <span className={`${rowBtnPrimary} cursor-pointer`}>复制</span>
           </CopyText>
         )}
