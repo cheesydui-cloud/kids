@@ -236,6 +236,32 @@ func TodayUserTrafficBytes(d *sql.DB, userID int64) (int64, error) {
 	return UserTrafficBytesOnDay(d, userID, dayKey(time.Now()))
 }
 
+// TodayUserRawTrafficBytes sums today's last-hop raw traffic across users.
+// This is actual usage (no billing_rate) and does not stack entry+exit hops
+// the way daily_node_raw_traffic does. Built-in admin is excluded.
+func TodayUserRawTrafficBytes(d *sql.DB) (int64, error) {
+	var total int64
+	err := d.QueryRow(`
+		SELECT COALESCE(SUM(d.raw_bytes), 0)
+		FROM daily_user_traffic d
+		JOIN users u ON u.id = d.user_id
+		WHERE d.day = ? AND u.username <> 'admin'`, dayKey(time.Now())).Scan(&total)
+	return total, err
+}
+
+// TotalBillableUserTrafficBytes sums each user's last-hop used × billing_rate
+// (rate ≤ 0 treated as 1). Same math as the user-detail traffic chip.
+func TotalBillableUserTrafficBytes(d *sql.DB) (int64, error) {
+	var total int64
+	err := d.QueryRow(`
+		SELECT COALESCE(SUM(
+			CAST(ROUND(u.traffic_used_bytes * CASE WHEN u.billing_rate > 0 THEN u.billing_rate ELSE 1.0 END) AS INTEGER)
+		), 0)
+		FROM users u
+		WHERE u.username <> 'admin'`).Scan(&total)
+	return total, err
+}
+
 // YesterdayUserTrafficBytes returns one user's raw traffic for the previous
 // Asia/Shanghai calendar day. Missing rows are 0.
 func YesterdayUserTrafficBytes(d *sql.DB, userID int64) (int64, error) {

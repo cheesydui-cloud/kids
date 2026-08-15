@@ -302,9 +302,10 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 	// node_by_id map the UI never read) on every load.
 	ruleCount, _ := db.CountAllRules(s.DB)
 	ruleCountByNode, _ := db.RuleCountByNode(s.DB)
-	totalBytes, _ := db.TotalRuleTrafficBytes(s.DB)
-	// today_raw_bytes is operator actual traffic (raw up+down), not billable.
-	todayRawBytes, _ := db.TodayRawTrafficBytes(s.DB)
+		totalBytes, _ := db.TotalBillableUserTrafficBytes(s.DB)
+		// today_raw_bytes is last-hop actual usage (no rate). Do not use
+		// node-day totals: those stack every hop on a path.
+		todayRawBytes, _ := db.TodayUserRawTrafficBytes(s.DB)
 	hourly, _ := db.Last24hRawTraffic(s.DB)
 	if hourly == nil {
 		hourly = []db.HourlyTrafficPoint{}

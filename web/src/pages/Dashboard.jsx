@@ -60,8 +60,8 @@ export default function Dashboard() {
   const visibleUserCount = visibleUsers ? visibleUsers.length : user_count
 
   const metrics = [
-    { key: 'billed', label: '计费', value: fmtBytes(total_bytes), hint: '累计当量' },
-    { key: 'today', label: '今日', value: fmtBytes(today_raw_bytes || 0), hint: '实际上行+下行' },
+    { key: 'billed', label: '计费', value: fmtBytes(total_bytes), hint: '累计 × 倍率' },
+    { key: 'today', label: '今日', value: fmtBytes(today_raw_bytes || 0), hint: '实际最后一跳' },
     { key: 'users', label: '用户', value: visibleUserCount, hint: '系统用户' },
   ]
 
