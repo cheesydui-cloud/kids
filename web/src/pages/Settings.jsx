@@ -149,6 +149,11 @@ export default function Settings() {
     }
   }
 
+  const isTransientDown = (msg) => {
+    const s = String(msg || '')
+    return s.includes('502') || s.includes('503') || s.includes('504') || s.includes('网络错误')
+  }
+
   const loadUpdate = (opts = {}) => {
     const q = []
     if (opts.refresh) q.push('refresh=1')
@@ -159,7 +164,9 @@ export default function Settings() {
       setUpdErr(d.check_error || '')
       return d
     }).catch(e => {
-      setUpdErr(e.message)
+      // Panel restart (install.sh replace + systemd restart) makes Caddy/nginx
+      // return 502 for a few seconds. Do not pin that as a red error.
+      if (!isTransientDown(e.message)) setUpdErr(e.message)
       throw e
     })
   }
@@ -185,7 +192,7 @@ export default function Settings() {
         } else if (st === 'error') {
           toast(d.update.error || '升级失败', 'error')
         }
-      }).catch(() => { /* 重启瞬间会断一下，继续轮询 */ })
+      }).catch(() => { /* 重启瞬间 502/断连，继续轮询 */ })
     }, 2500)
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [upd?.update?.state])
@@ -215,10 +222,18 @@ export default function Settings() {
     try {
       await api.post('/settings/update')
       toast('已开始升级，面板即将重启…', 'info')
-      await loadUpdate({ status: true })
+      try {
+        await loadUpdate({ status: true })
+      } catch (err) {
+        if (!isTransientDown(err.message)) throw err
+      }
     } catch (err) {
-      setUpdErr(err.message)
-      toast(err.message, 'error')
+      if (isTransientDown(err.message)) {
+        toast('面板正在重启，请稍候…', 'info')
+      } else {
+        setUpdErr(err.message)
+        toast(err.message, 'error')
+      }
     } finally { setUpdBusy(false) }
   }
 
@@ -376,6 +391,11 @@ export default function Settings() {
   )
 }
 
+function compareLoose(a, b) {
+  const n = (v) => String(v || '').replace(/^v/i, '').split(/[-+]/)[0]
+  return n(a) && n(a) === n(b)
+}
+
 function PanelUpdate({ upd, version, busy, err, onCheck, onUpgrade }) {
   const current = upd?.current || version || '—'
   const latest = upd?.latest || ''
@@ -402,7 +422,9 @@ function PanelUpdate({ upd, version, busy, err, onCheck, onUpgrade }) {
             {upToDate && <span className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">已是最新</span>}
             {!upToDate && latest && !running && <span className="text-[12px] font-semibold text-[color:var(--brand-from)]">可升级</span>}
             {running && <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">升级中…</span>}
-            {success && st.target && <span className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">已升到 {st.target}</span>}
+            {success && st.target && compareLoose(current, st.target) && (
+              <span className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">已升到 {st.target}</span>
+            )}
             {failed && <span className="text-[12px] font-semibold text-rose-700 dark:text-rose-300">上次失败</span>}
           </div>
           {upd?.published_at && (

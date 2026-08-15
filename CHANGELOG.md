@@ -9,6 +9,28 @@
 
 ---
 
+## v0.3.2 — 2026-08-16
+
+修复「从 CF 同步」报 Invalid request headers，查不到 A 记录。
+
+### 修复
+
+- 调 Cloudflare 的 GET 不再带 `Content-Type`（官方会直接拒）
+- 粘贴 Token 时去掉空格、换行、引号、多余的 Bearer 前缀
+- 面板升级重启时反代 502 不再钉在「更新」页当错误
+
+### 升级注意
+
+- 这是**面板**修复，升面板即可，节点不用动
+- 系统设置里要填好 API Token 和默认 Zone（例如 `halo.ix`）
+- 升完后再点「从 CF 同步」
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.3.1 — 2026-08-16
 
 面板离线租约默认 24 小时，可在系统设置里改。

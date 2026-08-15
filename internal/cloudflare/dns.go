@@ -64,8 +64,13 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+SanitizeAPIToken(c.Token))
+	req.Header.Set("Accept", "application/json")
+	// Cloudflare rejects GET/HEAD with Content-Type ("Invalid request headers").
+	// Only send it when we actually have a JSON body.
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := c.http().Do(req)
 	if err != nil {
 		return fmt.Errorf("请求 Cloudflare: %w", err)
@@ -294,6 +299,32 @@ func (c *Client) findARecord(ctx context.Context, zoneID, name string) (*DNSReco
 		return nil, lastErr
 	}
 	return nil, nil
+}
+
+// SanitizeAPIToken strips paste junk that makes Cloudflare return
+// "Invalid request headers": BOM, wrapping quotes, Bearer prefix,
+// and any whitespace/newlines inside the token.
+func SanitizeAPIToken(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "\ufeff")
+	s = strings.TrimSpace(s)
+	if n := len(s); n >= 2 {
+		if (s[0] == '"' && s[n-1] == '"') || (s[0] == '\'' && s[n-1] == '\'') {
+			s = strings.TrimSpace(s[1 : n-1])
+		}
+	}
+	if len(s) >= 7 && strings.EqualFold(s[:7], "bearer ") {
+		s = strings.TrimSpace(s[7:])
+	}
+	s = strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\n', '\r':
+			return -1
+		default:
+			return r
+		}
+	}, s)
+	return s
 }
 
 func urlQueryEscape(s string) string {

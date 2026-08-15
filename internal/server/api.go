@@ -1125,7 +1125,7 @@ func (s *Server) maybeSyncNodeCF(ctx context.Context, adminID int64, n *db.Node)
 			n.CFLastError = msg
 			return cfSyncResult{Attempted: true, OK: false, Message: msg}
 		}
-		cli := &cloudflare.Client{Token: token}
+		cli := &cloudflare.Client{Token: cloudflare.SanitizeAPIToken(token)}
 		if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
 			cli.BaseURL = strings.TrimSpace(base)
 		}
@@ -1151,7 +1151,7 @@ func (s *Server) maybeSyncNodeCF(ctx context.Context, adminID int64, n *db.Node)
 		ttl = t
 	}
 
-	cli := &cloudflare.Client{Token: token}
+	cli := &cloudflare.Client{Token: cloudflare.SanitizeAPIToken(token)}
 	if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
 		cli.BaseURL = strings.TrimSpace(base)
 	}
@@ -1947,6 +1947,7 @@ func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimSpace(*body.CFAPIToken)
 		// Empty means leave unchanged (UI password-style field).
 		if tok != "" {
+			tok = cloudflare.SanitizeAPIToken(tok)
 			if err := db.SetSetting(s.DB, "cf_api_token", tok); err != nil {
 				jsonErr(w, http.StatusInternalServerError, err.Error())
 				return

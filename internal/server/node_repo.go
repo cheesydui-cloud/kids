@@ -300,7 +300,7 @@ func (s *Server) cfClientAndZone(ctx context.Context, zoneID string) (*cloudflar
 	if strings.TrimSpace(token) == "" {
 		return nil, "", fmt.Errorf("未配置 Cloudflare API Token（请到系统设置填写）")
 	}
-	cli := &cloudflare.Client{Token: token}
+	cli := &cloudflare.Client{Token: cloudflare.SanitizeAPIToken(token)}
 	if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
 		cli.BaseURL = strings.TrimSpace(base)
 	}

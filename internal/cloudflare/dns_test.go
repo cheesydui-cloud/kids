@@ -191,6 +191,41 @@ func TestGetARecord(t *testing.T) {
 	}
 }
 
+func TestGETOmitsContentType(t *testing.T) {
+	var gotCT, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		gotAuth = r.Header.Get("Authorization")
+		writeCF(w, true, []Zone{{ID: "zid", Name: "example.com"}})
+	}))
+	defer srv.Close()
+	c := &Client{Token: "  Bearer tok \n", BaseURL: srv.URL, HTTPClient: srv.Client()}
+	if _, err := c.ListZones(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotCT != "" {
+		t.Fatalf("GET must not send Content-Type, got %q", gotCT)
+	}
+	if gotAuth != "Bearer tok" {
+		t.Fatalf("auth=%q", gotAuth)
+	}
+}
+
+func TestSanitizeAPIToken(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"  tok  ", "tok"},
+		{"\"tok\"", "tok"},
+		{"Bearer tok", "tok"},
+		{"bearer tok", "tok"},
+		{"to k\n", "tok"},
+	}
+	for _, c := range cases {
+		if got := SanitizeAPIToken(c.in); got != c.want {
+			t.Errorf("SanitizeAPIToken(%q)=%q want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestRecordNameForHost(t *testing.T) {
 	if got := RecordNameForHost("Home.Example.com", ""); got != "home.example.com" {
 		t.Fatalf("got %q", got)
