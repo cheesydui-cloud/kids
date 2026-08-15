@@ -93,14 +93,14 @@ export default function Login() {
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">密码</label>
             <input className="input-field" type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" />
           </div>
-          <label className="inline-flex items-center gap-2 text-[13px] font-semibold text-ink-soft cursor-pointer select-none">
+          <button type="submit" disabled={loading}
+            className="login-submit mt-1 self-center min-w-[88px] h-[42px] px-5 justify-center text-[13.5px] disabled:opacity-60">
+            {loading ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : '登录'}
+          </button>
+          <label className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold text-ink-soft cursor-pointer select-none">
             <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
             记住账号密码
           </label>
-          <button type="submit" disabled={loading}
-            className="btn-primary mt-1 w-full h-11 justify-center text-[14px] disabled:opacity-60">
-            {loading ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : '登录'}
-          </button>
         </form>
       </div>
     </div>

@@ -973,6 +973,20 @@ input[type="radio"] {
   right: -60px; bottom: -80px;
   background: color-mix(in srgb, var(--color-raised) 70%, transparent);
 }
+.login-submit {
+  @apply inline-flex items-center gap-1.5 rounded-xl font-semibold disabled:opacity-60 transition-all cursor-pointer;
+  background: color-mix(in srgb, var(--brand-from) 10%, var(--color-surface));
+  border: 1.5px solid color-mix(in srgb, var(--brand-from) 55%, var(--color-line));
+  color: var(--brand-from);
+  box-shadow: none;
+}
+.login-submit:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--brand-from) 16%, var(--color-surface));
+  border-color: var(--brand-from);
+  box-shadow: var(--shadow-float);
+}
+.login-submit:active { transform: translateY(0); }
 .login-card {
   position: relative;
   z-index: 1;
