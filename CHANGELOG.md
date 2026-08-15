@@ -9,6 +9,28 @@
 
 ---
 
+## v0.2.12 — 2026-08-14
+
+修正一键升级把旧版本校验和拿来验新二进制的问题。
+
+### 修复
+
+- `update` 先解析出具体 tag，再从该 tag 下载二进制和 SHA256SUMS，不再一边显示 v0.2.10、一边从 latest 拉新包
+- 解析 latest 时先问官方 GitHub API，避免镜像把旧的 latest 跳转缓存下来
+- 二进制和校验和必须来自同一版本，交叉缓存时会直接失败而不是装错包
+
+### 升级注意
+
+- 这次改的是安装脚本本身，请用仓库 `main/install.sh` 再跑一次 update
+- 节点 agent 不用单独重装；面板机跑 update 即可
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.11 — 2026-08-14
 
 用户端去掉侧栏，订阅页只留必要信息，节点清单下方可一键导入全部节点。

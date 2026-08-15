@@ -413,30 +413,61 @@ cleanup_bootstrap_script() {
 # Resolve "latest" to the concrete tag so identity files record a real version
 # rather than the moving "latest" alias. Falls back to "latest" only if every
 # method fails (e.g. restricted network without a proxy set).
+# Official GitHub is tried first: a cached gh-proxy redirect can still point at
+# an older tag after a new release is published.
 resolve_release_tag() {
   if [[ "$RELEASE" != "latest" ]]; then
     echo "$RELEASE"
     return 0
   fi
-  local resolved
-
-  # Method 1: follow the GitHub releases/latest redirect.
-  resolved="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${GH_PROXY}https://github.com/$REPO/releases/latest" 2>/dev/null \
-              | sed -n 's#.*/releases/tag/##p' | tr -d '\r\n')"
-  if [[ -n "$resolved" ]]; then
-    echo "$resolved"
-    return 0
+  local resolved src
+  local apis=(
+    "https://api.github.com/repos/$REPO/releases/latest"
+  )
+  local pages=(
+    "https://github.com/$REPO/releases/latest"
+  )
+  if [[ -n "$GH_PROXY" ]]; then
+    apis+=("${GH_PROXY}https://api.github.com/repos/$REPO/releases/latest")
+    pages+=("${GH_PROXY}https://github.com/$REPO/releases/latest")
   fi
-
-  # Method 2: GitHub API (helps when the redirect is intercepted/blocked).
-  resolved="$(curl -fsSL --max-time 10 "${GH_PROXY}https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-              | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
-  if [[ -n "$resolved" ]]; then
-    echo "$resolved"
-    return 0
-  fi
+  for src in "${apis[@]}"; do
+    resolved="$(curl -fsSL --max-time 10 "$src" 2>/dev/null \
+                | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+    if [[ "$resolved" == v* ]]; then
+      echo "$resolved"
+      return 0
+    fi
+  done
+  for src in "${pages[@]}"; do
+    resolved="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$src" 2>/dev/null \
+                | sed -n 's#.*/releases/tag/##p' | tr -d '\r\n')"
+    if [[ "$resolved" == v* ]]; then
+      echo "$resolved"
+      return 0
+    fi
+  done
 
   echo "latest"
+}
+
+# Binaries and SHA256SUMS must come from the same concrete tag. Using
+# /releases/latest/download for files while resolve_release_tag() reports an
+# older cached tag makes sha256 fail (old sums vs new bytes).
+release_download_base() {
+  local tag="${1:-}"
+  if [[ -n "${NFTF_RELEASE_BASE_URL:-}" ]]; then
+    echo "$NFTF_RELEASE_BASE_URL"
+    return 0
+  fi
+  if [[ -z "$tag" ]]; then
+    tag="$(resolve_release_tag)"
+  fi
+  if [[ "$tag" == "latest" ]]; then
+    echo "${GH_PROXY}https://github.com/$REPO/releases/latest/download"
+  else
+    echo "${GH_PROXY}https://github.com/$REPO/releases/download/$tag"
+  fi
 }
 
 # Write the nft-agent identity files consumed by the daemon's first hello so the
@@ -619,6 +650,9 @@ do_update() {
 
   local tag agent_sha
   tag="$(resolve_release_tag)"
+  if [[ -z "${NFTF_RELEASE_BASE_URL:-}" ]]; then
+    base="$(release_download_base "$tag")"
+  fi
 
   note "[1/5] 下载二进制 ($tag / linux-$HOST_GOARCH) ..."
   agent_sha="$(download_role_binary "$base" nft-agent "$_update_tmp/nft-agent")"
@@ -913,13 +947,6 @@ fi
 # Update is its own code path: no role unit changes, only binary swap.
 if [[ "$mode" == "update" ]]; then
   ensure_runtime_deps
-  if [[ -n "${NFTF_RELEASE_BASE_URL:-}" ]]; then
-    base="$NFTF_RELEASE_BASE_URL"
-  elif [[ "$RELEASE" == "latest" ]]; then
-    base="${GH_PROXY}https://github.com/$REPO/releases/latest/download"
-  else
-    base="${GH_PROXY}https://github.com/$REPO/releases/download/$RELEASE"
-  fi
   do_update
   exit 0
 fi
@@ -929,18 +956,10 @@ fi
 ensure_runtime_deps
 remove_legacy_units
 
-if [[ -n "${NFTF_RELEASE_BASE_URL:-}" ]]; then
-  base="$NFTF_RELEASE_BASE_URL"
-elif [[ "$RELEASE" == "latest" ]]; then
-  base="${GH_PROXY}https://github.com/$REPO/releases/latest/download"
-else
-  base="${GH_PROXY}https://github.com/$REPO/releases/download/$RELEASE"
-fi
+release_tag="$(resolve_release_tag)"
+base="$(release_download_base "$release_tag")"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-
-# Concrete tag for the agent.version identity file (resolves "latest").
-release_tag="$(resolve_release_tag)"
 
 # Every role installs nft-agent (the node daemon + TUI); only server adds the
 # panel binary on top. Agent mode prefers the panel's /v1/binary so the node
