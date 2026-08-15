@@ -269,8 +269,7 @@ export function tryParseURI(uri) {
 }
 
 /* Display name for a copied relay URI:
-   - with landing expiry → `{username}-8月5日`
-   - without expiry     → `{username}-{ruleName}`
+   `{username}-{ruleName}-{8月5日}` (omit empty parts).
    List UI keeps the landing node name; only copy/export uses this. */
 export function fmtProxyExpiryLabel(unix) {
   if (!unix || unix <= 0) return ''
@@ -283,12 +282,7 @@ export function buildRelayDisplayName({ username, ruleName, expiresAt } = {}) {
   const user = String(username || '').trim()
   const rule = String(ruleName || '').trim()
   const day = fmtProxyExpiryLabel(expiresAt)
-  if (user && day) return `${user}-${day}`
-  if (user && rule) return `${user}-${rule}`
-  if (user) return user
-  if (day) return day
-  if (rule) return rule
-  return ''
+  return [user, rule, day].filter(Boolean).join('-')
 }
 
 /* Replace only the human-visible name of a proxy URI (fragment / vmess.ps /

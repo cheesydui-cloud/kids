@@ -176,7 +176,7 @@ export function Layout({ children }) {
   if (!isAdmin) {
     return (
       <div className="flex h-screen overflow-hidden bg-app flex-col">
-        <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 pt-3 sm:pt-4 pb-14">
+        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden sub-portal-main">
           <div className="max-w-[1180px] mx-auto">
             {children}
           </div>

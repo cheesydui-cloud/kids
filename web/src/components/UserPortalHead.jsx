@@ -24,14 +24,24 @@ export function UserPortalHead({ title = '我的订阅' }) {
     try { return new Set(JSON.parse(localStorage.getItem(readKey) || '[]')) } catch { return new Set() }
   })
 
-  useEffect(() => {
-    if (!annOpen) return
-    setLoading(true)
-    api.get('/my/announcements')
-      .then((d) => setItems(d?.announcements || []))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false))
-  }, [annOpen])
+	  useEffect(() => {
+	    let cancelled = false
+	    api.get('/my/announcements')
+	      .then((d) => { if (!cancelled) setItems(d?.announcements || []) })
+	      .catch(() => { if (!cancelled) setItems([]) })
+	    return () => { cancelled = true }
+	  }, [])
+
+	  useEffect(() => {
+	    if (!annOpen) return
+	    setLoading(true)
+	    api.get('/my/announcements')
+	      .then((d) => setItems(d?.announcements || []))
+	      .catch(() => setItems([]))
+	      .finally(() => setLoading(false))
+	  }, [annOpen])
+
+	  const unread = items.filter((a) => !readIds.has(a.id)).length
 
   const markRead = (id) => {
     setReadIds((prev) => {
@@ -57,7 +67,12 @@ export function UserPortalHead({ title = '我的订阅' }) {
           <h1 className="sub-title">{title}</h1>
         </div>
         <div className="sub-hero-meta">
-          <button type="button" className="sub-chip" onClick={() => setAnnOpen(true)}>公告</button>
+	          <button type="button" className="sub-chip" onClick={() => setAnnOpen(true)}>
+	            公告
+	            {unread > 0 && (
+	              <span className="sub-chip-dot" aria-label={`${unread} 条未读`}>{unread > 9 ? '9+' : unread}</span>
+	            )}
+	          </button>
           <NavLink to="/change-password" className="sub-chip">账户设置</NavLink>
           <button type="button" className="sub-chip" onClick={handleLogout}>退出账号</button>
         </div>

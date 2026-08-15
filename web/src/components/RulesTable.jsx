@@ -155,7 +155,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
                       ? <span className="font-sans">{r.landing_name}{renderLandingExpiry(r)}</span>
                       : <SensText blurred={blurred}>{exitOf(r) || '--'}</SensText>
                     const proxyRow = (uri, tag) => {
-                      // List label stays landing name; clipboard uses 用户名-到期/规则名.
+	                      // List label stays landing name; clipboard uses 用户名-规则名-到期.
                       // Expiry = 用户下发落地到期 (landing_expires_at / user_landing_exits).
                       const expiresAt = (r.landing_expires_at > 0)
                         ? r.landing_expires_at

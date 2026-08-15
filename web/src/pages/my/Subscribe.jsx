@@ -7,6 +7,9 @@ import { Layout, useToast } from '../../components/Layout'
 import { UserPortalHead } from '../../components/UserPortalHead'
 import { Badge, Loading } from '../../components/ui'
 
+const LAT_CACHE_KEY = 'nf.sub.latency.v1'
+const LAT_TTL_MS = 45_000
+
 export default function MySubscribe() {
   const toast = useToast()
   const [data, setData] = useState(null)
@@ -15,6 +18,7 @@ export default function MySubscribe() {
   const [qrErr, setQrErr] = useState('')
   const [copied, setCopied] = useState('')
   const [latency, setLatency] = useState({})
+  const [latLoading, setLatLoading] = useState(false)
 
   const load = () => api.get('/my/subscribe')
     .then(setData)
@@ -49,18 +53,48 @@ export default function MySubscribe() {
   )
   const profileName = account.username || 'kids'
 
+  const applyLatency = (d) => {
+    const map = {}
+    for (const it of d?.items || []) {
+      map[latencyKey(it)] = it
+    }
+    setLatency(map)
+  }
+
+  const fetchLatency = (force) => {
+    if (!data) return Promise.resolve()
+    const cached = force ? null : readLatCache()
+    if (cached) {
+      applyLatency(cached)
+      return Promise.resolve()
+    }
+    setLatLoading(true)
+    const q = force ? '?refresh=1' : ''
+    return api.get(`/my/subscribe/latency${q}`).then((d) => {
+      applyLatency(d)
+      writeLatCache(d)
+    }).catch(() => {
+      if (force) setLatency({})
+    }).finally(() => setLatLoading(false))
+  }
+
   useEffect(() => {
     if (!data) return
     let cancelled = false
+    const cached = readLatCache()
+    if (cached) {
+      applyLatency(cached)
+      return
+    }
+    setLatLoading(true)
     api.get('/my/subscribe/latency').then((d) => {
       if (cancelled) return
-      const map = {}
-      for (const it of d?.items || []) {
-        map[latencyKey(it)] = it
-      }
-      setLatency(map)
+      applyLatency(d)
+      writeLatCache(d)
     }).catch(() => {
       if (!cancelled) setLatency({})
+    }).finally(() => {
+      if (!cancelled) setLatLoading(false)
     })
     return () => { cancelled = true }
   }, [data])
@@ -88,7 +122,27 @@ export default function MySubscribe() {
     toast('已开始下载 YAML')
   }
 
+  if (loading) return <Layout><Loading /></Layout>
+
+  const expiresAt = account.expires_at && account.expires_at > 0 ? account.expires_at : null
+  const rate = account.billing_rate ?? 1
+  const used = Math.round((account.traffic_used_bytes || 0) * (data?.show_rate ? rate : 1))
+  const quota = account.traffic_quota_bytes || 0
+  const empty = items.length === 0
+  const expired = !!(expiresAt && isExpired(expiresAt))
+  const quotaOut = quota > 0 && used >= quota
+  const importBlocked = !!account.disabled || expired || quotaOut
+  const blockReason = account.disabled
+    ? (`账号已被禁用：${nullStr(account.disable_reason) || '请联系管理员'}`)
+    : expired
+      ? '订阅已过期，无法导入客户端'
+      : quotaOut
+        ? '流量已用完，无法导入客户端'
+        : ''
+  const imports = importHrefs(uriURL, data?.clash_url, data?.mihomo_url, profileName)
+
   const openImport = (href, fallback, opened) => {
+    if (importBlocked) { toast(blockReason, 'error'); return }
     if (!href && !fallback) { toast('暂无订阅地址', 'error'); return }
     if (href) {
       const a = document.createElement('a')
@@ -102,15 +156,6 @@ export default function MySubscribe() {
     }
     copy(fallback, 'import', opened || '已复制订阅地址')
   }
-
-  if (loading) return <Layout><Loading /></Layout>
-
-  const expiresAt = account.expires_at && account.expires_at > 0 ? account.expires_at : null
-  const rate = account.billing_rate ?? 1
-  const used = Math.round((account.traffic_used_bytes || 0) * (data?.show_rate ? rate : 1))
-  const quota = account.traffic_quota_bytes || 0
-  const empty = items.length === 0
-  const imports = importHrefs(uriURL, data?.clash_url, data?.mihomo_url, profileName)
 
   return (
     <Layout>
@@ -139,7 +184,7 @@ export default function MySubscribe() {
             <span className="sub-account-k">到期</span>
             <strong>
               {expiresAt ? fmtDate(expiresAt) : '永不过期'}
-              {expiresAt && isExpired(expiresAt) && <Badge color="red" className="ml-2">已过期</Badge>}
+              {expired && <Badge color="red" className="ml-2">已过期</Badge>}
             </strong>
           </div>
         </section>
@@ -170,10 +215,12 @@ export default function MySubscribe() {
                 <div className="sub-qr sub-qr-ph">{qrErr || (empty ? '暂无节点' : '生成中…')}</div>
               )}
             </div>
-            <button type="button" className="btn-primary w-full justify-center" disabled={!uriURL}
-              onClick={() => copy(uriURL, 'qr', '已复制小火箭订阅地址')}>
-              {copied === 'qr' ? '已复制' : '复制订阅地址'}
-            </button>
+            <div className="sub-card-actions">
+              <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" disabled={!uriURL || importBlocked}
+                onClick={() => copy(uriURL, 'qr', '已复制小火箭订阅地址')}>
+                {copied === 'qr' ? '已复制' : '复制订阅地址'}
+              </button>
+            </div>
           </article>
 
           <article className="sub-card">
@@ -181,11 +228,12 @@ export default function MySubscribe() {
               <span className="sub-idx">02</span>
               <h3>V2rayN</h3>
             </div>
-            <FieldRow label="订阅地址" value={uriURL} onCopy={() => copy(uriURL, 'v2sub', '已复制 V2rayN 订阅')} copied={copied === 'v2sub'} />
+            <FieldRow label="订阅地址" value={uriURL} disabled={importBlocked} onCopy={() => copy(uriURL, 'v2sub', '已复制 V2rayN 订阅')} copied={copied === 'v2sub'} />
             <FieldRow
               label="节点链接"
               value={v2rayLines}
               multiline
+              disabled={importBlocked}
               placeholder={empty ? '暂无节点链接' : ''}
               onCopy={() => copy(v2rayLines, 'v2uri', '已复制全部节点链接')}
               copied={copied === 'v2uri'}
@@ -197,7 +245,7 @@ export default function MySubscribe() {
               <span className="sub-idx">03</span>
               <h3>Clash Verge</h3>
             </div>
-            <FieldRow label="订阅地址" value={data?.clash_url} onCopy={() => copy(data?.clash_url, 'clash', '已复制 Clash 订阅')} copied={copied === 'clash'} />
+            <FieldRow label="订阅地址" value={data?.clash_url} disabled={importBlocked} onCopy={() => copy(data?.clash_url, 'clash', '已复制 Clash 订阅')} copied={copied === 'clash'} />
           </article>
 
           <article className="sub-card">
@@ -205,10 +253,10 @@ export default function MySubscribe() {
               <span className="sub-idx">04</span>
               <h3>Mihomo</h3>
             </div>
-            <FieldRow label="拉取地址" value={data?.mihomo_url} onCopy={() => copy(data?.mihomo_url, 'mihomo', '已复制 Mihomo 订阅')} copied={copied === 'mihomo'} />
+            <FieldRow label="拉取地址" value={data?.mihomo_url} disabled={importBlocked} onCopy={() => copy(data?.mihomo_url, 'mihomo', '已复制 Mihomo 订阅')} copied={copied === 'mihomo'} />
             <div className="flex flex-wrap gap-2 mt-3">
-              <button type="button" className="btn-secondary" disabled={empty} onClick={downloadYaml}>下载 YAML</button>
-              <button type="button" className="btn-secondary" disabled={!data?.mihomo_url}
+              <button type="button" className="btn-secondary" disabled={empty || importBlocked} onClick={downloadYaml}>下载 YAML</button>
+              <button type="button" className="btn-secondary" disabled={!data?.mihomo_url || importBlocked}
                 onClick={() => copy(data?.mihomo_url, 'mihomo2', '已复制拉取地址')}>
                 {copied === 'mihomo2' ? '已复制' : '复制拉取地址'}
               </button>
@@ -217,7 +265,17 @@ export default function MySubscribe() {
         </section>
 
         <section className="sub-nodes">
-          <h2>节点清单</h2>
+          <div className="sub-nodes-head">
+            <h2>节点清单</h2>
+            <button
+              type="button"
+              className="btn-secondary h-[32px] px-3 text-[12px]"
+              disabled={latLoading || items.length === 0}
+              onClick={() => fetchLatency(true).then(() => toast('已刷新延迟'))}
+            >
+              {latLoading ? '测速中…' : '刷新延迟'}
+            </button>
+          </div>
           {items.length > 0 && (
             <div className="sub-node-grid">
               {items.map((it) => (
@@ -225,8 +283,6 @@ export default function MySubscribe() {
                   key={`${it.kind}-${it.rule_id}-${it.family}-${it.name}`}
                   item={it}
                   probe={latency[latencyKey(it)]}
-                  onCopy={() => copy(it.uri, `n-${it.name}`, '已复制节点')}
-                  copied={copied === `n-${it.name}`}
                 />
               ))}
             </div>
@@ -244,23 +300,24 @@ export default function MySubscribe() {
 
         <section className="sub-import">
           <h2>一键导入客户端</h2>
+          {importBlocked && <p className="sub-import-block">{blockReason}</p>}
           <div className="sub-import-grid">
-            <button type="button" className="sub-import-btn" disabled={!uriURL}
+            <button type="button" className="sub-import-btn" disabled={!uriURL || importBlocked}
               onClick={() => openImport(imports.shadowrocket, uriURL, '已唤起小火箭')}>
               <img src="/clients/shadowrocket.png" alt="" />
               <span>小火箭</span>
             </button>
-            <button type="button" className="sub-import-btn" disabled={!uriURL}
+            <button type="button" className="sub-import-btn" disabled={!uriURL || importBlocked}
               onClick={() => openImport('', uriURL, '已复制订阅地址，请在 V2rayN 订阅里添加')}>
               <img src="/clients/v2rayn.png" alt="" />
               <span>V2rayN</span>
             </button>
-            <button type="button" className="sub-import-btn" disabled={!data?.clash_url}
+            <button type="button" className="sub-import-btn" disabled={!data?.clash_url || importBlocked}
               onClick={() => openImport(imports.clash, data?.clash_url, '已唤起 Clash Verge')}>
               <img src="/clients/clash-verge.png" alt="" />
               <span>Clash Verge</span>
             </button>
-            <button type="button" className="sub-import-btn" disabled={!data?.mihomo_url}
+            <button type="button" className="sub-import-btn" disabled={!data?.mihomo_url || importBlocked}
               onClick={() => openImport(imports.mihomo, data?.mihomo_url, '已唤起 Mihomo')}>
               <img src="/clients/mihomo.png" alt="" />
               <span>Mihomo</span>
@@ -270,6 +327,28 @@ export default function MySubscribe() {
       </div>
     </Layout>
   )
+}
+
+function readLatCache() {
+  try {
+    const raw = sessionStorage.getItem(LAT_CACHE_KEY)
+    if (!raw) return null
+    const d = JSON.parse(raw)
+    if (!d || !d.at || !Array.isArray(d.items)) return null
+    if (Date.now() - d.at > LAT_TTL_MS) return null
+    return d
+  } catch {
+    return null
+  }
+}
+
+function writeLatCache(d) {
+  try {
+    sessionStorage.setItem(LAT_CACHE_KEY, JSON.stringify({
+      at: Date.now(),
+      items: d?.items || [],
+    }))
+  } catch {}
 }
 
 function latencyKey(it) {
@@ -295,13 +374,13 @@ function btoaUtf8(text) {
   return btoa(bin)
 }
 
-function FieldRow({ label, value, onCopy, copied, multiline, placeholder }) {
+function FieldRow({ label, value, onCopy, copied, multiline, placeholder, disabled }) {
   return (
     <div className="sub-field">
       <div className="sub-field-label">{label}</div>
       <div className={`sub-field-box ${multiline ? 'is-multi' : ''}`}>
         <code>{value || placeholder || '—'}</code>
-        <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" disabled={!value} onClick={onCopy}>
+        <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" disabled={!value || disabled} onClick={onCopy}>
           {copied ? '已复制' : '复制'}
         </button>
       </div>
@@ -309,7 +388,7 @@ function FieldRow({ label, value, onCopy, copied, multiline, placeholder }) {
   )
 }
 
-function NodeCard({ item, probe, onCopy, copied }) {
+function NodeCard({ item, probe }) {
   const st = statusView(item)
   return (
     <article className="sub-node-card">
@@ -321,9 +400,6 @@ function NodeCard({ item, probe, onCopy, copied }) {
         <div className="sub-latency">{latencyLabel(probe)}</div>
       </div>
       <h3>{item.name}</h3>
-      <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" onClick={onCopy}>
-        {copied ? '已复制' : '复制链接'}
-      </button>
     </article>
   )
 }
@@ -349,4 +425,3 @@ function skipLabel(sk) {
   if (sk.reason === 'disabled') return `${detail} 已停用`
   return `${detail} 未纳入（${sk.reason || '未知'}）`
 }
-

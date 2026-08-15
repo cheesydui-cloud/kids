@@ -207,33 +207,25 @@ func buildSubDisplayName(username, extra string, expiresAt int64, kind string) s
 	user := strings.TrimSpace(username)
 	extra = strings.TrimSpace(extra)
 	day := fmtSubExpiry(expiresAt)
-	switch kind {
-	case "direct":
-		if user != "" && extra != "" {
-			return user + "-直连-" + extra
-		}
-		if user != "" {
-			return user + "-直连"
-		}
-		if extra != "" {
-			return extra
-		}
-		return "直连"
-	default:
-		if user != "" && day != "" {
-			return user + "-" + day
-		}
-		if user != "" && extra != "" {
-			return user + "-" + extra
-		}
-		if user != "" {
-			return user
-		}
-		if extra != "" {
-			return extra
+	parts := make([]string, 0, 3)
+	if user != "" {
+		parts = append(parts, user)
+	}
+	if extra != "" {
+		parts = append(parts, extra)
+	} else if kind == "direct" {
+		parts = append(parts, "直连")
+	}
+	if day != "" {
+		parts = append(parts, day)
+	}
+	if len(parts) == 0 {
+		if kind == "direct" {
+			return "直连"
 		}
 		return "proxy"
 	}
+	return strings.Join(parts, "-")
 }
 
 func fmtSubExpiry(unix int64) string {
@@ -457,11 +449,36 @@ type subLatencyItem struct {
 	Error     string `json:"error,omitempty"`
 }
 
+type subLatSnap struct {
+	at     time.Time
+	target string
+	items  []subLatencyItem
+}
+
+const subLatTTL = 45 * time.Second
+
 // apiMySubscribeLatency measures last-hop TCP connect time to Google for
 // each of the caller's subscription items. Direct landings have no agent,
 // so they return an explicit skip rather than a panel-side SSRF dial.
+// Results are cached ~45s unless refresh=1.
 func (s *Server) apiMySubscribeLatency(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
+	force := r.URL.Query().Get("refresh") == "1" || r.URL.Query().Get("refresh") == "true"
+	if !force {
+		s.subLatMu.Lock()
+		snap, ok := s.subLatCache[u.ID]
+		s.subLatMu.Unlock()
+		if ok && time.Since(snap.at) < subLatTTL {
+			jsonOK(w, map[string]any{
+				"target": snap.target,
+				"items":  snap.items,
+				"cached": true,
+				"age_ms": time.Since(snap.at).Milliseconds(),
+				"ttl_ms": subLatTTL.Milliseconds(),
+			})
+			return
+		}
+	}
 	p := s.collectUserSub(u)
 	exitOf := map[int64]int64{}
 	need := map[int64]struct{}{}
@@ -515,9 +532,17 @@ func (s *Server) apiMySubscribeLatency(w http.ResponseWriter, r *http.Request) {
 		row.Error = pr.Error
 		out = append(out, row)
 	}
+	s.subLatMu.Lock()
+	if s.subLatCache == nil {
+		s.subLatCache = map[int64]subLatSnap{}
+	}
+	s.subLatCache[u.ID] = subLatSnap{at: time.Now(), target: googleTCPTarget, items: out}
+	s.subLatMu.Unlock()
 	jsonOK(w, map[string]any{
 		"target": googleTCPTarget,
 		"items":  out,
+		"cached": false,
+		"ttl_ms": subLatTTL.Milliseconds(),
 	})
 }
 

@@ -40,6 +40,8 @@ type Server struct {
 	stopAll           chan struct{}
 	stopOnce          sync.Once
 	asyncWg           sync.WaitGroup
+	subLatMu          sync.Mutex
+	subLatCache       map[int64]subLatSnap
 }
 
 func New(d *sql.DB) (*Server, error) {
@@ -64,7 +66,8 @@ func NewWithDocsDir(d *sql.DB, docsDir string) (*Server, error) {
 		loginLimiter: newLoginLimiter(),
 		stopExpiry:   make(chan struct{}), stopCycle: make(chan struct{}),
 		stopLandingSync: make(chan struct{}), stopLandingExpiry: make(chan struct{}),
-		stopAll: make(chan struct{}),
+		stopAll:     make(chan struct{}),
+		subLatCache: map[int64]subLatSnap{},
 	}
 	hub.OnTrafficUpdate = func(userID int64, nodeID int64) {
 		s.enforcePerNodeQuota(userID, nodeID)
@@ -611,10 +614,10 @@ func (s *Server) Router() http.Handler {
 			r.Post("/nodes/{id}/rename", s.apiRenameNode)
 			r.Post("/nodes/{id}/relay-host", s.apiSetNodeRelayHost)
 			r.Post("/nodes/{id}/relay-host-v6", s.apiSetNodeRelayHostV6)
-				r.Post("/nodes/{id}/cf", s.apiSetNodeCF)
-				r.Post("/nodes/{id}/backend-ip", s.apiSetNodeBackendIP)
-				r.Post("/nodes/{id}/cf-lookup", s.apiLookupNodeCF)
-				r.Post("/nodes/{id}/cf-resync", s.apiResyncNodeCF)
+			r.Post("/nodes/{id}/cf", s.apiSetNodeCF)
+			r.Post("/nodes/{id}/backend-ip", s.apiSetNodeBackendIP)
+			r.Post("/nodes/{id}/cf-lookup", s.apiLookupNodeCF)
+			r.Post("/nodes/{id}/cf-resync", s.apiResyncNodeCF)
 			r.Post("/nodes/{id}/port-range", s.apiUpdateNodePortRange)
 			r.Post("/nodes/{id}/resync", s.apiResyncNode)
 			r.Post("/nodes/{id}/reset-token", s.apiResetNodeToken)
@@ -725,11 +728,11 @@ func (s *Server) Router() http.Handler {
 		// User routes
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAPIAuth, s.requireRole("user"))
-				r.Get("/my", s.apiMyDashboard)
-					r.Get("/my/subscribe", s.apiMySubscribe)
-					r.Get("/my/subscribe/latency", s.apiMySubscribeLatency)
-					r.Post("/my/subscribe/rotate", s.apiMyRotateSubscribe)
-				r.Get("/my/landing-nodes", s.apiMyLandingNodes)
+			r.Get("/my", s.apiMyDashboard)
+			r.Get("/my/subscribe", s.apiMySubscribe)
+			r.Get("/my/subscribe/latency", s.apiMySubscribeLatency)
+			r.Post("/my/subscribe/rotate", s.apiMyRotateSubscribe)
+			r.Get("/my/landing-nodes", s.apiMyLandingNodes)
 			r.Get("/my/announcements", s.apiMyAnnouncements)
 			r.Get("/my/login-announcement", s.apiMyLoginAnnouncement)
 			r.Get("/my/docs", s.apiMyDocs)
@@ -754,19 +757,19 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 
-		// Outbound client subscription — plaintext sub_tokens, not hashed api_tokens.
-		r.Group(func(r chi.Router) {
-			r.Use(s.requireSubTokenAuth)
-			r.Get("/api/v1/sub", s.apiPublicSub)
-			r.Get("/api/v1/clash.yaml", s.apiPublicClash)
-			r.Get("/api/v1/mihomo.yaml", s.apiPublicClash)
-		})
+	// Outbound client subscription — plaintext sub_tokens, not hashed api_tokens.
+	r.Group(func(r chi.Router) {
+		r.Use(s.requireSubTokenAuth)
+		r.Get("/api/v1/sub", s.apiPublicSub)
+		r.Get("/api/v1/clash.yaml", s.apiPublicClash)
+		r.Get("/api/v1/mihomo.yaml", s.apiPublicClash)
+	})
 
-		// Public API (token auth)
-		r.Route("/api/v1", func(r chi.Router) {
-			r.Use(s.requireTokenAuth)
-			r.Get("/info", s.apiTokenInfo)
-		})
+	// Public API (token auth)
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(s.requireTokenAuth)
+		r.Get("/info", s.apiTokenInfo)
+	})
 
 	r.NotFound(spaHandler().ServeHTTP)
 

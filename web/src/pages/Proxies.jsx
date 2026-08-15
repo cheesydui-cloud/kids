@@ -6,7 +6,7 @@ import { copyToClipboard } from '../lib/clipboard'
 import { PageHeader, Panel, PanelToolbar, SearchInput, TableScroll } from '../components/page'
 import {
   parseURIs, loadLocalURIs, loadSubCache, fetchNodeRoles, loadLocalRoles, nodeHasRole, ROLE_LANDING, ROLE_DIRECT,
-  landingIndex, splitEndpoint, rewriteEndpoint, mergeLanding,
+  landingIndex, splitEndpoint, rewriteEndpoint, mergeLanding, buildRelayDisplayName,
 } from '../lib/landing'
 import { formatRelayBatch, formatRelayCopyText, relayExpiryFromMap } from '../lib/relayCopy'
 import { uriToClashYaml } from '../lib/yaml-convert'
@@ -87,8 +87,8 @@ export default function Proxies() {
   const filtered = !q ? tabbed : tabbed.filter(n =>
     [n.name, n.protocol, `${n.host}:${n.port}`, n.ruleName].some(v => (v || '').toLowerCase().includes(q)))
 
-  // List still shows landing node name; only clipboard renames relay URIs to
-  // `{username}-8月5日` / `{username}-{ruleName}`. Direct proxies keep original names.
+	  // List still shows landing node name; only clipboard renames relay URIs to
+	  // `{username}-{ruleName}-{8月5日}`. Direct proxies keep original names.
   const copyText = (n, displayName, { asYaml = copyFmt === 'yaml' } = {}) => {
     if (n.kind === 'relay') {
       if (!n.relay) return null
@@ -181,8 +181,13 @@ export default function Proxies() {
                 return (
                   <tr key={i}>
                     <td className="font-semibold">
-                      {n.name || '(未命名)'}
-                      {n.kind === 'relay' && <span className="ml-1.5 text-[11px] text-ink-mut font-normal">← {n.ruleName}</span>}
+                      {n.kind === 'relay'
+                        ? (buildRelayDisplayName({
+                            username: user?.username,
+                            ruleName: n.ruleName,
+                            expiresAt: relayExpiryFromMap(expiryMap, n.host, n.port),
+                          }) || n.name || '(未命名)')
+                        : (n.name || '(未命名)')}
                     </td>
                     <td className="font-mono text-xs text-ink-soft">{n.protocol}</td>
                     <td className="font-mono text-xs">

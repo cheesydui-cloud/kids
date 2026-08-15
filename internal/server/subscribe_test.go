@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"nft/internal/db"
 	"nft/internal/landing"
@@ -117,12 +118,15 @@ func TestSubscribeCollectsRelayAndDirect(t *testing.T) {
 			if it.Status == "" {
 				t.Errorf("relay missing status")
 			}
+			if !strings.Contains(it.Name, "线路A") {
+				t.Errorf("relay name should include rule name, got %q", it.Name)
+			}
 		case "direct":
 			direct++
 			if !strings.Contains(it.URI, "5.6.7.8:8443") {
 				t.Errorf("direct uri should keep landing endpoint, got %s", it.URI)
 			}
-			if !strings.Contains(it.Name, "直连") {
+			if !strings.Contains(it.Name, "JP") {
 				t.Errorf("direct name = %q", it.Name)
 			}
 			if it.Status != "direct" {
@@ -290,6 +294,69 @@ func TestSubscribePacksEveryLandingRule(t *testing.T) {
 	}
 	if !strings.Contains(yml, "5.6.7.8") {
 		t.Fatalf("clash yaml missing direct landing:\n%s", yml)
+	}
+}
+
+func TestBuildSubDisplayName(t *testing.T) {
+	got := buildSubDisplayName("test", "线路A", time.Date(2026, 8, 30, 12, 0, 0, 0, time.Local).Unix(), "relay")
+	want := "test-线路A-8月30日"
+	if got != want {
+		t.Fatalf("relay name = %q, want %q", got, want)
+	}
+	got = buildSubDisplayName("alice", "HK", 0, "direct")
+	if got != "alice-HK" {
+		t.Fatalf("direct name = %q", got)
+	}
+}
+
+func TestSubscribeLatencyCache(t *testing.T) {
+	d := openDB(t)
+	_, cookie, _ := seedSubUser(t, d)
+	s := newServer(t, d)
+
+	req := newTestRequest("GET", "/api/my/subscribe/latency", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("latency: %d %s", rec.Code, rec.Body.String())
+	}
+	var first struct {
+		Cached bool `json:"cached"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Cached {
+		t.Fatal("first probe should not be cached")
+	}
+
+	req2 := newTestRequest("GET", "/api/my/subscribe/latency", nil)
+	req2.AddCookie(cookie)
+	rec2 := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec2, req2)
+	var second struct {
+		Cached bool `json:"cached"`
+	}
+	if err := json.Unmarshal(rec2.Body.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+	if !second.Cached {
+		t.Fatal("second probe should hit cache")
+	}
+
+	req3 := newTestRequest("GET", "/api/my/subscribe/latency?refresh=1", nil)
+	req3.AddCookie(cookie)
+	rec3 := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec3, req3)
+	var third struct {
+		Cached bool `json:"cached"`
+	}
+	if err := json.Unmarshal(rec3.Body.Bytes(), &third); err != nil {
+		t.Fatal(err)
+	}
+	if third.Cached {
+		t.Fatal("refresh=1 should bypass cache")
 	}
 }
 

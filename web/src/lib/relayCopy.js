@@ -1,6 +1,6 @@
 /* Shared clipboard formatting for rewritten relay proxy URIs.
-   List UI keeps landing node names; only copy/export renames to
-   `{username}-8月5日` or `{username}-{ruleName}`. */
+	   List UI keeps landing node names; only copy/export renames to
+	   `{username}-{ruleName}-{8月5日}`. */
 
 import { uriToClashYaml } from './yaml-convert'
 import {
