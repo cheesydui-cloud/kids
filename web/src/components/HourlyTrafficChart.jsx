@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmtBytes } from '../lib/fmt'
 
-const W = 960
-const H = 280
-const PAD = { top: 18, right: 28, bottom: 32, left: 52 }
+const H = 380
+const PAD = { top: 22, right: 16, bottom: 40, left: 52 }
 const AXIS = '#3b82f6'
 const CURVE = '#ff6a00'
 
@@ -45,7 +44,19 @@ function catmullRom(points, yMin, yMax) {
 }
 
 export function HourlyTrafficChart({ series = [] }) {
+  const wrapRef = useRef(null)
+  const [width, setWidth] = useState(960)
   const [hover, setHover] = useState(null)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const apply = () => setWidth(Math.max(480, Math.round(el.clientWidth)))
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const points = useMemo(() => {
     const rows = Array.isArray(series) && series.length ? series : []
@@ -56,12 +67,12 @@ export function HourlyTrafficChart({ series = [] }) {
   }, [series])
 
   const max = useMemo(() => niceMax(Math.max(0, ...points.map(p => p.bytes))), [points])
-  const innerW = W - PAD.left - PAD.right
+  const innerW = width - PAD.left - PAD.right
   const innerH = H - PAD.top - PAD.bottom
   const step = points.length > 1 ? innerW / (points.length - 1) : innerW
   const axisY = PAD.top + innerH
-  const axisLeft = PAD.left - 8
-  const axisRight = W - PAD.right + 8
+  const axisLeft = PAD.left
+  const axisRight = width - PAD.right
 
   const coords = points.map((p, i) => ({
     ...p,
@@ -76,8 +87,17 @@ export function HourlyTrafficChart({ series = [] }) {
 
   const onMove = (e) => {
     const svg = e.currentTarget
-    const rect = svg.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * W
+    let x = 0
+    const ctm = svg.getScreenCTM()
+    if (ctm) {
+      const pt = svg.createSVGPoint()
+      pt.x = e.clientX
+      pt.y = e.clientY
+      x = pt.matrixTransform(ctm.inverse()).x
+    } else {
+      const rect = svg.getBoundingClientRect()
+      x = ((e.clientX - rect.left) / rect.width) * width
+    }
     let best = 0
     let bestDist = Infinity
     for (let i = 0; i < coords.length; i++) {
@@ -91,7 +111,7 @@ export function HourlyTrafficChart({ series = [] }) {
   }
 
   const active = hover != null ? coords[hover] : null
-  const tipLeft = active ? Math.min(86, Math.max(14, (active.x / W) * 100)) : 50
+  const tipLeft = active ? Math.min(86, Math.max(14, (active.x / width) * 100)) : 50
 
   return (
     <div className="card mb-5 overflow-hidden">
@@ -101,10 +121,12 @@ export function HourlyTrafficChart({ series = [] }) {
           24小时流量统计
         </h3>
       </div>
-      <div className="relative px-3 pb-3 pt-1">
+      <div ref={wrapRef} className="relative px-0 pb-3 pt-1">
         <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="w-full h-[240px] sm:h-[280px] select-none"
+          viewBox={`0 0 ${width} ${H}`}
+          width="100%"
+          height="380"
+          className="block h-[320px] sm:h-[380px] select-none"
           style={{ touchAction: 'none' }}
           onMouseMove={onMove}
           onMouseLeave={() => setHover(null)}
@@ -116,7 +138,7 @@ export function HourlyTrafficChart({ series = [] }) {
             if (v === 0) return null
             return (
               <g key={i}>
-                <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="var(--color-line)" strokeDasharray="3 5" strokeWidth="1" />
+                <line x1={PAD.left} x2={width - PAD.right} y1={y} y2={y} stroke="var(--color-line)" strokeDasharray="3 5" strokeWidth="1" />
                 <text x={PAD.left - 8} y={y + 4} textAnchor="end" fontSize="11" fill="var(--color-ink-mut)">
                   {fmtBytes(v)}
                 </text>
@@ -130,15 +152,16 @@ export function HourlyTrafficChart({ series = [] }) {
             y1={axisY}
             y2={axisY}
             stroke={AXIS}
-            strokeWidth="1.6"
-            strokeLinecap="round"
+            strokeWidth="3.2"
+            strokeLinecap="butt"
           />
           {coords.map((p, i) => (
-            i % 2 === 0 ? (
-              <text key={p.hour || i} x={p.x} y={H - 10} textAnchor="middle" fontSize="11" fill="var(--color-ink-mut)">
+            <g key={p.hour || i}>
+              <line x1={p.x} x2={p.x} y1={axisY} y2={axisY + 4} stroke={AXIS} strokeWidth="1.2" />
+              <text x={p.x} y={H - 8} textAnchor="middle" fontSize="10" fill="var(--color-ink-mut)">
                 {hourLabel(p.hour)}
               </text>
-            ) : null
+            </g>
           ))}
           <defs>
             <linearGradient id="hourlyFill" x1="0" y1="0" x2="0" y2="1">
@@ -152,7 +175,7 @@ export function HourlyTrafficChart({ series = [] }) {
               d={line}
               fill="none"
               stroke={CURVE}
-              strokeWidth="1.25"
+              strokeWidth="2.5"
               strokeLinejoin="round"
               strokeLinecap="round"
             />
@@ -168,7 +191,7 @@ export function HourlyTrafficChart({ series = [] }) {
                 strokeWidth="1.1"
                 strokeDasharray="3 4"
               />
-              <circle cx={active.x} cy={active.y} r="4" fill="var(--color-surface)" stroke={CURVE} strokeWidth="1.6" />
+              <circle cx={active.x} cy={active.y} r="4.5" fill="var(--color-surface)" stroke={CURVE} strokeWidth="2" />
             </>
           )}
         </svg>
