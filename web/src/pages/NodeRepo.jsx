@@ -6,7 +6,7 @@ import { Loading, Empty, Badge, CopyText, Modal, useConfirm, DateInput } from '.
 import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
 import FolderBar, { MoveToFolderModal } from '../components/FolderBar'
 import { parseURIs, tryParseURI, extractUserPass, tryParseNaiveHTTPS, isAuthFormProtocol, buildSimpleAuthURI } from '../lib/landing'
-import { fmtDate, expiryBadge, fmtTrafficGB } from '../lib/fmt'
+import { billedUsedBytes, fmtDate, expiryBadge, fmtTrafficGB } from '../lib/fmt'
 import { useIsMobile } from '../lib/useIsMobile'
 
 export default function NodeRepo() {
@@ -308,7 +308,7 @@ export default function NodeRepo() {
                         <td className="text-xs text-ink-soft">{u.name_override || u.name || '—'}</td>
                         <td className="text-xs font-mono text-ink-soft">
                           {(u.quota_bytes > 0 || u.used_bytes > 0)
-                            ? fmtTrafficGB(u.used_bytes, u.quota_bytes)
+                            ? fmtTrafficGB(billedUsedBytes(u.used_bytes, u.billing_rate), u.quota_bytes)
                             : '—'}
                         </td>
                         <td className="text-xs">{u.rule_count > 0 ? `${u.rule_count} 条` : <span className="text-ink-mut">0</span>}</td>

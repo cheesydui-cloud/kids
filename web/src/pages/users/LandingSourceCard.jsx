@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '../../lib/api'
-import { fmtTrafficGB, fmtDate, expiryBadge } from '../../lib/fmt'
+import { billedUsedBytes, fmtTrafficGB, fmtDate, expiryBadge } from '../../lib/fmt'
 import {
   fetchNodeRoles, nodeRoleKey, applyNodeRole, applyNodeRoleBatch, saveNodeRoles,
   ROLE_LANDING, ROLE_DIRECT,
@@ -102,7 +102,7 @@ function ExitNameCell({ userId, name, exit, onDone }) {
   )
 }
 
-export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred: blurredProp, embedded = false, onChanged }) {
+export default function LandingSourceCard({ userId, subURL, uris, nodes, billingRate = 1, blurred: blurredProp, embedded = false, onChanged }) {
   const blurred = blurredProp ?? useBlur()
   const [url, setUrl] = useState(subURL || '')
   const [text, setText] = useState(uris || '')
@@ -272,7 +272,8 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                 {preview.map((n, i) => {
                   const st = roleOf(n)
                   const ex = showQuotaFor(n, st)
-                  const exceeded = ex && ex.quota_bytes > 0 && ex.used_bytes >= ex.quota_bytes
+                  const billed = ex ? billedUsedBytes(ex.used_bytes, billingRate) : 0
+                  const exceeded = ex && ex.quota_bytes > 0 && billed >= ex.quota_bytes
                   return (
                     <tr key={i}>
                       <td><input type="checkbox" checked={sel.has(i)} onChange={() => toggleSel(i)} /></td>
@@ -290,7 +291,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                       <td className="font-mono text-xs">
                         {ex ? (
                           <>
-                            {fmtTrafficGB(ex.used_bytes, ex.quota_bytes)}
+                            {fmtTrafficGB(billed, ex.quota_bytes)}
                             {exceeded && <Badge color="red">已超额</Badge>}
                             <button onClick={() => resetExit(ex)}
                               className="ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-md border-[1.5px] transition-all bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)] hover:-translate-y-px">
@@ -312,7 +313,8 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                   )
                 })}
                 {residualExits.map((ex, i) => {
-                  const exceeded = ex.quota_bytes > 0 && ex.used_bytes >= ex.quota_bytes
+                  const billed = billedUsedBytes(ex.used_bytes, billingRate)
+                  const exceeded = ex.quota_bytes > 0 && billed >= ex.quota_bytes
                   return (
                     <tr key={`residual-${i}`} className="opacity-50">
                       <td></td>
@@ -326,7 +328,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, blurred
                       <td className="font-mono text-xs"><SensText blurred={blurred}>{ex.host}:{ex.port}</SensText></td>
                       <td><ExitQuotaForm userId={userId} exit={ex} onDone={reloadLanding} /></td>
                       <td className="font-mono text-xs">
-                        {fmtTrafficGB(ex.used_bytes, ex.quota_bytes)}
+                        {fmtTrafficGB(billed, ex.quota_bytes)}
                         {exceeded && <Badge color="red">已超额</Badge>}
                         <button onClick={() => resetExit(ex)}
                               className="ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-md border-[1.5px] transition-all bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)] hover:-translate-y-px">

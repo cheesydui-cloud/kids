@@ -298,7 +298,7 @@ func (s *Server) apiMyLandingNodes(w http.ResponseWriter, r *http.Request) {
 		if e := ledger[net.JoinHostPort(n.Host, strconv.Itoa(n.Port))]; e != nil {
 			v.QuotaBytes = e.QuotaBytes
 			v.UsedBytes = e.UsedBytes
-			v.Exceeded = e.QuotaBytes > 0 && e.UsedBytes >= e.QuotaBytes
+			v.Exceeded = e.QuotaBytes > 0 && db.LandingBillableBytes(e.UsedBytes, u.BillingRate) >= e.QuotaBytes
 			v.ExpiresAt = e.ExpiresAt
 			// An admin rename must reach the client the user actually
 			// imports, not just this list — rewrite the URI's display name

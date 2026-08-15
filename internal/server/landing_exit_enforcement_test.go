@@ -47,6 +47,23 @@ func TestExitQuotaExclusion(t *testing.T) {
 	}
 }
 
+func TestExitQuotaExclusionAppliesBillingRate(t *testing.T) {
+	d := openDB(t)
+	uid, _ := loginAsUser(t, d, 100)
+	n1, _ := db.CreateNode(d, "exr", "", "")
+	db.UpdateNodeRelayHost(d, n1.ID, "1.1.1.1")
+	db.GrantNode(d, uid, n1.ID, 10, 0)
+	createTestRuleDirectNode(t, d, uid, n1.ID)
+	seedLandingExit(t, d, uid, "8.8.8.8", 443, 1000, 600)
+	if hops, _ := db.ActiveRuleHopsForPush(d, n1.ID); len(hops) != 1 {
+		t.Fatalf("raw 600 of 1000 at rate 1 must stay, got %d hops", len(hops))
+	}
+	d.Exec(`UPDATE users SET billing_rate=2 WHERE id=?`, uid)
+	if hops, _ := db.ActiveRuleHopsForPush(d, n1.ID); len(hops) != 0 {
+		t.Fatalf("600×2 of 1000 must exclude, got %d hops", len(hops))
+	}
+}
+
 func TestExitQuotaExclusionScopedToOwnerAndExit(t *testing.T) {
 	d := openDB(t)
 	uid, _ := loginAsUser(t, d, 100)
@@ -125,7 +142,6 @@ func TestEnforceExitQuota(t *testing.T) {
 		t.Fatalf("exceeded exit expected, got %+v", keys)
 	}
 }
-
 
 func TestExitExpiryExclusion(t *testing.T) {
 	d := openDB(t)

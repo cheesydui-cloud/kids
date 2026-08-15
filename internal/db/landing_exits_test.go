@@ -200,6 +200,25 @@ func TestExitQuotaHelpers(t *testing.T) {
 	}
 }
 
+func TestExitsExceedingQuotaAppliesBillingRate(t *testing.T) {
+	d := openTestDB(t)
+	uid := createTestUser(t, d)
+	SyncUserLandingExits(d, uid, inputs("a.com"), "", "")
+	SetUserLandingExitQuota(d, uid, "a.com", 443, 1000)
+	d.Exec(`UPDATE user_landing_exits SET used_bytes=600 WHERE user_id=?`, uid)
+	if keys, _ := ExitsExceedingQuota(d, uid); len(keys) != 0 {
+		t.Fatalf("raw 600 of 1000 at rate 1 must not exceed, got %+v", keys)
+	}
+	d.Exec(`UPDATE users SET billing_rate=2 WHERE id=?`, uid)
+	keys, err := ExitsExceedingQuota(d, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].Host != "a.com" {
+		t.Fatalf("600×2 of 1000 must exceed, got %+v", keys)
+	}
+}
+
 func TestCycleResetClearsExitLedger(t *testing.T) {
 	d := openTestDB(t)
 	uid := createTestUser(t, d)

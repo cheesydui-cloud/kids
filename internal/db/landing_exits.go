@@ -2,8 +2,26 @@ package db
 
 import (
 	"database/sql"
+	"math"
 	"strings"
 )
+
+// LandingBillableBytes is last-hop raw used × the account billing_rate
+// (rate ≤ 0 treated as 1). Same math as the account traffic chip.
+func LandingBillableBytes(used int64, rate float64) int64 {
+	if rate <= 0 {
+		rate = 1
+	}
+	return int64(math.Round(float64(used) * rate))
+}
+
+func landingOverQuota(used, quota int64, rate float64) bool {
+	return quota > 0 && LandingBillableBytes(used, rate) >= quota
+}
+
+// landingBillableSQL compares an exit ledger to its quota after the owner's
+// billing_rate. Alias u = users, ule = user_landing_exits.
+const landingBillableSQL = `CAST(ROUND(ule.used_bytes * CASE WHEN u.billing_rate > 0 THEN u.billing_rate ELSE 1.0 END) AS INTEGER)`
 
 // LandingExit is one row of a user's materialized landing-exit set plus its
 // traffic ledger. Present=false rows are exits that dropped out of the landing
@@ -70,7 +88,8 @@ func SyncUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput, src
 	defer tx.Rollback()
 
 	var curSub, curURIs string
-	if err := tx.QueryRow(`SELECT landing_sub_url, landing_uris FROM users WHERE id=?`, userID).Scan(&curSub, &curURIs); err != nil {
+	var rate float64
+	if err := tx.QueryRow(`SELECT landing_sub_url, landing_uris, billing_rate FROM users WHERE id=?`, userID).Scan(&curSub, &curURIs, &rate); err != nil {
 		return nil, false, err
 	}
 	if curSub != srcSubURL || curURIs != srcURIs {
@@ -97,7 +116,7 @@ func SyncUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput, src
 			rows.Close()
 			return nil, false, err
 		}
-		existing[k] = rowState{present: present == 1, overQuota: quota > 0 && used >= quota, emptyLedger: quota == 0 && used == 0, source: source}
+		existing[k] = rowState{present: present == 1, overQuota: landingOverQuota(used, quota, rate), emptyLedger: quota == 0 && used == 0, source: source}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -180,6 +199,10 @@ func AppendUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput) (
 		present   bool
 		overQuota bool
 	}
+	var rate float64
+	if err := tx.QueryRow(`SELECT billing_rate FROM users WHERE id=?`, userID).Scan(&rate); err != nil {
+		return nil, err
+	}
 	existing := map[LandingExitKey]rowState{}
 	rows, err := tx.Query(`SELECT host, port, present, quota_bytes, used_bytes FROM user_landing_exits WHERE user_id=?`, userID)
 	if err != nil {
@@ -193,7 +216,7 @@ func AppendUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput) (
 			rows.Close()
 			return nil, err
 		}
-		existing[k] = rowState{present: present == 1, overQuota: quota > 0 && used >= quota}
+		existing[k] = rowState{present: present == 1, overQuota: landingOverQuota(used, quota, rate)}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -370,11 +393,14 @@ func DeleteUserLandingExit(d *sql.DB, userID int64, host string, port int, force
 	return "deleted", present, nil
 }
 
-// ExitsExceedingQuota returns the user's present exits whose ledger reached
-// quota. Quota 0 (unlimited) never exceeds.
+// ExitsExceedingQuota returns the user's present exits whose billed ledger
+// (raw used × account billing_rate) reached quota. Quota 0 never exceeds.
 func ExitsExceedingQuota(d *sql.DB, userID int64) ([]LandingExitKey, error) {
-	rows, err := d.Query(`SELECT host, port FROM user_landing_exits
-		WHERE user_id=? AND present=1 AND quota_bytes>0 AND used_bytes>=quota_bytes`, userID)
+	rows, err := d.Query(`SELECT ule.host, ule.port
+			FROM user_landing_exits ule
+			JOIN users u ON u.id = ule.user_id
+			WHERE ule.user_id=? AND ule.present=1 AND ule.quota_bytes>0
+			  AND `+landingBillableSQL+` >= ule.quota_bytes`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -743,13 +769,14 @@ func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPor
 
 // RepoExitUser is one user who has a present, repo-sourced landing exit at host:port.
 type RepoExitUser struct {
-	UserID       int64  `json:"user_id"`
-	Username     string `json:"username"`
-	NameOverride string `json:"name_override"`
-	Name         string `json:"name"`
-	QuotaBytes   int64  `json:"quota_bytes"`
-	UsedBytes    int64  `json:"used_bytes"`
-	ExpiresAt    int64  `json:"expires_at"`
+	UserID       int64   `json:"user_id"`
+	Username     string  `json:"username"`
+	NameOverride string  `json:"name_override"`
+	Name         string  `json:"name"`
+	QuotaBytes   int64   `json:"quota_bytes"`
+	UsedBytes    int64   `json:"used_bytes"`
+	BillingRate  float64 `json:"billing_rate"`
+	ExpiresAt    int64   `json:"expires_at"`
 	// RuleCount is how many of this user's rules exit to the same host:port.
 	RuleCount int `json:"rule_count"`
 }
@@ -781,12 +808,12 @@ func CountRepoExitUsers(d *sql.DB) (map[string]int, error) {
 // rules owned by those users that still dial the same exit.
 func ListRepoExitUsers(d *sql.DB, host string, port int) ([]RepoExitUser, error) {
 	rows, err := d.Query(`
-		SELECT e.user_id, u.username, e.name, e.name_override, e.quota_bytes, e.used_bytes, e.expires_at,
-			(SELECT COUNT(*) FROM rules r WHERE r.owner_id=e.user_id AND r.exit_host=e.host AND r.exit_port=e.port)
-		FROM user_landing_exits e
-		JOIN users u ON u.id = e.user_id
-		WHERE e.host=? AND e.port=? AND e.source='repo' AND e.present=1
-		ORDER BY u.username COLLATE NOCASE`, host, port)
+			SELECT e.user_id, u.username, e.name, e.name_override, e.quota_bytes, e.used_bytes, u.billing_rate, e.expires_at,
+				(SELECT COUNT(*) FROM rules r WHERE r.owner_id=e.user_id AND r.exit_host=e.host AND r.exit_port=e.port)
+			FROM user_landing_exits e
+			JOIN users u ON u.id = e.user_id
+			WHERE e.host=? AND e.port=? AND e.source='repo' AND e.present=1
+			ORDER BY u.username COLLATE NOCASE`, host, port)
 	if err != nil {
 		return nil, err
 	}
@@ -795,7 +822,7 @@ func ListRepoExitUsers(d *sql.DB, host string, port int) ([]RepoExitUser, error)
 	for rows.Next() {
 		var u RepoExitUser
 		var exp sql.NullInt64
-		if err := rows.Scan(&u.UserID, &u.Username, &u.Name, &u.NameOverride, &u.QuotaBytes, &u.UsedBytes, &exp, &u.RuleCount); err != nil {
+		if err := rows.Scan(&u.UserID, &u.Username, &u.Name, &u.NameOverride, &u.QuotaBytes, &u.UsedBytes, &u.BillingRate, &exp, &u.RuleCount); err != nil {
 			return nil, err
 		}
 		if exp.Valid {

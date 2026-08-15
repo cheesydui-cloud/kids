@@ -331,6 +331,7 @@ export default function UserDetail() {
           subURL={user.landing_sub_url}
           uris={user.landing_uris}
           nodes={landing_nodes}
+          billingRate={rate}
           blurred={blurred}
           embedded
           onChanged={refreshLandingForRules}

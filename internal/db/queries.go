@@ -903,15 +903,16 @@ func ActiveRuleHopsForPush(d *sql.DB, nodeID int64) ([]*RuleHop, error) {
 		    AND un.traffic_quota_bytes > 0
 		    AND un.traffic_used_bytes >= un.traffic_quota_bytes
 		)
-		AND NOT EXISTS (
-		  SELECT 1 FROM rules r4
-		  JOIN user_landing_exits ule ON ule.user_id = r4.owner_id
-		    AND ule.host = r4.exit_host AND ule.port = r4.exit_port
-		  WHERE r4.id = rh.rule_id
-		    AND ule.present = 1
-		    AND ule.quota_bytes > 0
-		    AND ule.used_bytes >= ule.quota_bytes
-		)
+			AND NOT EXISTS (
+			  SELECT 1 FROM rules r4
+			  JOIN users u4 ON u4.id = r4.owner_id
+			  JOIN user_landing_exits ule ON ule.user_id = r4.owner_id
+			    AND ule.host = r4.exit_host AND ule.port = r4.exit_port
+			  WHERE r4.id = rh.rule_id
+			    AND ule.present = 1
+			    AND ule.quota_bytes > 0
+			    AND CAST(ROUND(ule.used_bytes * CASE WHEN u4.billing_rate > 0 THEN u4.billing_rate ELSE 1.0 END) AS INTEGER) >= ule.quota_bytes
+			)
 		AND NOT EXISTS (
 		  -- Landing-exit expiry: drop rules whose exit clock has passed.
 		  -- Independent of present so even a missed enforcer tick (or a
