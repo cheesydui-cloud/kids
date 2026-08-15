@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Layout, useToast, useUser } from '../components/Layout'
 
@@ -44,6 +45,11 @@ export default function ChangePassword() {
           </div>
 
           <div className="pt-[26px]">
+            {user?.role !== 'admin' && (
+              <div className="mb-5">
+                <Link to="/my" className="text-[13px] text-ink-soft hover:text-ink">← 返回订阅</Link>
+              </div>
+            )}
             <h4 className="text-[14px] font-semibold text-ink-soft mb-[18px]">修改密码</h4>
             {error && <div className="mb-4 px-3 py-2 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm">{error}</div>}
             <form onSubmit={submitPassword}>

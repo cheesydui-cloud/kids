@@ -25,6 +25,9 @@ type subItem struct {
 	Landing   string `json:"landing_name,omitempty"`
 	ExpiresAt int64  `json:"expires_at,omitempty"`
 	Family    string `json:"family,omitempty"` // v4 | v6
+	// Status is the entry-node liveness shown on the user node list:
+	// online / offline / unknown for relay, direct for ROLE_DIRECT exits.
+	Status string `json:"status,omitempty"`
 }
 
 type subSkipped struct {
@@ -46,6 +49,7 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 	idx := s.landingIndexFromDB(u.ID)
 	roles := s.nodeRoleBits()
 	used := map[string]int{}
+	online := map[int64]int{}
 
 	rules, _ := db.ListRulesByUser(s.DB, u.ID)
 	for _, rl := range rules {
@@ -69,6 +73,7 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 		}
 		base := buildSubDisplayName(u.Username, rl.Name, item.LandingExpiresAt, "relay")
 		name := uniquifyName(base, used)
+		st := s.ruleEntryStatus(rl.ID, online)
 		p.Items = append(p.Items, subItem{
 			Kind:      "relay",
 			Name:      name,
@@ -80,6 +85,7 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 			Landing:   item.LandingName,
 			ExpiresAt: item.LandingExpiresAt,
 			Family:    "v4",
+			Status:    st,
 		})
 		if item.RelayURIV6 != "" {
 			n6 := uniquifyName(name+"-v6", used)
@@ -94,6 +100,7 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 				Landing:   item.LandingName,
 				ExpiresAt: item.LandingExpiresAt,
 				Family:    "v6",
+				Status:    st,
 			})
 		}
 	}
@@ -125,9 +132,39 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 			ClashOK:   clashOK(uri),
 			Landing:   display,
 			ExpiresAt: e.ExpiresAt,
+			Status:    "direct",
 		})
 	}
 	return p
+}
+
+func (s *Server) ruleEntryStatus(ruleID int64, cache map[int64]int) string {
+	hops, err := db.ListRuleHops(s.DB, ruleID)
+	if err != nil || len(hops) == 0 {
+		return "unknown"
+	}
+	nid := hops[0].NodeID
+	if st, ok := cache[nid]; ok {
+		if st == 1 {
+			return "online"
+		}
+		if st < 0 {
+			return "unknown"
+		}
+		return "offline"
+	}
+	n, err := db.GetNode(s.DB, nid)
+	if err != nil || n == nil {
+		cache[nid] = -1
+		return "unknown"
+	}
+	s.reconcileNodeOnline([]*db.Node{n})
+	if n.Disabled || n.Online != 1 {
+		cache[nid] = 0
+		return "offline"
+	}
+	cache[nid] = 1
+	return "online"
 }
 
 func (s *Server) nodeRoleBits() map[string]int {

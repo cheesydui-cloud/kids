@@ -85,12 +85,13 @@ func TestSubscribeCollectsRelayAndDirect(t *testing.T) {
 		Token    string `json:"token"`
 		URIURL   string `json:"uri_url"`
 		ClashURL string `json:"clash_url"`
-		Items    []struct {
-			Kind     string `json:"kind"`
-			Name     string `json:"name"`
-			URI      string `json:"uri"`
-			RuleName string `json:"rule_name"`
-		} `json:"items"`
+			Items    []struct {
+				Kind     string `json:"kind"`
+				Name     string `json:"name"`
+				URI      string `json:"uri"`
+				RuleName string `json:"rule_name"`
+				Status   string `json:"status"`
+			} `json:"items"`
 		Skipped []struct {
 			Reason string `json:"reason"`
 			Detail string `json:"detail"`
@@ -105,22 +106,28 @@ func TestSubscribeCollectsRelayAndDirect(t *testing.T) {
 	var relay, direct int
 	for _, it := range body.Items {
 		switch it.Kind {
-		case "relay":
-			relay++
-			if !strings.Contains(it.URI, "relay.example:") {
-				t.Errorf("relay uri should use entry host, got %s", it.URI)
-			}
-			if strings.Contains(it.URI, "1.2.3.4") {
-				t.Errorf("relay uri still points at landing: %s", it.URI)
-			}
-		case "direct":
-			direct++
-			if !strings.Contains(it.URI, "5.6.7.8:8443") {
-				t.Errorf("direct uri should keep landing endpoint, got %s", it.URI)
-			}
-			if !strings.Contains(it.Name, "直连") {
-				t.Errorf("direct name = %q", it.Name)
-			}
+			case "relay":
+				relay++
+				if !strings.Contains(it.URI, "relay.example:") {
+					t.Errorf("relay uri should use entry host, got %s", it.URI)
+				}
+				if strings.Contains(it.URI, "1.2.3.4") {
+					t.Errorf("relay uri still points at landing: %s", it.URI)
+				}
+				if it.Status == "" {
+					t.Errorf("relay missing status")
+				}
+			case "direct":
+				direct++
+				if !strings.Contains(it.URI, "5.6.7.8:8443") {
+					t.Errorf("direct uri should keep landing endpoint, got %s", it.URI)
+				}
+				if !strings.Contains(it.Name, "直连") {
+					t.Errorf("direct name = %q", it.Name)
+				}
+				if it.Status != "direct" {
+					t.Errorf("direct status = %q", it.Status)
+				}
 		}
 	}
 	if relay != 1 || direct != 1 {
