@@ -368,3 +368,22 @@ func (h *Hub) SendUpgrade(nodeID int64, u wsproto.Upgrade) error {
 		return nil
 	}
 }
+
+// DispatchUpgrade queues the upgrade frame and returns as soon as it is on
+// the write buffer. Bulk upgrade uses this so N nodes are not serialized
+// behind each agent's HTTP download (up to upgradeAckTimeout each).
+func (h *Hub) DispatchUpgrade(nodeID int64, u wsproto.Upgrade) error {
+	if h == nil {
+		return fmt.Errorf("节点未连接")
+	}
+	h.mu.RLock()
+	ac, ok := h.conns[nodeID]
+	h.mu.RUnlock()
+	if !ok || ac == nil {
+		return fmt.Errorf("节点未连接")
+	}
+	id := ac.nextID()
+	payload, _ := json.Marshal(u)
+	ac.enqueueWrite(wsproto.Envelope{Type: wsproto.TypeUpgrade, ID: id, Payload: payload})
+	return nil
+}

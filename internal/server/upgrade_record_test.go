@@ -131,3 +131,69 @@ func TestApiUpgradeNodeRecordsError(t *testing.T) {
 		t.Fatalf("apiGetNode upgrade.status=%q want error", resp.Upgrade.Status)
 	}
 }
+
+func TestApiUpgradeAllSkipsCurrentAndDoesNotWait(t *testing.T) {
+	d := openDB(t)
+	current, err := db.CreateNode(d, "current", "https://p", "tok-c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := db.CreateNode(d, "stale", "https://p", "tok-s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec(`UPDATE nodes SET agent_sha=?, agent_version=? WHERE id=?`, "deadbeef", serverVersion(), current.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec(`UPDATE nodes SET agent_sha=?, agent_version=? WHERE id=?`, "oldsha", "v0.0.1", stale.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+
+	agentArtMu.Lock()
+	agentArtCache = &agentArtifact{Version: serverVersion(), SHA: "deadbeef", Data: []byte("agent-binary")}
+	agentArtByArch["amd64"] = agentArtCache
+	agentArtMu.Unlock()
+	defer func() {
+		agentArtMu.Lock()
+		agentArtCache = nil
+		agentArtByArch = map[string]*agentArtifact{}
+		agentArtMu.Unlock()
+	}()
+
+	start := time.Now()
+	req := newTestRequest("POST", "/api/nodes/upgrade-all", bytes.NewReader([]byte("{}")))
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upgrade-all http=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("upgrade-all blocked for %s; must not wait for agent ACK", time.Since(start))
+	}
+	var resp struct {
+		Pushed  int `json:"pushed"`
+		Skipped int `json:"skipped"`
+		Failed  int `json:"failed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Skipped < 1 {
+		t.Fatalf("current node should be skipped, got %+v body=%s", resp, rec.Body.String())
+	}
+	if resp.Failed < 1 {
+		t.Fatalf("offline stale node should fail immediately, got %+v", resp)
+	}
+	got, _ := db.GetNode(d, stale.ID)
+	if got.LastUpgradeStatus != "error" {
+		t.Fatalf("offline stale status=%q want error", got.LastUpgradeStatus)
+	}
+	gotCur, _ := db.GetNode(d, current.ID)
+	if gotCur.LastUpgradeStatus != "" && gotCur.LastUpgradeAt.Valid {
+		t.Fatalf("current node should not record a new upgrade, status=%q", gotCur.LastUpgradeStatus)
+	}
+}

@@ -76,6 +76,7 @@ func TestAdminOnlyDashboardSubFetchNodeRoles(t *testing.T) {
 	}
 	assert("GET", "/api/dashboard", http.StatusForbidden, http.StatusOK)
 	assert("GET", "/api/node-roles", http.StatusForbidden, http.StatusOK)
+	assert("GET", "/api/settings/update?status=1", http.StatusForbidden, http.StatusOK)
 
 	req := newTestRequest("POST", "/api/sub-fetch", bytes.NewReader([]byte(`{"url":"https://example.com/sub"}`)))
 	req.Header.Set("Content-Type", "application/json")

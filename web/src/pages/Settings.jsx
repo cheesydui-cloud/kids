@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import { Layout, useToast, useUser } from '../components/Layout'
-import { Loading } from '../components/ui'
+import { Loading, useConfirm } from '../components/ui'
 import { PageHeader } from '../components/page'
 import { BrandBadge } from '../components/BrandMark'
 
 const TABS = [
   { id: 'panel', label: '面板' },
+  { id: 'update', label: '更新' },
   { id: 'forward', label: '转发' },
   { id: 'cloudflare', label: 'Cloudflare' },
 ]
@@ -32,7 +33,12 @@ export default function Settings() {
   const [error, setError] = useState('')
   const fileRef = useRef(null)
   const toast = useToast()
-  const { applySession, setLogoUrl } = useUser()
+  const confirm = useConfirm()
+  const { applySession, setLogoUrl, version } = useUser()
+  const [upd, setUpd] = useState(null)
+  const [updBusy, setUpdBusy] = useState(false)
+  const [updErr, setUpdErr] = useState('')
+  const pollRef = useRef(null)
 
   useEffect(() => {
     api.get('/settings').then(data => {
@@ -135,6 +141,79 @@ export default function Settings() {
     }
   }
 
+  const loadUpdate = (opts = {}) => {
+    const q = []
+    if (opts.refresh) q.push('refresh=1')
+    if (opts.status) q.push('status=1')
+    const qs = q.length ? `?${q.join('&')}` : ''
+    return api.get(`/settings/update${qs}`).then(d => {
+      setUpd(d)
+      setUpdErr(d.check_error || '')
+      return d
+    }).catch(e => {
+      setUpdErr(e.message)
+      throw e
+    })
+  }
+
+  useEffect(() => {
+    loadUpdate().catch(() => {})
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
+
+  useEffect(() => {
+    const running = upd?.update?.state === 'running'
+    if (!running) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      return
+    }
+    if (pollRef.current) return
+    pollRef.current = setInterval(() => {
+      loadUpdate({ status: true }).then(d => {
+        const st = d?.update?.state
+        if (st === 'success') {
+          toast(`已升级到 ${d.update.target || d.current}`)
+          applySession({ version: d.current })
+        } else if (st === 'error') {
+          toast(d.update.error || '升级失败', 'error')
+        }
+      }).catch(() => { /* 重启瞬间会断一下，继续轮询 */ })
+    }, 2500)
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [upd?.update?.state])
+
+  const checkUpdate = async () => {
+    setUpdBusy(true)
+    setUpdErr('')
+    try {
+      const d = await loadUpdate({ refresh: true })
+      if (d.check_error) toast(d.check_error, 'error')
+      else if (d.up_to_date) toast('已是最新版本')
+      else if (d.latest) toast(`发现 ${d.latest}`)
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally { setUpdBusy(false) }
+  }
+
+  const startUpgrade = async () => {
+    const target = upd?.latest || '最新版'
+    if (!(await confirm({
+      title: '升级面板',
+      message: `将面板升级到 ${target}。过程中网页会短暂中断（约 10–30 秒），数据库和节点不会动。请不要关闭这个页面。`,
+      confirmText: '立即升级',
+    }))) return
+    setUpdBusy(true)
+    setUpdErr('')
+    try {
+      await api.post('/settings/update')
+      toast('已开始升级，面板即将重启…', 'info')
+      await loadUpdate({ status: true })
+    } catch (err) {
+      setUpdErr(err.message)
+      toast(err.message, 'error')
+    } finally { setUpdBusy(false) }
+  }
+
   const clearLogo = async () => {
     setLogoBusy(true)
     setError('')
@@ -164,7 +243,17 @@ export default function Settings() {
         </div>
         <div className="px-6 py-[26px]">
           {error && <div className="mb-4 px-3 py-2 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm">{error}</div>}
-          <form onSubmit={submit}>
+          {tab === 'update' && (
+            <PanelUpdate
+              upd={upd}
+              version={version}
+              busy={updBusy}
+              err={updErr}
+              onCheck={checkUpdate}
+              onUpgrade={startUpgrade}
+            />
+          )}
+          <form onSubmit={submit} className={tab === 'update' ? 'hidden' : ''}>
             {tab === 'panel' && (
               <>
                 <div className="flex items-start gap-6 mb-[22px]">
@@ -271,5 +360,72 @@ export default function Settings() {
         </div>
       </div>
     </Layout>
+  )
+}
+
+function PanelUpdate({ upd, version, busy, err, onCheck, onUpgrade }) {
+  const current = upd?.current || version || '—'
+  const latest = upd?.latest || ''
+  const st = upd?.update || {}
+  const running = st.state === 'running'
+  const success = st.state === 'success'
+  const failed = st.state === 'error'
+  const upToDate = !!upd?.up_to_date
+  return (
+    <div>
+      {err && <div className="mb-4 px-3 py-2 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm">{err}</div>}
+      <div className="flex items-start gap-6 mb-[22px]">
+        <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-1">当前版本</label>
+        <div className="flex-1 min-w-0">
+          <div className="text-[15px] font-semibold text-ink font-mono">{current}</div>
+          <p className="text-[12px] text-ink-mut mt-1.5 m-0">面板本机版本。升级只换本机二进制，不动数据库和节点。</p>
+        </div>
+      </div>
+      <div className="flex items-start gap-6 mb-[22px]">
+        <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-1">最新版本</label>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[15px] font-semibold text-ink font-mono">{latest || (upd ? '未能获取' : '检查中…')}</span>
+            {upToDate && <span className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">已是最新</span>}
+            {!upToDate && latest && !running && <span className="text-[12px] font-semibold text-[color:var(--brand-from)]">可升级</span>}
+            {running && <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">升级中…</span>}
+            {success && st.target && <span className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">已升到 {st.target}</span>}
+            {failed && <span className="text-[12px] font-semibold text-rose-700 dark:text-rose-300">上次失败</span>}
+          </div>
+          {upd?.published_at && (
+            <p className="text-[12px] text-ink-mut mt-1.5 m-0">发布于 {String(upd.published_at).replace('T', ' ').replace('Z', ' UTC')}</p>
+          )}
+          {upd?.html_url && (
+            <a href={upd.html_url} target="_blank" rel="noreferrer" className="text-[12px] font-semibold link-accent hover:underline mt-1 inline-block">查看发布说明</a>
+          )}
+        </div>
+      </div>
+      {upd?.notes && (
+        <div className="flex items-start gap-6 mb-[22px]">
+          <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-1">更新说明</label>
+          <pre className="flex-1 max-w-[560px] m-0 p-3 rounded-xl bg-raised border border-line-soft text-[12px] text-ink-soft whitespace-pre-wrap break-words max-h-48 overflow-auto">{upd.notes}</pre>
+        </div>
+      )}
+      {(running || st.log || st.error) && (
+        <div className="flex items-start gap-6 mb-[22px]">
+          <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-1">升级日志</label>
+          <div className="flex-1 max-w-[560px]">
+            {st.error && <p className="text-[13px] text-rose-700 dark:text-rose-300 m-0 mb-2">{st.error}</p>}
+            {st.log && (
+              <pre className="m-0 p-3 rounded-xl bg-raised border border-line-soft text-[12px] text-ink-soft whitespace-pre-wrap break-words max-h-56 overflow-auto">{st.log}</pre>
+            )}
+            {running && !st.log && <p className="text-[13px] text-ink-mut m-0">正在下载并替换二进制，面板即将重启…</p>}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-3 mt-[8px] flex-wrap">
+        <button type="button" className="btn-secondary px-4" disabled={busy || running} onClick={onCheck}>
+          {busy && !running ? '检查中…' : '检查更新'}
+        </button>
+        <button type="button" className="btn-primary px-4" disabled={busy || running || !latest || upToDate} onClick={onUpgrade}>
+          {running ? '升级中…' : latest && !upToDate ? `升级到 ${latest}` : '已是最新'}
+        </button>
+      </div>
+    </div>
   )
 }

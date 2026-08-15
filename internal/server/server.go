@@ -644,6 +644,8 @@ func (s *Server) Router() http.Handler {
 			r.Post("/settings", s.apiSaveSettings)
 			r.Post("/settings/logo", s.apiUploadPanelLogo)
 			r.Delete("/settings/logo", s.apiClearPanelLogo)
+			r.Get("/settings/update", s.apiGetPanelUpdate)
+			r.Post("/settings/update", s.apiStartPanelUpdate)
 			r.Post("/node-roles", s.apiSetNodeRoles)
 
 			r.Get("/rules", s.apiListRules)

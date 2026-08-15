@@ -1765,7 +1765,7 @@ func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var ok, fail int
+	var pushed, skipped, fail int
 	for _, n := range nodes {
 		if n.NodeType == "composite" || n.NodeType == "self" || n.Disabled {
 			continue
@@ -1777,18 +1777,25 @@ func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 			fail++
 			continue
 		}
-		err = s.Hub.SendUpgrade(n.ID, upgradeFor(n, art, panelURL, arch))
+		// Already on the target binary — do not re-push or wait.
+		if n.AgentSHA != "" && n.AgentSHA == art.SHA {
+			skipped++
+			continue
+		}
+		// Fire-and-forget: the agent downloads over HTTP. Waiting for each
+		// ACK here used to serialize N × 4 minutes and freeze the button.
+		err = s.Hub.DispatchUpgrade(n.ID, upgradeFor(n, art, panelURL, arch))
 		status, errText := "acked", ""
 		if err != nil {
 			status, errText = "error", err.Error()
 			fail++
 		} else {
-			ok++
+			pushed++
 		}
 		db.RecordUpgradeResult(s.DB, n.ID, art.Version, status, errText)
 	}
-	db.WriteAudit(s.DB, u.ID, "node.upgrade_all", "", fmt.Sprintf("ok=%d fail=%d", ok, fail))
-	jsonOK(w, map[string]any{"ok": true, "upgraded": ok, "failed": fail})
+	db.WriteAudit(s.DB, u.ID, "node.upgrade_all", "", fmt.Sprintf("pushed=%d skipped=%d fail=%d", pushed, skipped, fail))
+	jsonOK(w, map[string]any{"ok": true, "upgraded": pushed, "pushed": pushed, "skipped": skipped, "failed": fail})
 }
 
 // --- Settings ---

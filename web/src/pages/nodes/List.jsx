@@ -46,8 +46,18 @@ export default function NodeList() {
   }
 
   const upgradeAll = async () => {
-    if (!(await confirm({ title: '升级所有节点', message: '向所有版本不一致的节点推送升级？', confirmText: '升级' }))) return
-    try { await api.post('/nodes/upgrade-all'); toast('已发起升级'); load() } catch (err) { toast(err.message, 'error') }
+    if (!(await confirm({ title: '升级所有节点', message: '向所有版本不一致且在线的节点推送升级。已是最新的会跳过，各节点自己下载，不用等全部完成。', confirmText: '升级' }))) return
+    try {
+      const d = await api.post('/nodes/upgrade-all')
+      const pushed = d.pushed ?? d.upgraded ?? 0
+      const skipped = d.skipped ?? 0
+      const failed = d.failed ?? 0
+      const parts = [`已推送 ${pushed}`]
+      if (skipped) parts.push(`跳过 ${skipped}`)
+      if (failed) parts.push(`失败 ${failed}`)
+      toast(parts.join(' · '), failed && !pushed ? 'error' : undefined)
+      load()
+    } catch (err) { toast(err.message, 'error') }
   }
 
   const deleteNode = async (node) => {
