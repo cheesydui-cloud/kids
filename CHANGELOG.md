@@ -9,6 +9,27 @@
 
 ---
 
+## v0.2.16 — 2026-08-15
+
+客户端订阅信息里的已用流量按计费倍率显示。
+
+### 修复
+
+- Clash / Mihomo / URI 订阅头 `Subscription-Userinfo` 的 `download` 改为「已用 × 计费倍率」，和面板配额、用户详情同一套数字
+- 倍率未设或 ≤ 0 时仍按 1 倍计算，不会把用量写成 0
+
+### 升级注意
+
+- 只改面板，节点 agent 不用动
+- 客户端刷新订阅后，用量会按倍率放大；流量上限 `total` 仍是账号配额本身
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.15 — 2026-08-15
 
 订阅页手机适配，节点卡只留状态和延迟，导入受到期/流量限制。

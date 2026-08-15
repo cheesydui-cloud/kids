@@ -316,7 +316,7 @@ func (s *Server) writeSubscriptionUserinfo(w http.ResponseWriter, u *db.User) {
 	}
 	w.Header().Set("Subscription-Userinfo",
 		fmt.Sprintf("upload=0; download=%d; total=%d; expire=%d",
-			u.TrafficUsedBytes, u.TrafficQuotaBytes, expire))
+			userBillableTraffic(u), u.TrafficQuotaBytes, expire))
 	w.Header().Set("Profile-Update-Interval", "24")
 }
 

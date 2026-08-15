@@ -176,6 +176,49 @@ func TestSubscribeCollectsRelayAndDirect(t *testing.T) {
 	_ = uid
 }
 
+func TestSubscribeUserinfoUsesBillingRate(t *testing.T) {
+	d := openDB(t)
+	uid, cookie, _ := seedSubUser(t, d)
+	if _, err := d.Exec(`UPDATE users SET traffic_used_bytes=?, traffic_quota_bytes=?, billing_rate=?, expires_at=? WHERE id=?`,
+		1000, 10_000, 2.0, int64(1_800_000_000), uid); err != nil {
+		t.Fatal(err)
+	}
+	s := newServer(t, d)
+
+	req := newTestRequest("GET", "/api/my/subscribe", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subscribe: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+
+	pub := newTestRequest("GET", "/api/v1/sub?token="+body.Token, nil)
+	prec := httptest.NewRecorder()
+	s.Router().ServeHTTP(prec, pub)
+	if prec.Code != http.StatusOK {
+		t.Fatalf("public sub: %d %s", prec.Code, prec.Body.String())
+	}
+	info := prec.Header().Get("Subscription-Userinfo")
+	want := "upload=0; download=2000; total=10000; expire=1800000000"
+	if info != want {
+		t.Fatalf("userinfo = %q, want %q", info, want)
+	}
+
+	cyaml := newTestRequest("GET", "/api/v1/clash.yaml?token="+body.Token, nil)
+	crec := httptest.NewRecorder()
+	s.Router().ServeHTTP(crec, cyaml)
+	if crec.Header().Get("Subscription-Userinfo") != want {
+		t.Fatalf("clash userinfo = %q, want %q", crec.Header().Get("Subscription-Userinfo"), want)
+	}
+}
+
 func TestSubscribeRotateInvalidatesOldURL(t *testing.T) {
 	d := openDB(t)
 	_, cookie, _ := seedSubUser(t, d)
