@@ -236,6 +236,16 @@ func TodayUserTrafficBytes(d *sql.DB, userID int64) (int64, error) {
 	return UserTrafficBytesOnDay(d, userID, dayKey(time.Now()))
 }
 
+// monthKey returns the Asia/Shanghai calendar month as YYYY-MM.
+func monthKey(t time.Time) string {
+	return t.In(panelBusinessLocation).Format("2006-01")
+}
+
+// MonthKeyNow is the Asia/Shanghai YYYY-MM for the current month.
+func MonthKeyNow() string {
+	return monthKey(time.Now())
+}
+
 // TodayUserRawTrafficBytes sums today's last-hop raw traffic across users.
 // This is actual usage (no billing_rate) and does not stack entry+exit hops
 // the way daily_node_raw_traffic does. Built-in admin is excluded.
@@ -245,7 +255,20 @@ func TodayUserRawTrafficBytes(d *sql.DB) (int64, error) {
 		SELECT COALESCE(SUM(d.raw_bytes), 0)
 		FROM daily_user_traffic d
 		JOIN users u ON u.id = d.user_id
-		WHERE d.day = ? AND u.username <> 'admin'`, dayKey(time.Now())).Scan(&total)
+			WHERE d.day = ? AND u.username <> 'admin'`, dayKey(time.Now())).Scan(&total)
+	return total, err
+}
+
+// MonthUserRawTrafficBytes sums this Asia/Shanghai calendar month's last-hop
+// raw traffic across users. No billing_rate. The 1st at 00:00 北京时间 starts
+// a new month prefix, so the previous month drops out without a wipe.
+func MonthUserRawTrafficBytes(d *sql.DB) (int64, error) {
+	var total int64
+	err := d.QueryRow(`
+			SELECT COALESCE(SUM(d.raw_bytes), 0)
+			FROM daily_user_traffic d
+			JOIN users u ON u.id = d.user_id
+			WHERE d.day LIKE ? AND u.username <> 'admin'`, MonthKeyNow()+"%").Scan(&total)
 	return total, err
 }
 

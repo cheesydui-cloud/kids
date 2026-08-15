@@ -483,42 +483,79 @@ func TestYesterdayUserTrafficBytesShanghaiDay(t *testing.T) {
 	}
 }
 
-	func TestTodayUserRawTrafficBytesNoRate(t *testing.T) {
-		d := openTestDB(t)
-		a := createTestUser(t, d)
-		b := createTestUser(t, d)
-		if _, err := d.Exec(`UPDATE users SET billing_rate=2, traffic_used_bytes=100 WHERE id=?`, a); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := d.Exec(`UPDATE users SET billing_rate=3, traffic_used_bytes=40 WHERE id=?`, b); err != nil {
-			t.Fatal(err)
-		}
-		if err := AddUserDailyTraffic(d, a, 100); err != nil {
-			t.Fatal(err)
-		}
-		if err := AddUserDailyTraffic(d, b, 40); err != nil {
-			t.Fatal(err)
-		}
-		yesterday := dayKey(time.Now().Add(-24 * time.Hour))
-		if _, err := d.Exec(`INSERT INTO daily_user_traffic(day, user_id, raw_bytes) VALUES(?,?,?)`,
-			yesterday, a, 9_000_000_000); err != nil {
-			t.Fatal(err)
-		}
-		got, err := TodayUserRawTrafficBytes(d)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != 140 {
-			t.Fatalf("TodayUserRawTrafficBytes = %d, want 140 (raw, no rate)", got)
-		}
-		billed, err := TotalBillableUserTrafficBytes(d)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if billed != 320 {
-			t.Fatalf("TotalBillableUserTrafficBytes = %d, want 200+120", billed)
-		}
+func TestTodayUserRawTrafficBytesNoRate(t *testing.T) {
+	d := openTestDB(t)
+	a := createTestUser(t, d)
+	b := createTestUser(t, d)
+	if _, err := d.Exec(`UPDATE users SET billing_rate=2, traffic_used_bytes=100 WHERE id=?`, a); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := d.Exec(`UPDATE users SET billing_rate=3, traffic_used_bytes=40 WHERE id=?`, b); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddUserDailyTraffic(d, a, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddUserDailyTraffic(d, b, 40); err != nil {
+		t.Fatal(err)
+	}
+	yesterday := dayKey(time.Now().Add(-24 * time.Hour))
+	if _, err := d.Exec(`INSERT INTO daily_user_traffic(day, user_id, raw_bytes) VALUES(?,?,?)`,
+		yesterday, a, 9_000_000_000); err != nil {
+		t.Fatal(err)
+	}
+	got, err := TodayUserRawTrafficBytes(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 140 {
+		t.Fatalf("TodayUserRawTrafficBytes = %d, want 140 (raw, no rate)", got)
+	}
+	billed, err := TotalBillableUserTrafficBytes(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if billed != 320 {
+		t.Fatalf("TotalBillableUserTrafficBytes = %d, want 200+120", billed)
+	}
+}
+
+func TestMonthUserRawTrafficBytesIgnoresRateAndLastMonth(t *testing.T) {
+	d := openTestDB(t)
+	a := createTestUser(t, d)
+	b := createTestUser(t, d)
+	if _, err := d.Exec(`UPDATE users SET billing_rate=2 WHERE id=?`, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddUserDailyTraffic(d, a, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddUserDailyTraffic(d, b, 40); err != nil {
+		t.Fatal(err)
+	}
+	today := dayKey(time.Now())
+	thisMonth := monthKey(time.Now())
+	extra := thisMonth + "-01"
+	if extra == today {
+		extra = thisMonth + "-15"
+	}
+	if _, err := d.Exec(`INSERT INTO daily_user_traffic(day, user_id, raw_bytes) VALUES(?,?,?)`,
+		extra, a, 25); err != nil {
+		t.Fatal(err)
+	}
+	lastMonth := monthKey(time.Now().AddDate(0, -1, 0)) + "-15"
+	if _, err := d.Exec(`INSERT INTO daily_user_traffic(day, user_id, raw_bytes) VALUES(?,?,?)`,
+		lastMonth, a, 9_000_000_000); err != nil {
+		t.Fatal(err)
+	}
+	got, err := MonthUserRawTrafficBytes(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 165 {
+		t.Fatalf("MonthUserRawTrafficBytes = %d, want 165 (raw this month, no rate)", got)
+	}
+}
 
 func TestLast24hRawTrafficFillsMissingHours(t *testing.T) {
 	d := openTestDB(t)

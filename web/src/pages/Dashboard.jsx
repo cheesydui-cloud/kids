@@ -55,13 +55,14 @@ export default function Dashboard() {
     )
   }
 
-  const { total_bytes = 0, user_count = 0, today_raw_bytes = 0 } = data
+  const { total_bytes = 0, user_count = 0, today_raw_bytes = 0, month_raw_bytes = 0 } = data
   const visibleUsers = Array.isArray(users) ? users.filter(u => u.username !== 'admin') : null
   const visibleUserCount = visibleUsers ? visibleUsers.length : user_count
 
   const metrics = [
     { key: 'billed', label: '计费', value: fmtBytes(total_bytes), hint: '累计 × 倍率' },
     { key: 'today', label: '今日', value: fmtBytes(today_raw_bytes || 0), hint: '实际最后一跳' },
+    { key: 'month', label: '本月', value: fmtBytes(month_raw_bytes || 0), hint: '实际 · 每月 1 号清零' },
     { key: 'users', label: '用户', value: visibleUserCount, hint: '系统用户' },
   ]
 
@@ -70,11 +71,11 @@ export default function Dashboard() {
       <PageHeader title="运营概览" />
 
       <div className="card mb-5">
-        <div className="grid grid-cols-1 sm:grid-cols-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4">
           {metrics.map((m, i) => (
             <div
               key={m.key}
-              className={`px-5 py-4 ${i < metrics.length - 1 ? 'sm:border-r border-line-soft' : ''} ${i < metrics.length - 1 ? 'border-b sm:border-b-0 border-line-soft' : ''}`}
+              className={`px-5 py-4 border-line-soft ${i % 2 === 0 ? 'border-r' : ''} ${i < 2 ? 'border-b lg:border-b-0' : ''} ${i < 3 ? 'lg:border-r' : ''}`}
             >
               <div className="text-[12px] font-medium text-ink-mut">{m.label}</div>
               <div className={`mt-1.5 text-[22px] font-bold leading-none tracking-tight tabular-nums ${m.accent ? 'text-green-600 dark:text-green-400' : 'text-ink'}`}>
