@@ -330,10 +330,10 @@ input[type="radio"] {
   position: sticky;
   top: 0;
   z-index: 20;
-  /* Pull into the page's py-7 so the bar sits flush under the topbar, and
+  /* Pull into the page's pt-4 so the bar sits flush under the topbar, and
      paint an opaque cap so scrolling tiles cannot show through above it. */
-  margin: -1.75rem -2px 1rem;
-  padding: 1.75rem 2px 12px;
+  margin: -1rem -2px 1rem;
+  padding: 1rem 2px 12px;
   background: var(--color-app);
 }
 .identity-bar-inner {

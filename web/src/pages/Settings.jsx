@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import { Layout, useToast, useUser } from '../components/Layout'
 import { Loading } from '../components/ui'
+import { PageHeader } from '../components/page'
 import { BrandBadge } from '../components/BrandMark'
 
 const TABS = [
@@ -151,7 +152,7 @@ export default function Settings() {
 
   return (
     <Layout>
-      <h1 className="m-0 text-2xl font-bold text-ink mb-[18px]">系统设置</h1>
+      <PageHeader title="系统设置" />
       <div className="card" style={{ maxWidth: 980 }}>
         <div className="flex items-center gap-1 px-4 pt-3 border-b border-line-soft">
           {TABS.map(t => (

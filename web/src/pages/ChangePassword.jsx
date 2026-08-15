@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Layout, useToast, useUser } from '../components/Layout'
 import { UserPortalHead } from '../components/UserPortalHead'
+import { PageHeader } from '../components/page'
 
 export default function ChangePassword() {
   const [form, setForm] = useState({ old_password: '', new_password: '', confirm: '' })
@@ -80,6 +81,7 @@ export default function ChangePassword() {
 
   return (
     <Layout>
+      <PageHeader title="账户设置" />
       <div className="card" style={{ maxWidth: 980 }}>
         <div className="card-header"><h3 className="text-[16px] font-bold">账户设置</h3></div>
         <div className="px-6 py-[26px]">

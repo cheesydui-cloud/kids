@@ -132,6 +132,7 @@ export function Layout({ children }) {
   const { blurred, toggleBlur } = useContext(BlurCtx)
   const { copyFmt, toggleCopyFmt } = useContext(CopyFmtCtx)
   const [theme, setThemeState] = useState(getStoredTheme())
+  const [pageTitle, setPageTitle] = useState('')
   const isDark = resolvedDark(theme)
 
   // The landing-nodes entry shows when the user has an admin-assigned source or
@@ -267,13 +268,16 @@ export function Layout({ children }) {
         </aside>
 
         {/* Content */}
+        <TopbarTitleCtx.Provider value={{ setTitle: setPageTitle, inTopbar: true }}>
         <main className="flex-1 min-w-0 flex flex-col">
-          {/* Topbar */}
-          <div className="app-topbar sticky top-0 z-20 h-[56px] flex-shrink-0 px-4 sm:px-7 flex items-center gap-2">
+          {/* Topbar: page title on the left, display toggles on the right. */}
+          <div className="app-topbar sticky top-0 z-20 h-[56px] flex-shrink-0 px-4 sm:px-7 flex items-center gap-3">
             <button onClick={() => setSideOpen(true)} className="lg:hidden p-1.5 rounded-lg text-ink-soft hover:text-ink hover:bg-raised transition-colors">
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
             </button>
-            <div className="flex-1" />
+            <h1 className="m-0 min-w-0 flex-1 text-[17px] font-bold tracking-tight text-ink truncate">
+              {pageTitle || '\u00a0'}
+            </h1>
             <div className="topbar-toggles" role="group" aria-label="显示选项">
               <button type="button" onClick={toggleTheme} title={isDark ? '切换到浅色' : '切换到深色'}
                 className="topbar-toggle">
@@ -297,13 +301,14 @@ export function Layout({ children }) {
             </div>
           </div>
 
-          {/* Page content */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-7 py-7 pb-12">
+          {/* Page content sits flush under the topbar. */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-7 pt-4 pb-12">
             <div className="max-w-[1680px] mx-auto h-full">
               {children}
             </div>
           </div>
         </main>
+        </TopbarTitleCtx.Provider>
 
         {/* User-end login announcement (admin-designated). Manual close or 30s. */}
         {!isAdmin && <LoginAnnouncementModal />}
@@ -330,6 +335,10 @@ export function BlurProvider({ children }) {
   }, [])
   return <BlurCtx.Provider value={{ blurred, toggleBlur }}>{children}</BlurCtx.Provider>
 }
+
+/* ---------- Page title in the admin topbar ---------- */
+const TopbarTitleCtx = createContext({ setTitle: () => {}, inTopbar: false })
+export function useTopbarTitle() { return useContext(TopbarTitleCtx) }
 
 /* ---------- Copy-format context ---------- */
 const CopyFmtCtx = createContext({ copyFmt: 'uri', toggleCopyFmt: () => {} })

@@ -4,7 +4,7 @@ import { api } from '../../lib/api'
 import { fmtBytes } from '../../lib/fmt'
 import { Layout, useToast, useBlur } from '../../components/Layout'
 import { Loading, Empty, ProtoBadge, ModeBadge, SensText, useConfirm, ExitKindBadge } from '../../components/ui'
-import { TableBox } from '../../components/page'
+import { TableBox, TopbarTitle } from '../../components/page'
 import { copyToClipboard } from '../../lib/clipboard'
 import { formatRelayCopyText } from '../../lib/relayCopy'
 import { RuleFormModal, ruleToForm, ruleFormToPayload } from '../../components/RuleFormModal'
@@ -49,6 +49,7 @@ export default function RulesDetail() {
 
   return (
     <Layout>
+      <TopbarTitle title={rule.name || '规则详情'} />
       {/* Entry info */}
       <div className="card mb-5">
         <div className="card-header"><h3 className="text-sm font-bold">入口</h3><span className="text-xs text-ink-mut">复制给客户端</span></div>

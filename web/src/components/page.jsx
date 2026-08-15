@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useTopbarTitle } from './Layout'
 
 /* Shared list-page shell: rounded panel, page header, toolbar with search.
    One look across admin and user pages so the two never drift apart again.
@@ -7,6 +8,29 @@ import { useState } from 'react'
 /* Page title + item count, sits above the panel.
    Optional `actions` / `badge` render on the right for status pills or CTAs. */
 export function PageHeader({ title, count, unit = '条', badge, actions }) {
+  const { setTitle, inTopbar } = useTopbarTitle()
+  useEffect(() => {
+    if (!inTopbar) return undefined
+    setTitle(title || '')
+    return () => setTitle('')
+  }, [title, setTitle, inTopbar])
+
+  // Admin: title lives in the topbar. Keep this row only for count / badge / actions.
+  if (inTopbar) {
+    if (count == null && !badge && !actions) return null
+    return (
+      <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+        <div className="flex items-center gap-3.5 min-w-0 flex-wrap">
+          {count != null && (
+            <div className="text-[12.5px] text-ink-mut">共 <span className="font-semibold text-ink-soft tabular-nums">{count}</span> {unit}</div>
+          )}
+          {badge}
+        </div>
+        {actions && <div className="flex items-center gap-2 flex-wrap shrink-0">{actions}</div>}
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
       <div className="flex items-center gap-3.5 min-w-0 flex-wrap">
@@ -21,6 +45,17 @@ export function PageHeader({ title, count, unit = '条', badge, actions }) {
       {actions && <div className="flex items-center gap-2 flex-wrap shrink-0">{actions}</div>}
     </div>
   )
+}
+
+/* Push a title into the admin topbar without rendering a page heading. */
+export function TopbarTitle({ title }) {
+  const { setTitle, inTopbar } = useTopbarTitle()
+  useEffect(() => {
+    if (!inTopbar) return undefined
+    setTitle(title || '')
+    return () => setTitle('')
+  }, [title, setTitle, inTopbar])
+  return null
 }
 
 /* Rounded card that wraps a list's toolbar and table. With `fill`, it grows to
@@ -81,6 +116,12 @@ export function SearchInput({ value, onChange, placeholder, className = '' }) {
 
 /* ---------- IdentityBar: sticky detail identity strip (ops console) ---------- */
 export function IdentityBar({ backTo, backLabel, avatar, title, badge, chips, meta, actions }) {
+  const { setTitle, inTopbar } = useTopbarTitle()
+  useEffect(() => {
+    if (!inTopbar) return undefined
+    setTitle(title || '')
+    return () => setTitle('')
+  }, [title, setTitle, inTopbar])
   return (
     <div className="identity-bar">
       {backTo && (

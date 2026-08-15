@@ -4,7 +4,7 @@ import { api } from '../../lib/api'
 import { fmtTime, fmtBytes, nullStr } from '../../lib/fmt'
 import { Layout, useToast, useBlur } from '../../components/Layout'
 import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText, Spinner } from '../../components/ui'
-import { TableBox } from '../../components/page'
+import { TableBox, TopbarTitle } from '../../components/page'
 import { copyToClipboard } from '../../lib/clipboard'
 
 const card = 'bg-surface border border-line rounded-[14px] shadow-[0_1px_2px_rgba(16,24,40,0.04)]'
@@ -277,6 +277,7 @@ export default function NodeDetail() {
 
   return (
     <Layout>
+      <TopbarTitle title={node.name || '节点详情'} />
       <div className="mx-auto max-w-[1160px] flex flex-col gap-[18px]">
 
         {/* back link */}
