@@ -3,7 +3,7 @@ import { fmtBytes } from '../lib/fmt'
 
 const W = 960
 const H = 280
-const PAD = { top: 18, right: 16, bottom: 32, left: 52 }
+const PAD = { top: 18, right: 28, bottom: 32, left: 52 }
 
 function hourLabel(hour) {
   if (!hour || hour.length < 13) return '--'
@@ -23,9 +23,10 @@ function yTicks(max) {
   return [0, max * 0.25, max * 0.5, max * 0.75, max]
 }
 
-function catmullRom(points) {
+function catmullRom(points, yMin, yMax) {
   if (points.length === 0) return ''
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
+  const clampY = y => Math.min(yMax, Math.max(yMin, y))
   let d = `M ${points[0].x} ${points[0].y}`
   for (let i = 0; i < points.length - 1; i++) {
     const p0 = points[i === 0 ? 0 : i - 1]
@@ -33,9 +34,9 @@ function catmullRom(points) {
     const p2 = points[i + 1]
     const p3 = points[i + 2] || p2
     const c1x = p1.x + (p2.x - p0.x) / 6
-    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c1y = clampY(p1.y + (p2.y - p0.y) / 6)
     const c2x = p2.x - (p3.x - p1.x) / 6
-    const c2y = p2.y - (p3.y - p1.y) / 6
+    const c2y = clampY(p2.y - (p3.y - p1.y) / 6)
     d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`
   }
   return d
@@ -43,6 +44,7 @@ function catmullRom(points) {
 
 export function HourlyTrafficChart({ series = [] }) {
   const [hover, setHover] = useState(null)
+  const [cursorX, setCursorX] = useState(null)
 
   const points = useMemo(() => {
     const rows = Array.isArray(series) && series.length ? series : []
@@ -56,6 +58,9 @@ export function HourlyTrafficChart({ series = [] }) {
   const innerW = W - PAD.left - PAD.right
   const innerH = H - PAD.top - PAD.bottom
   const step = points.length > 1 ? innerW / (points.length - 1) : innerW
+  const axisY = PAD.top + innerH
+  const axisLeft = PAD.left - 8
+  const axisRight = W - PAD.right + 8
 
   const coords = points.map((p, i) => ({
     ...p,
@@ -63,15 +68,16 @@ export function HourlyTrafficChart({ series = [] }) {
     y: PAD.top + innerH - (p.bytes / max) * innerH,
   }))
 
-  const line = catmullRom(coords)
+  const line = catmullRom(coords, PAD.top, axisY)
   const area = coords.length
-    ? `${line} L ${coords[coords.length - 1].x} ${PAD.top + innerH} L ${coords[0].x} ${PAD.top + innerH} Z`
+    ? `${line} L ${coords[coords.length - 1].x} ${axisY} L ${coords[0].x} ${axisY} Z`
     : ''
 
   const onMove = (e) => {
     const svg = e.currentTarget
     const rect = svg.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * W
+    const x = Math.min(axisRight, Math.max(axisLeft, ((e.clientX - rect.left) / rect.width) * W))
+    setCursorX(x)
     let best = 0
     let bestDist = Infinity
     coords.forEach((p, i) => {
@@ -85,7 +91,6 @@ export function HourlyTrafficChart({ series = [] }) {
   }
 
   const active = hover != null ? coords[hover] : null
-
   const tipLeft = active ? Math.min(86, Math.max(14, (active.x / W) * 100)) : 50
 
   return (
@@ -101,21 +106,32 @@ export function HourlyTrafficChart({ series = [] }) {
           viewBox={`0 0 ${W} ${H}`}
           className="w-full h-[240px] sm:h-[280px] select-none"
           onMouseMove={onMove}
-          onMouseLeave={() => setHover(null)}
+          onMouseLeave={() => { setHover(null); setCursorX(null) }}
           role="img"
           aria-label="近 24 小时实际流量"
         >
           {yTicks(max).map((v, i) => {
             const y = PAD.top + innerH - (v / max) * innerH
+            if (v === 0) return null
             return (
               <g key={i}>
                 <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="var(--color-line)" strokeDasharray="3 5" strokeWidth="1" />
                 <text x={PAD.left - 8} y={y + 4} textAnchor="end" fontSize="11" fill="var(--color-ink-mut)">
-                  {v === 0 ? '0' : fmtBytes(v)}
+                  {fmtBytes(v)}
                 </text>
               </g>
             )
           })}
+          <text x={PAD.left - 8} y={axisY + 4} textAnchor="end" fontSize="11" fill="var(--color-ink-mut)">0</text>
+          <line
+            x1={axisLeft}
+            x2={axisRight}
+            y1={axisY}
+            y2={axisY}
+            stroke="var(--color-ink-mut)"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
           {coords.map((p, i) => (
             i % 2 === 0 ? (
               <text key={p.hour || i} x={p.x} y={H - 10} textAnchor="middle" fontSize="11" fill="var(--color-ink-mut)">
@@ -130,12 +146,29 @@ export function HourlyTrafficChart({ series = [] }) {
             </linearGradient>
           </defs>
           {area && <path d={area} fill="url(#hourlyFill)" />}
-          {line && <path d={line} fill="none" stroke="var(--brand-from)" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />}
+          {line && (
+            <path
+              d={line}
+              fill="none"
+              stroke="var(--brand-from)"
+              strokeWidth="1.25"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          )}
+          {cursorX != null && (
+            <line
+              x1={cursorX}
+              x2={cursorX}
+              y1={PAD.top}
+              y2={axisY}
+              stroke="var(--color-ink-mut)"
+              strokeWidth="1.1"
+              strokeDasharray="3 4"
+            />
+          )}
           {active && (
-            <>
-              <line x1={active.x} x2={active.x} y1={PAD.top} y2={PAD.top + innerH} stroke="var(--color-line)" strokeWidth="1.2" />
-              <circle cx={active.x} cy={active.y} r="5" fill="var(--color-surface)" stroke="var(--brand-from)" strokeWidth="2.2" />
-            </>
+            <circle cx={active.x} cy={active.y} r="4" fill="var(--color-surface)" stroke="var(--brand-from)" strokeWidth="1.6" />
           )}
         </svg>
         {active && (
