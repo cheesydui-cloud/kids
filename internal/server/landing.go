@@ -196,7 +196,11 @@ func (s *Server) apiSetUserLanding(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "用户不存在")
 		return
 	}
-	if nodes, ok := s.resolveLandingExits(target, true); ok {
+	if !hasLandingSource(target) {
+		// Clearing the source must un-present leftover auto rows. A failed
+		// subscription fetch still must not sync (resolve reports !ok).
+		s.syncLandingExits(target, nil)
+	} else if nodes, ok := s.resolveLandingExits(target, true); ok {
 		s.syncLandingExits(target, nodes)
 	}
 	nodes := s.landingNodesFor(target, false)
@@ -332,7 +336,11 @@ func (s *Server) apiListUserLandingExits(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if r.URL.Query().Get("refresh") == "1" {
-		if nodes, ok := s.resolveLandingExits(target, true); ok {
+		if !hasLandingSource(target) {
+			// Clearing the source must un-present leftover auto rows. A failed
+			// subscription fetch still must not sync (resolve reports !ok).
+			s.syncLandingExits(target, nil)
+		} else if nodes, ok := s.resolveLandingExits(target, true); ok {
 			s.syncLandingExits(target, nodes)
 		}
 	}

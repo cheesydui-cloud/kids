@@ -71,7 +71,7 @@ export function buildUserCardText({
 
   lines.push(
     '',
-    '使用说明：登录面板后可在「我的代理」复制或扫码导入；初始密码登录后请自行修改。',
+    '使用说明：登录面板后可在「我的订阅」复制或扫码导入；初始密码登录后请自行修改。',
   )
   return lines.join('\n')
 }

@@ -91,6 +91,39 @@ func TestSyncSweepsEmptyLedgerResiduals(t *testing.T) {
 	}
 }
 
+func TestSyncPreservesRepoSource(t *testing.T) {
+	d := openTestDB(t)
+	uid := createTestUser(t, d)
+	if _, _, err := SyncUserLandingExits(d, uid, inputs("repo.com"), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec(`UPDATE user_landing_exits SET source='repo', name='from-repo', uri='vless://repo@repo.com:443' WHERE user_id=? AND host='repo.com'`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, synced, err := SyncUserLandingExits(d, uid, []LandingExitInput{
+		{Host: "repo.com", Port: 443, Name: "from-sub", Protocol: "ss", URI: "ss://sub@repo.com:443"},
+		{Host: "auto.com", Port: 443, Name: "n-auto", Protocol: "vless", URI: "vless://x@auto.com:443"},
+	}, "", ""); err != nil || !synced {
+		t.Fatalf("sync: synced=%v err=%v", synced, err)
+	}
+	exits, _ := ListUserLandingExits(d, uid)
+	var repo, auto *LandingExit
+	for _, e := range exits {
+		switch e.Host {
+		case "repo.com":
+			repo = e
+		case "auto.com":
+			auto = e
+		}
+	}
+	if repo == nil || repo.Source != "repo" || repo.Name != "from-repo" || repo.URI != "vless://repo@repo.com:443" {
+		t.Fatalf("repo row must be left alone, got %+v", repo)
+	}
+	if auto == nil || auto.Source != "auto" || !auto.Present {
+		t.Fatalf("new auto row missing: %+v", auto)
+	}
+}
+
 func TestSyncDiscardsStaleSource(t *testing.T) {
 	d := openTestDB(t)
 	uid := createTestUser(t, d)
@@ -444,7 +477,6 @@ func TestPropagateRepoExitChangeMergeConflict(t *testing.T) {
 func sqlNull(v int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: v, Valid: true}
 }
-
 
 func TestCountAndListRepoExitUsers(t *testing.T) {
 	d := openTestDB(t)

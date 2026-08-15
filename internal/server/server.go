@@ -596,9 +596,6 @@ func (s *Server) Router() http.Handler {
 			r.Post("/change-password", s.apiChangePassword)
 			r.Get("/probe", s.probeEndpoint)
 			r.Get("/probe-chain", s.probeChainEndpoint)
-			r.Get("/dashboard", s.apiDashboard)
-			r.Post("/sub-fetch", s.apiSubFetch)
-			r.Get("/node-roles", s.apiGetNodeRoles)
 			// Doc images: any logged-in user (admin or user) can view.
 			r.Get("/docs/assets/{name}", s.apiServeDocAsset)
 		})
@@ -608,6 +605,9 @@ func (s *Server) Router() http.Handler {
 			r.Use(s.requireAPIAuth, s.requireRole("admin"))
 
 			r.Get("/probe-hop", s.probeHopEndpoint)
+			r.Get("/dashboard", s.apiDashboard)
+			r.Post("/sub-fetch", s.apiSubFetch)
+			r.Get("/node-roles", s.apiGetNodeRoles)
 			r.Get("/nodes", s.apiListNodes)
 			r.Post("/nodes", s.apiCreateNode)
 			r.Get("/nodes/{id}", s.apiGetNode)

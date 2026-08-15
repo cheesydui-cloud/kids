@@ -101,9 +101,11 @@ export default function RulesList() {
   // "暂无规则".
   if (!data && error) return <Layout><Empty title="加载失败" desc={error}><button onClick={load} className="btn-secondary text-xs mt-3">重试</button></Empty></Layout>
 
-  const { rules: allRulesRaw = [], nodes = [] } = data || {}
+  const { rules: allRulesRaw = [], nodes: allNodes = [] } = data || {}
+  const nodes = allNodes.filter(n => n.node_type !== 'self')
   const nodeMap = {}
   nodes.forEach(n => { nodeMap[n.id] = n })
+  const pickerUsers = users.filter(u => u.username !== 'admin')
   const rules = allRulesRaw.map(enrich)
 
   const deleteRule = async (rule) => {
@@ -153,7 +155,7 @@ export default function RulesList() {
   // restore this exact filter/search combo instead of landing on a bare list.
   const rulesQuery = searchParams.toString()
 
-  const userOptions = users.map(u => ({ value: u.id, label: u.username }))
+  const userOptions = pickerUsers.map(u => ({ value: u.id, label: u.username }))
   const nodeOptions = nodes.map(n => ({ value: n.id, label: n.name }))
 
   return (
@@ -214,7 +216,7 @@ export default function RulesList() {
 
       <RuleFormModal
         open={createOpen} onClose={() => setCreateOpen(false)} title="创建规则" submitLabel="创建规则"
-        nodes={nodes} landingNodes={landingNodes} bindings={bindings} initial={createInitial} onAddProxyURI={addProxyURI} users={users}
+        nodes={nodes} landingNodes={landingNodes} bindings={bindings} initial={createInitial} onAddProxyURI={addProxyURI} users={pickerUsers}
         onSubmit={async (form) => {
           const res = await api.post('/rules', ruleFormToPayload(form))
           toast('规则已创建'); setCreateOpen(false)
@@ -223,7 +225,7 @@ export default function RulesList() {
 
       <RuleFormModal
         open={!!editRule} onClose={() => setEditRule(null)} title="编辑规则" submitLabel="保存并重下发"
-        nodes={nodes} landingNodes={landingNodes} bindings={bindings} initial={editRule ? ruleToForm(editRule) : null} onAddProxyURI={addProxyURI} users={users}
+        nodes={nodes} landingNodes={landingNodes} bindings={bindings} initial={editRule ? ruleToForm(editRule) : null} onAddProxyURI={addProxyURI} users={pickerUsers}
         onSubmit={async (form) => {
           await api.put(`/rules/${editRule.id}`, ruleFormToPayload(form))
           toast('已保存并重下发'); setEditRule(null); load()

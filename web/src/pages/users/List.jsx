@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtTrafficGB, nullStr, nullInt } from '../../lib/fmt'
+import { billedUsedBytes, fmtTrafficGB, nullStr, nullInt } from '../../lib/fmt'
 import { Layout, useToast } from '../../components/Layout'
 import { Loading, Empty, Badge, Modal, Select, DateInput } from '../../components/ui'
 import { copyToClipboard } from '../../lib/clipboard'
@@ -153,7 +153,7 @@ export default function UserList() {
                     <td className="text-xs">{u.group_name ? <Badge color="blue">{u.group_name}</Badge> : <span className="text-ink-mut">—</span>}</td>
                     <td><span className="inline-flex items-center font-mono text-xs bg-raised text-ink-soft px-1.5 py-0.5 rounded">{u.role}</span></td>
                     <td className="font-mono">{u.role === 'user' ? `${u.rule_count || 0} / ${u.max_forwards}` : '--'}</td>
-                    <td className="font-mono">{u.role === 'user' ? fmtTrafficGB(u.traffic_used_bytes, u.traffic_quota_bytes) : '--'}</td>
+                    <td className="font-mono">{u.role === 'user' ? fmtTrafficGB(billedUsedBytes(u.traffic_used_bytes, u.billing_rate), u.traffic_quota_bytes) : '--'}</td>
                     <td>
                       {u.disabled ? (
                         <Badge color="amber" title={nullStr(u.disable_reason)}>已禁用</Badge>
@@ -182,7 +182,7 @@ export default function UserList() {
                     <span className="text-ink-mut">·</span>
                     <span className="font-mono">{u.rule_count || 0}/{u.max_forwards} 规则</span>
                     <span className="text-ink-mut">·</span>
-                    <span className="font-mono">{fmtTrafficGB(u.traffic_used_bytes, u.traffic_quota_bytes)}</span>
+                    <span className="font-mono">{fmtTrafficGB(billedUsedBytes(u.traffic_used_bytes, u.billing_rate), u.traffic_quota_bytes)}</span>
                     {nullInt(u.expires_at) ? <>
                       <span className="text-ink-mut">·</span>
                       <ExpiryInline unix={nullInt(u.expires_at)} />

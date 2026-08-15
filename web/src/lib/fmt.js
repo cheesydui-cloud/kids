@@ -20,6 +20,12 @@ function fmtAdaptive(bytes) {
 }
 
 /** Format used/quota traffic; sub-1 GB values shown as MB. */
+/** Account-billed bytes: raw used × billing_rate (rate≤0 treated as 1). */
+export function billedUsedBytes(used, rate) {
+  const n = Number(rate)
+  return Math.round((used || 0) * (n > 0 ? n : 1))
+}
+
 export function fmtTrafficGB(used, quota) {
   const u = fmtAdaptive(used || 0)
   if (!quota || quota === 0) return `${u} / ∞`

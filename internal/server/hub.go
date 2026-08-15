@@ -829,7 +829,7 @@ func (h *Hub) applyCounters(nodeID int64, samples []wsproto.CounterSample) {
 		// multipliers are intentionally excluded from user billing.
 		billedBase := billedDelta
 		var userID int64
-		hasOwner := r != nil && r.OwnerID.Valid && billedDelta > 0
+		hasOwner := r != nil && r.OwnerID.Valid && totalDelta > 0
 		if hasOwner {
 			userID = r.OwnerID.Int64
 

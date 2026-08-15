@@ -113,9 +113,14 @@ func SyncUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput, src
 			continue
 		}
 		inInput[k] = true
+		// A repo-imported row owns this host:port. Subscription sync must
+		// not rewrite its name/uri or flip source back to auto.
+		if st, ok := existing[k]; ok && st.source == "repo" {
+			continue
+		}
 		if _, err := tx.Exec(`INSERT INTO user_landing_exits(user_id, host, port, name, protocol, uri, present, updated_at, source)
-			VALUES (?,?,?,?,?,?,1,?,?)
-			ON CONFLICT(user_id, host, port) DO UPDATE SET name=excluded.name, protocol=excluded.protocol, uri=excluded.uri, present=1, updated_at=excluded.updated_at, source=excluded.source`,
+				VALUES (?,?,?,?,?,?,1,?,?)
+				ON CONFLICT(user_id, host, port) DO UPDATE SET name=excluded.name, protocol=excluded.protocol, uri=excluded.uri, present=1, updated_at=excluded.updated_at, source=excluded.source`,
 			userID, e.Host, e.Port, e.Name, e.Protocol, e.URI, nowTs, "auto"); err != nil {
 			return nil, false, err
 		}
@@ -735,7 +740,6 @@ func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPor
 	}
 	return out, nil
 }
-
 
 // RepoExitUser is one user who has a present, repo-sourced landing exit at host:port.
 type RepoExitUser struct {

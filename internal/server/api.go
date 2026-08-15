@@ -1546,6 +1546,10 @@ func (s *Server) apiResetNodeToken(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "组合节点没有 Agent 凭证")
 		return
 	}
+	if n.NodeType == "self" {
+		jsonErr(w, http.StatusBadRequest, "本机节点不能重置凭证")
+		return
+	}
 	secret, err := db.ResetNodeSecret(s.DB, id)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
@@ -1565,6 +1569,10 @@ func (s *Server) apiUpgradeNode(w http.ResponseWriter, r *http.Request) {
 	node, err := db.GetNode(s.DB, id)
 	if err != nil {
 		jsonErr(w, http.StatusNotFound, "节点不存在")
+		return
+	}
+	if node.NodeType == "self" {
+		jsonErr(w, http.StatusBadRequest, "本机节点不能远程升级")
 		return
 	}
 	arch := s.Hub.NodeArch(id)
@@ -1599,6 +1607,10 @@ func (s *Server) apiDeleteNode(w http.ResponseWriter, r *http.Request) {
 	node, err := db.GetNode(s.DB, id)
 	if err != nil {
 		jsonErr(w, http.StatusNotFound, "节点不存在")
+		return
+	}
+	if node.NodeType == "self" {
+		jsonErr(w, http.StatusBadRequest, "本机节点不能删除")
 		return
 	}
 	if node.NodeType == "composite" {
@@ -1642,8 +1654,13 @@ func (s *Server) apiToggleNode(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "bad id")
 		return
 	}
-	if _, err := db.GetNode(s.DB, id); err != nil {
+	n, err := db.GetNode(s.DB, id)
+	if err != nil {
 		jsonErr(w, http.StatusNotFound, "节点不存在")
+		return
+	}
+	if n.NodeType == "self" {
+		jsonErr(w, http.StatusBadRequest, "本机节点不能停用")
 		return
 	}
 	if err := db.ToggleNode(s.DB, id); err != nil {
@@ -1742,7 +1759,7 @@ func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	var ok, fail int
 	for _, n := range nodes {
-		if n.NodeType == "composite" || n.Disabled {
+		if n.NodeType == "composite" || n.NodeType == "self" || n.Disabled {
 			continue
 		}
 		arch := s.Hub.NodeArch(n.ID)
@@ -2270,6 +2287,9 @@ func (s *Server) validateCompositeChildren(childIDs []int64) error {
 		if n.NodeType == "composite" {
 			return fmt.Errorf("组合节点不能嵌套组合节点（%s）", n.Name)
 		}
+		if n.NodeType == "self" {
+			return fmt.Errorf("组合节点不能包含本机节点（%s）", n.Name)
+		}
 	}
 	return nil
 }
@@ -2672,14 +2692,15 @@ func (s *Server) apiGetUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	var body struct {
-		Username          string `json:"username"`
-		Password          string `json:"password"`
-		Role              string `json:"role"`
-		MaxForwards       int    `json:"max_forwards"`
-		TrafficQuotaBytes int64  `json:"traffic_quota_bytes"`
-		ExpiresAt         string `json:"expires_at"`
-		LandingSubURL     string `json:"landing_sub_url"`
-		AdminNote         string `json:"admin_note"`
+		Username          string  `json:"username"`
+		Password          string  `json:"password"`
+		Role              string  `json:"role"`
+		MaxForwards       int     `json:"max_forwards"`
+		TrafficQuotaBytes int64   `json:"traffic_quota_bytes"`
+		ExpiresAt         string  `json:"expires_at"`
+		LandingSubURL     string  `json:"landing_sub_url"`
+		AdminNote         string  `json:"admin_note"`
+		BillingRate       float64 `json:"billing_rate"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "请求格式错误")
@@ -2712,14 +2733,18 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	if maxFwd <= 0 {
 		maxFwd = 100
 	}
-	if _, err := s.DB.Exec(`UPDATE users SET max_forwards=?, traffic_quota_bytes=? WHERE id=?`,
-		maxFwd, body.TrafficQuotaBytes, id); err != nil {
+	billingRate := body.BillingRate
+	if billingRate <= 0 {
+		billingRate = 1
+	}
+	if _, err := s.DB.Exec(`UPDATE users SET max_forwards=?, traffic_quota_bytes=?, billing_rate=? WHERE id=?`,
+		maxFwd, body.TrafficQuotaBytes, billingRate, id); err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if raw := strings.TrimSpace(body.ExpiresAt); raw != "" {
-		if et, err := time.Parse("2006-01-02", raw); err == nil {
-			s.DB.Exec(`UPDATE users SET expires_at=? WHERE id=?`, et.Unix(), id)
+		if et, err := db.ParseBusinessDateEnd(raw); err == nil {
+			s.DB.Exec(`UPDATE users SET expires_at=? WHERE id=?`, et, id)
 		}
 	}
 	if body.LandingSubURL != "" || body.AdminNote != "" {
@@ -2759,6 +2784,15 @@ func (s *Server) apiGrantNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, nid := range ids {
+		n, err := db.GetNode(s.DB, nid)
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, "节点不存在")
+			return
+		}
+		if n.NodeType == "self" {
+			jsonErr(w, http.StatusBadRequest, "本机节点不能授权给用户")
+			return
+		}
 		if err := db.GrantNode(s.DB, userID, nid, body.MaxForwards, body.TrafficQuotaBytes); err != nil {
 			jsonErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2905,12 +2939,12 @@ func (s *Server) apiSetUserExpiry(w http.ResponseWriter, r *http.Request) {
 	var expiresAt int64
 	raw := strings.TrimSpace(body.ExpiresAt)
 	if raw != "" {
-		t, err := time.Parse("2006-01-02", raw)
+		et, err := db.ParseBusinessDateEnd(raw)
 		if err != nil {
 			jsonErr(w, http.StatusBadRequest, "日期格式无效（需 YYYY-MM-DD）")
 			return
 		}
-		expiresAt = t.Unix()
+		expiresAt = et
 	}
 	if _, err := s.DB.Exec(`UPDATE users SET expires_at=? WHERE id=?`, expiresAt, id); err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
@@ -2991,12 +3025,12 @@ func (s *Server) apiUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 	var expiresAt int64
 	raw := strings.TrimSpace(body.ExpiresAt)
 	if raw != "" {
-		t, err := time.Parse("2006-01-02", raw)
+		et, err := db.ParseBusinessDateEnd(raw)
 		if err != nil {
 			jsonErr(w, http.StatusBadRequest, "日期格式无效（需 YYYY-MM-DD）")
 			return
 		}
-		expiresAt = t.Unix()
+		expiresAt = et
 	}
 
 	trafficQuotaBytes := int64(body.TrafficQuotaGB * 1073741824)

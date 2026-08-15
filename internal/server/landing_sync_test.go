@@ -75,6 +75,28 @@ func TestLandingSyncPassBackfillsManualUsers(t *testing.T) {
 	}
 }
 
+func TestSetUserLandingClearsAutoRows(t *testing.T) {
+	d := openDB(t)
+	uid, _ := loginAsUser(t, d, 10)
+	db.SetUserLandingSource(d, uid, "", "vless://u@1.2.3.4:443#HK")
+	s := newServer(t, d)
+	s.landingSyncPass(true)
+	if exits, _ := db.ListUserLandingExits(d, uid); len(exits) != 1 {
+		t.Fatalf("seed: %+v", exits)
+	}
+	admin := loginAsAdmin(t, d)
+	rec := adminPost(t, s, admin, "/api/users/"+itoa(uid)+"/landing", map[string]any{
+		"landing_sub_url": "", "landing_uris": "",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("clear landing: %d %s", rec.Code, rec.Body.String())
+	}
+	exits, _ := db.ListUserLandingExits(d, uid)
+	if len(exits) != 0 {
+		t.Fatalf("empty source must sweep leftover auto rows, got %+v", exits)
+	}
+}
+
 func TestLandingSyncPassKeepsSetOnSubFailure(t *testing.T) {
 	d := openDB(t)
 	uid, _ := loginAsUser(t, d, 10)

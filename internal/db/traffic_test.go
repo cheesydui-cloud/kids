@@ -190,6 +190,46 @@ func TestCheckAndResetTrafficCycle(t *testing.T) {
 	}
 }
 
+func TestParseBusinessDateEndShanghaiEOD(t *testing.T) {
+	got, err := ParseBusinessDateEnd("2026-08-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 8, 15, 23, 59, 59, 0, panelBusinessLocation).Unix()
+	if got != want {
+		t.Fatalf("expiry = %d, want Shanghai EOD %d", got, want)
+	}
+	utcMidnight := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC).Unix()
+	if got == utcMidnight {
+		t.Fatal("must not store UTC midnight")
+	}
+}
+
+func TestCheckAndResetTrafficCycleZerosRuleHops(t *testing.T) {
+	d := openTestDB(t)
+	uid := createTestUser(t, d)
+	nid := createTestNode(t, d, "cycle-hops")
+	grantNode(t, d, uid, nid)
+	hopID := seedRuleWithTraffic(t, d, uid, nid, 21001, 5000)
+	past := now() - 31*86400
+	d.Exec(`UPDATE users SET traffic_reset_days=30, created_at=? WHERE id=?`, past, uid)
+	u, _ := GetUserByID(d, uid)
+	reset, err := CheckAndResetTrafficCycle(d, u)
+	if err != nil || !reset {
+		t.Fatalf("reset=%v err=%v", reset, err)
+	}
+	var total, billed, last int64
+	if err := d.QueryRow(`SELECT total_bytes, billed_bytes, last_bytes FROM rule_hops WHERE id=?`, hopID).Scan(&total, &billed, &last); err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 || billed != 0 {
+		t.Fatalf("cycle reset must zero hop totals, total=%d billed=%d", total, billed)
+	}
+	if last != 777 {
+		t.Fatalf("last_bytes must survive cycle reset, got %d", last)
+	}
+}
+
 func TestNodesExceedingQuota(t *testing.T) {
 	d := openTestDB(t)
 	uid := createTestUser(t, d)

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { fmtBytes, fmtTime, fmtDate, nullStr, nullInt, expiryBadge } from '../lib/fmt'
+import { billedUsedBytes, fmtBytes, fmtTime, fmtDate, nullStr, nullInt, expiryBadge } from '../lib/fmt'
 import { Layout, useBlur, useUser } from '../components/Layout'
 import { Loading, Empty, Badge, ErrorState, SensText, NodeTypeBadge, NodeBillingBadges } from '../components/ui'
 import { ProxyURIEditor } from '../components/ProxyURIEditor'
@@ -308,7 +308,7 @@ function buildAttention(data, users) {
         }
       }
       const quota = u.traffic_quota_bytes || 0
-      const used = u.traffic_used_bytes || 0
+      const used = billedUsedBytes(u.traffic_used_bytes, u.billing_rate)
       if (quota > 0) {
         const ratio = used / quota
         if (ratio >= 1) {

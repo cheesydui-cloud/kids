@@ -103,6 +103,19 @@ func DayKeyNow() string {
 	return dayKey(time.Now())
 }
 
+// ParseBusinessDateEnd parses a YYYY-MM-DD account-expiry date in Asia/Shanghai
+// and returns the unix timestamp of that calendar day's last second (23:59:59).
+// time.Parse("2006-01-02") would store UTC midnight, which is 北京时间 08:00 and
+// cuts the purchased day short.
+func ParseBusinessDateEnd(raw string) (int64, error) {
+	t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(raw), panelBusinessLocation)
+	if err != nil {
+		return 0, err
+	}
+	end := time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, panelBusinessLocation)
+	return end.Unix(), nil
+}
+
 // AddNodeDailyRawTraffic folds delta raw bytes into today's per-node ledger.
 // Same actual-traffic semantics as AddNodeRawTraffic (no billing multiplier).
 // "Today" is the Asia/Shanghai calendar day.
@@ -249,8 +262,10 @@ func SegmentFirstHops(d *sql.DB, ruleIDs []int64) (map[int64]map[int]int64, erro
 
 // CheckAndResetTrafficCycle checks whether the user's traffic reset window has
 // elapsed since the last reset. If so, it zeros the global counter, all
-// per-node counters and the landing-exit ledger together and records the
-// reset timestamp. Returns true if a reset occurred.
+// per-node counters, the landing-exit ledger and the displayed per-rule hop
+// totals together and records the reset timestamp. rule_hops.last_bytes* are
+// kept so the next agent sample still computes a delta. Returns true if a
+// reset occurred.
 //
 // traffic_reset_days == 0 means the user is never auto-reset.
 // The window is anchored to the account creation date so the cycle boundary is
@@ -282,6 +297,9 @@ func CheckAndResetTrafficCycle(d *sql.DB, u *User) (bool, error) {
 		return false, err
 	}
 	if _, err := tx.Exec(`UPDATE user_landing_exits SET used_bytes = 0 WHERE user_id=?`, u.ID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`UPDATE rule_hops SET total_bytes = 0, billed_bytes = 0 WHERE rule_id IN (SELECT id FROM rules WHERE owner_id = ?)`, u.ID); err != nil {
 		return false, err
 	}
 	return true, tx.Commit()

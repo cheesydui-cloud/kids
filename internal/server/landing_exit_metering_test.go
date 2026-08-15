@@ -74,9 +74,9 @@ func TestExitLedgerIgnoresRelayCollision(t *testing.T) {
 	}
 }
 
-// Unidirectional nodes bill uplink only, but the exit ledger records real
-// traffic to the destination — and its growth alone must still trigger the
-// quota callback (weighted is 0 for a downlink-only batch).
+// Unidirectional nodes still bill last-hop raw up+down on the user ledger.
+// The exit ledger records the same raw volume, and its growth must still
+// trigger the quota callback.
 func TestExitLedgerUnidirectionalAndTouch(t *testing.T) {
 	d := openDB(t)
 	uid, _ := loginAsUser(t, d, 100)
@@ -102,8 +102,8 @@ func TestExitLedgerUnidirectionalAndTouch(t *testing.T) {
 		t.Fatalf("exit ledger ignores unidirectional billing, want 800 got %d", used)
 	}
 	u, _ := db.GetUserByID(d, uid)
-	if u.TrafficUsedBytes != 0 {
-		t.Fatalf("unidirectional downlink must not bill the user, got %d", u.TrafficUsedBytes)
+	if u.TrafficUsedBytes != 800 {
+		t.Fatalf("last-hop raw downlink still bills the user, got %d", u.TrafficUsedBytes)
 	}
 	select {
 	case <-touched:
