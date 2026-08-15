@@ -42,6 +42,8 @@ func ClashProxyYAML(uri, name string) (string, bool) {
 		return clashTrojan(uri, name)
 	case "hy2", "hysteria2":
 		return clashHy2(uri, name)
+	case "socks5", "socks5h", "socks":
+		return clashSocks5(uri, name)
 	default:
 		return "", false
 	}
@@ -341,6 +343,34 @@ func clashTrojan(uri, name string) (string, bool) {
 		L = append(L, "  network: "+yamlScalar(netw))
 	}
 	L = appendTransport(L, netw, q)
+	L = append(L, "  udp: true")
+	return strings.Join(L, "\n"), true
+}
+
+func clashSocks5(uri, name string) (string, bool) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return "", false
+	}
+	host := u.Hostname()
+	port, _ := strconv.Atoi(u.Port())
+	if host == "" || port < 1 {
+		return "", false
+	}
+	L := []string{
+		fmt.Sprintf("- name: %s", yamlQuoted(name)),
+		"  type: socks5",
+		fmt.Sprintf("  server: %s", yamlScalar(host)),
+		fmt.Sprintf("  port: %d", port),
+	}
+	if u.User != nil {
+		if user := u.User.Username(); user != "" {
+			L = append(L, "  username: "+yamlQuoted(user))
+		}
+		if pass, ok := u.User.Password(); ok && pass != "" {
+			L = append(L, "  password: "+yamlQuoted(pass))
+		}
+	}
 	L = append(L, "  udp: true")
 	return strings.Join(L, "\n"), true
 }

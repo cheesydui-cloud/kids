@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Layout, useToast, useUser } from '../components/Layout'
 import { UserPortalHead } from '../components/UserPortalHead'
@@ -67,9 +68,9 @@ export default function ChangePassword() {
                 <label className={labelClass}>再次输入</label>
                 <input className="input-field w-full md:max-w-[560px]" type="password" minLength="6" value={form.confirm} onChange={e => set('confirm', e.target.value)} required />
               </div>
-              <div className="flex flex-col md:flex-row md:items-start gap-4 mt-[22px]">
-                <button type="submit" disabled={loading} className="btn-primary w-full md:w-auto">更新密码</button>
-                <span className="text-[13px] text-ink-mut md:leading-[38px]">提交后其他设备/浏览器上的旧会话会被注销，仅当前页保留。</span>
+              <div className="flex flex-wrap items-center gap-3 mt-[22px]">
+                <button type="submit" disabled={loading} className="btn-primary">更新密码</button>
+                <Link to={user?.role === 'admin' ? '/' : '/my'} className="btn-secondary">返回主页</Link>
               </div>
             </form>
           </div>

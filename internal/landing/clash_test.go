@@ -25,9 +25,45 @@ func TestClashProxyYAMLVLESS(t *testing.T) {
 	}
 }
 
+func TestClashProxyYAMLSocks5(t *testing.T) {
+	y, ok := ClashProxyYAML("socks5://alice:s3cret@relay.example:20001#S5", "test-8月30日")
+	if !ok {
+		t.Fatal("socks5 should convert")
+	}
+	for _, want := range []string{
+		`name: "test-8月30日"`,
+		"type: socks5",
+		"server: relay.example",
+		"port: 20001",
+		`username: "alice"`,
+		`password: "s3cret"`,
+	} {
+		if !strings.Contains(y, want) {
+			t.Errorf("yaml missing %q\n%s", want, y)
+		}
+	}
+}
+
+func TestClashProfilePacksMixedProtocols(t *testing.T) {
+	y := ClashProfile([]NamedURI{
+		{Name: "ss-1", URI: "ss://YWVzLTI1Ni1nY206cGFzcw==@1.2.3.4:443#ss"},
+		{Name: "s5-2", URI: "socks5://u:p@relay.example:10002#s5"},
+		{Name: "vl-3", URI: "vless://uuid@relay.example:10003?security=tls&sni=a.com#vl"},
+	})
+	if strings.Count(y, "type: ") < 3 {
+		t.Fatalf("expected 3 proxies:\n%s", y)
+	}
+	if !strings.Contains(y, "type: ss") || !strings.Contains(y, "type: socks5") || !strings.Contains(y, "type: vless") {
+		t.Fatalf("missing types:\n%s", y)
+	}
+	if !strings.Contains(y, `- "ss-1"`) || !strings.Contains(y, `- "s5-2"`) || !strings.Contains(y, `- "vl-3"`) {
+		t.Fatalf("proxy-groups missing names:\n%s", y)
+	}
+}
+
 func TestClashProxyYAMLUnsupported(t *testing.T) {
-	if _, ok := ClashProxyYAML("socks5://u:p@1.2.3.4:1080#s", "s"); ok {
-		t.Fatal("socks5 should not convert")
+	if _, ok := ClashProxyYAML("mieru://u:p@1.2.3.4:1080#s", "s"); ok {
+		t.Fatal("mieru should not convert")
 	}
 }
 

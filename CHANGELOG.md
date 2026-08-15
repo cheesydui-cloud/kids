@@ -9,6 +9,33 @@
 
 ---
 
+## v0.2.14 — 2026-08-15
+
+一键导入能真正唤起客户端，Clash / Mihomo 会打包全部节点。
+
+### 修复
+
+- Clash YAML 补上 socks5 入口，不再只留下一个能转换的节点
+- Clash Verge 只唤起一次 `clash://install-config`，`name` 放在 `url` 前面，避免订阅地址被截断、页面误报复制失败
+- V2rayN 没有系统级导入协议，改为复制全部节点订阅地址，到客户端订阅里添加
+
+### 改进
+
+- 账户设置去掉会话说明，增加返回主页
+- 模块标题改为「一键导入客户端」，四个按钮换成官方图标
+
+### 升级注意
+
+- 只改面板，节点 agent 不用动
+- 已导入过的 Clash 配置请重新点一次一键导入，或手动更新订阅
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.13 — 2026-08-14
 
 用户订阅页再收一层：去掉大表头和重置入口，节点改成卡片并显示到谷歌的延迟。

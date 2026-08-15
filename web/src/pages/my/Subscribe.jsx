@@ -88,25 +88,19 @@ export default function MySubscribe() {
     toast('已开始下载 YAML')
   }
 
-  const openImport = (hrefs, fallback, ok) => {
-    const list = (Array.isArray(hrefs) ? hrefs : [hrefs]).filter(Boolean)
-    if (list.length === 0) { toast('暂无订阅地址', 'error'); return }
-    const started = Date.now()
-    list.forEach((href, i) => {
-      window.setTimeout(() => {
-        const a = document.createElement('a')
-        a.href = href
-        a.rel = 'noreferrer'
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-      }, i * 80)
-    })
-    window.setTimeout(() => {
-      if (document.hidden) return
-      if (Date.now() - started < 400) return
-      if (fallback) copy(fallback, 'import', ok)
-    }, 1100)
+  const openImport = (href, fallback, opened) => {
+    if (!href && !fallback) { toast('暂无订阅地址', 'error'); return }
+    if (href) {
+      const a = document.createElement('a')
+      a.href = href
+      a.rel = 'noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      toast(opened || '已唤起客户端')
+      return
+    }
+    copy(fallback, 'import', opened || '已复制订阅地址')
   }
 
   if (loading) return <Layout><Loading /></Layout>
@@ -249,26 +243,26 @@ export default function MySubscribe() {
         </section>
 
         <section className="sub-import">
-          <h2>一键导入</h2>
+          <h2>一键导入客户端</h2>
           <div className="sub-import-grid">
             <button type="button" className="sub-import-btn" disabled={!uriURL}
-              onClick={() => openImport(imports.shadowrocket, uriURL, '未打开小火箭，已复制全部节点订阅')}>
-              <ImportMark kind="rocket" />
+              onClick={() => openImport(imports.shadowrocket, uriURL, '已唤起小火箭')}>
+              <img src="/clients/shadowrocket.png" alt="" />
               <span>小火箭</span>
             </button>
             <button type="button" className="sub-import-btn" disabled={!uriURL}
-              onClick={() => openImport(imports.v2rayn, uriURL, '未打开 V2rayN，已复制全部节点订阅')}>
-              <ImportMark kind="v2" />
+              onClick={() => openImport('', uriURL, '已复制订阅地址，请在 V2rayN 订阅里添加')}>
+              <img src="/clients/v2rayn.png" alt="" />
               <span>V2rayN</span>
             </button>
             <button type="button" className="sub-import-btn" disabled={!data?.clash_url}
-              onClick={() => openImport(imports.clash, data?.clash_url, '未打开 Clash Verge，已复制全部节点订阅')}>
-              <ImportMark kind="clash" />
+              onClick={() => openImport(imports.clash, data?.clash_url, '已唤起 Clash Verge')}>
+              <img src="/clients/clash-verge.png" alt="" />
               <span>Clash Verge</span>
             </button>
             <button type="button" className="sub-import-btn" disabled={!data?.mihomo_url}
-              onClick={() => openImport(imports.mihomo, data?.mihomo_url, '未打开 Mihomo，已复制全部节点订阅')}>
-              <ImportMark kind="mihomo" />
+              onClick={() => openImport(imports.mihomo, data?.mihomo_url, '已唤起 Mihomo')}>
+              <img src="/clients/mihomo.png" alt="" />
               <span>Mihomo</span>
             </button>
           </div>
@@ -286,22 +280,11 @@ function importHrefs(uriURL, clashURL, mihomoURL, name) {
   const label = encodeURIComponent(name || 'kids')
   const enc = (u) => encodeURIComponent(u)
   return {
-    shadowrocket: uriURL ? [
-      `shadowrocket://add/sub://${btoaUtf8(uriURL)}?remark=${label}`,
-      `sub://${btoaUtf8(uriURL)}`,
-    ] : [],
-    v2rayn: uriURL ? [
-      `v2rayn://install-sub?url=${enc(uriURL)}&name=${label}`,
-      `v2rayng://install-sub?url=${enc(uriURL)}&name=${label}`,
-    ] : [],
-    clash: clashURL ? [
-      `clash://install-config?url=${enc(clashURL)}&name=${label}`,
-      `clash-verge://install-config?url=${enc(clashURL)}&name=${label}`,
-    ] : [],
-    mihomo: mihomoURL ? [
-      `clash://install-config?url=${enc(mihomoURL)}&name=${label}`,
-      `mihomo://install-config?url=${enc(mihomoURL)}&name=${label}`,
-    ] : [],
+    // One scheme only: firing two in a row makes Verge import once then the
+    // page thinks the app failed and toasts a copy error.
+    shadowrocket: uriURL ? `shadowrocket://add/sub://${btoaUtf8(uriURL)}?remark=${label}` : '',
+    clash: clashURL ? `clash://install-config?name=${label}&url=${enc(clashURL)}` : '',
+    mihomo: mihomoURL ? `clash://install-config?name=${label}&url=${enc(mihomoURL)}` : '',
   }
 }
 
@@ -367,36 +350,3 @@ function skipLabel(sk) {
   return `${detail} 未纳入（${sk.reason || '未知'}）`
 }
 
-function ImportMark({ kind }) {
-  if (kind === 'rocket') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M5 15c-1 3 2 6 5 5l7-7a8 8 0 0 0 2-7 8 8 0 0 0-7 2Z"/>
-        <path d="M9 15s.5 2 3 3"/>
-        <circle cx="15" cy="9" r="1.2"/>
-      </svg>
-    )
-  }
-  if (kind === 'v2') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M4 7h16v10H4z"/>
-        <path d="M8 11h8M8 14h5"/>
-      </svg>
-    )
-  }
-  if (kind === 'clash') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 3 4 7v10l8 4 8-4V7Z"/>
-        <path d="M12 12 4 8M12 12v10M12 12l8-4"/>
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="8"/>
-      <path d="M8 12h8M12 8v8"/>
-    </svg>
-  )
-}
