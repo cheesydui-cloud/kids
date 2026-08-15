@@ -9,6 +9,28 @@
 
 ---
 
+## v0.2.10 — 2026-08-14
+
+Clash Verge / Mihomo 订阅会打包用户全部落地规则，不再只出第一个节点。
+
+### 修复
+
+- 落地索引不再扫到第一条就返回，多条落地规则都会进订阅
+- Clash YAML 与 URI 订阅同步收录全部中转节点，直连落地仍单独打包
+- 自定义 / 未生成入口 / 已停用的规则仍跳过，不误伤其它线路
+
+### 升级注意
+
+- 只改面板，节点 agent 不用动
+- 面板升级后在客户端重新拉取一次订阅即可看到全部节点
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.9 — 2026-08-15
 
 用户端整页改成订阅中心：小火箭扫码、V2rayN 复制链接、Clash Verge / Mihomo 拉 YAML。

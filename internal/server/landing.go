@@ -126,28 +126,29 @@ func (s *Server) landingIndexFromDB(userID int64) map[string]landing.Node {
 	m := make(map[string]landing.Node, len(exits))
 	for _, e := range exits {
 		key := net.JoinHostPort(e.Host, strconv.Itoa(e.Port))
-		if _, ok := m[key]; !ok {
-			// Prefer admin rename so rule pickers / previews match what the
-			// operator set in the user landing tab.
-			name := e.Name
-			if e.NameOverride != "" {
-				name = e.NameOverride
-			}
-			uri := e.URI
-			if e.NameOverride != "" {
-				if rewritten, err := landing.RewriteName(e.URI, e.NameOverride); err == nil {
-					uri = rewritten
-				}
-			}
-				m[key] = landing.Node{
-					Name: name, Protocol: e.Protocol, Host: e.Host, Port: e.Port, URI: uri,
-					// Per-user assignment expiry (user_landing_exits), not warehouse.
-					ExpiresAt: e.ExpiresAt,
-				}
+		if _, ok := m[key]; ok {
+			continue
+		}
+		// Prefer admin rename so rule pickers / previews match what the
+		// operator set in the user landing tab.
+		name := e.Name
+		if e.NameOverride != "" {
+			name = e.NameOverride
+		}
+		uri := e.URI
+		if e.NameOverride != "" {
+			if rewritten, err := landing.RewriteName(e.URI, e.NameOverride); err == nil {
+				uri = rewritten
 			}
 		}
-		return m
+		m[key] = landing.Node{
+			Name: name, Protocol: e.Protocol, Host: e.Host, Port: e.Port, URI: uri,
+			// Per-user assignment expiry (user_landing_exits), not warehouse.
+			ExpiresAt: e.ExpiresAt,
+		}
 	}
+	return m
+}
 
 // hasDynamicSource reports whether the user has a subscription URL (a refresh
 // button only makes sense then; a manual-only source is static).

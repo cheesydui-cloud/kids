@@ -212,6 +212,80 @@ func TestSubscribeRotateInvalidatesOldURL(t *testing.T) {
 	}
 }
 
+func TestSubscribePacksEveryLandingRule(t *testing.T) {
+	d := openDB(t)
+	uid, cookie, n := seedSubUser(t, d)
+	if _, _, err := db.SyncUserLandingExits(d, uid, []db.LandingExitInput{
+		{Host: "1.2.3.4", Port: 443, Name: "HK", Protocol: "vless", URI: "vless://uuid@1.2.3.4:443?security=tls&sni=a.com#HK"},
+		{Host: "5.6.7.8", Port: 8443, Name: "JP", Protocol: "trojan", URI: "trojan://pass@5.6.7.8:8443?sni=b.com#JP"},
+		{Host: "8.8.8.8", Port: 443, Name: "SG", Protocol: "ss", URI: "ss://YWVzLTI1Ni1nY206cGFzcw==@8.8.8.8:443#SG"},
+	}, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	// JP stays ROLE_DIRECT; SG is a second landing-matched rule.
+	if err := db.SetSetting(d, "node_roles", `{"trojan:5.6.7.8:8443":2}`); err != nil {
+		t.Fatal(err)
+	}
+	createNamedRule(t, d, uid, n.ID, "线路B", "8.8.8.8", 443)
+	s := newServer(t, d)
+
+	req := newTestRequest("GET", "/api/my/subscribe", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subscribe: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Token string `json:"token"`
+		Items []struct {
+			Kind     string `json:"kind"`
+			URI      string `json:"uri"`
+			RuleName string `json:"rule_name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	var relay, direct int
+	rules := map[string]bool{}
+	for _, it := range body.Items {
+		switch it.Kind {
+		case "relay":
+			relay++
+			rules[it.RuleName] = true
+			if !strings.Contains(it.URI, "relay.example:") {
+				t.Errorf("relay uri should use entry host, got %s", it.URI)
+			}
+		case "direct":
+			direct++
+		}
+	}
+	if relay != 2 || direct != 1 {
+		t.Fatalf("items relay=%d direct=%d body=%s", relay, direct, rec.Body.String())
+	}
+	if !rules["线路A"] || !rules["线路B"] {
+		t.Fatalf("missing landing rules in items: %+v", rules)
+	}
+
+	cyaml := newTestRequest("GET", "/api/v1/clash.yaml?token="+body.Token, nil)
+	crec := httptest.NewRecorder()
+	s.Router().ServeHTTP(crec, cyaml)
+	if crec.Code != http.StatusOK {
+		t.Fatalf("clash: %d %s", crec.Code, crec.Body.String())
+	}
+	yml := crec.Body.String()
+	if strings.Count(yml, "server: relay.example") < 2 {
+		t.Fatalf("clash yaml should pack both relay entries:\n%s", yml)
+	}
+	if !strings.Contains(yml, "type: vless") || !strings.Contains(yml, "type: ss") || !strings.Contains(yml, "type: trojan") {
+		t.Fatalf("clash yaml missing proxy types:\n%s", yml)
+	}
+	if !strings.Contains(yml, "5.6.7.8") {
+		t.Fatalf("clash yaml missing direct landing:\n%s", yml)
+	}
+}
+
 func TestSubscribeRejectsMissingToken(t *testing.T) {
 	d := openDB(t)
 	s := newServer(t, d)

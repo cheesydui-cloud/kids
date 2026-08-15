@@ -138,6 +138,7 @@ func TestLandingIndexFromDB(t *testing.T) {
 	db.SyncUserLandingExits(d, uid, nil, "", "")
 	db.SyncUserLandingExits(d, uid, []db.LandingExitInput{
 		{Host: "5.6.7.8", Port: 8443, Name: "TW", Protocol: "trojan", URI: "trojan://u@5.6.7.8:8443#TW"},
+		{Host: "9.9.9.9", Port: 443, Name: "JP", Protocol: "vless", URI: "vless://u@9.9.9.9:443#JP"},
 	}, "", "")
 	s := newServer(t, d)
 
@@ -148,6 +149,13 @@ func TestLandingIndexFromDB(t *testing.T) {
 	n, ok := idx["5.6.7.8:8443"]
 	if !ok || n.Name != "TW" || n.URI == "" {
 		t.Fatalf("present exit missing or incomplete: %+v", n)
+	}
+	n2, ok := idx["9.9.9.9:443"]
+	if !ok || n2.Name != "JP" || n2.URI == "" {
+		t.Fatalf("second present exit missing: %+v idx=%+v", n2, idx)
+	}
+	if len(idx) != 2 {
+		t.Fatalf("index size = %d, want 2: %+v", len(idx), idx)
 	}
 }
 
