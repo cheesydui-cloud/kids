@@ -4,6 +4,8 @@ import { fmtBytes } from '../lib/fmt'
 const W = 960
 const H = 280
 const PAD = { top: 18, right: 28, bottom: 32, left: 52 }
+const AXIS = '#3b82f6'
+const CURVE = '#ff6a00'
 
 function hourLabel(hour) {
   if (!hour || hour.length < 13) return '--'
@@ -44,7 +46,6 @@ function catmullRom(points, yMin, yMax) {
 
 export function HourlyTrafficChart({ series = [] }) {
   const [hover, setHover] = useState(null)
-  const [cursorX, setCursorX] = useState(null)
 
   const points = useMemo(() => {
     const rows = Array.isArray(series) && series.length ? series : []
@@ -76,17 +77,16 @@ export function HourlyTrafficChart({ series = [] }) {
   const onMove = (e) => {
     const svg = e.currentTarget
     const rect = svg.getBoundingClientRect()
-    const x = Math.min(axisRight, Math.max(axisLeft, ((e.clientX - rect.left) / rect.width) * W))
-    setCursorX(x)
+    const x = ((e.clientX - rect.left) / rect.width) * W
     let best = 0
     let bestDist = Infinity
-    coords.forEach((p, i) => {
-      const d = Math.abs(p.x - x)
+    for (let i = 0; i < coords.length; i++) {
+      const d = Math.abs(coords[i].x - x)
       if (d < bestDist) {
         bestDist = d
         best = i
       }
-    })
+    }
     setHover(best)
   }
 
@@ -97,7 +97,7 @@ export function HourlyTrafficChart({ series = [] }) {
     <div className="card mb-5 overflow-hidden">
       <div className="card-header">
         <h3 className="text-[15px] font-bold flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[color:var(--brand-from)]" />
+          <span className="w-2 h-2 rounded-full" style={{ background: CURVE }} />
           24小时流量统计
         </h3>
       </div>
@@ -105,8 +105,9 @@ export function HourlyTrafficChart({ series = [] }) {
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="w-full h-[240px] sm:h-[280px] select-none"
+          style={{ touchAction: 'none' }}
           onMouseMove={onMove}
-          onMouseLeave={() => { setHover(null); setCursorX(null) }}
+          onMouseLeave={() => setHover(null)}
           role="img"
           aria-label="近 24 小时实际流量"
         >
@@ -128,7 +129,7 @@ export function HourlyTrafficChart({ series = [] }) {
             x2={axisRight}
             y1={axisY}
             y2={axisY}
-            stroke="var(--color-ink-mut)"
+            stroke={AXIS}
             strokeWidth="1.6"
             strokeLinecap="round"
           />
@@ -141,8 +142,8 @@ export function HourlyTrafficChart({ series = [] }) {
           ))}
           <defs>
             <linearGradient id="hourlyFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--brand-from)" stopOpacity="0.22" />
-              <stop offset="100%" stopColor="var(--brand-from)" stopOpacity="0.02" />
+              <stop offset="0%" stopColor={CURVE} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={CURVE} stopOpacity="0.02" />
             </linearGradient>
           </defs>
           {area && <path d={area} fill="url(#hourlyFill)" />}
@@ -150,25 +151,25 @@ export function HourlyTrafficChart({ series = [] }) {
             <path
               d={line}
               fill="none"
-              stroke="var(--brand-from)"
+              stroke={CURVE}
               strokeWidth="1.25"
               strokeLinejoin="round"
               strokeLinecap="round"
             />
           )}
-          {cursorX != null && (
-            <line
-              x1={cursorX}
-              x2={cursorX}
-              y1={PAD.top}
-              y2={axisY}
-              stroke="var(--color-ink-mut)"
-              strokeWidth="1.1"
-              strokeDasharray="3 4"
-            />
-          )}
           {active && (
-            <circle cx={active.x} cy={active.y} r="4" fill="var(--color-surface)" stroke="var(--brand-from)" strokeWidth="1.6" />
+            <>
+              <line
+                x1={active.x}
+                x2={active.x}
+                y1={PAD.top}
+                y2={axisY}
+                stroke={AXIS}
+                strokeWidth="1.1"
+                strokeDasharray="3 4"
+              />
+              <circle cx={active.x} cy={active.y} r="4" fill="var(--color-surface)" stroke={CURVE} strokeWidth="1.6" />
+            </>
           )}
         </svg>
         {active && (
@@ -177,7 +178,7 @@ export function HourlyTrafficChart({ series = [] }) {
             style={{ left: `${tipLeft}%` }}
           >
             <div className="text-ink font-semibold">时间: {hourLabel(active.hour)}</div>
-            <div className="mt-0.5" style={{ color: 'var(--brand-from)' }}>流量: {fmtBytes(active.bytes)}</div>
+            <div className="mt-0.5" style={{ color: CURVE }}>流量: {fmtBytes(active.bytes)}</div>
           </div>
         )}
       </div>
