@@ -294,39 +294,84 @@ type nodeRepoCFSession struct {
 	recordName string
 }
 
-// nodeRepoCFSession builds a CF client and resolves zone + record name.
-// persistZoneID writes the looked-up zone onto an existing repo row.
-func (s *Server) nodeRepoCFSession(ctx context.Context, host, zoneID, recordName string, persist *db.NodeRepoEntry) (nodeRepoCFSession, error) {
+// cfClientAndZone builds a CF client and resolves Zone ID (explicit or system default).
+func (s *Server) cfClientAndZone(ctx context.Context, zoneID string) (*cloudflare.Client, string, error) {
 	token, _ := db.GetSetting(s.DB, "cf_api_token")
 	if strings.TrimSpace(token) == "" {
-		return nodeRepoCFSession{}, fmt.Errorf("未配置 Cloudflare API Token（请到系统设置填写）")
+		return nil, "", fmt.Errorf("未配置 Cloudflare API Token（请到系统设置填写）")
 	}
 	cli := &cloudflare.Client{Token: token}
 	if base, _ := db.GetSetting(s.DB, "cf_api_base"); strings.TrimSpace(base) != "" {
 		cli.BaseURL = strings.TrimSpace(base)
 	}
+	zid := strings.TrimSpace(zoneID)
+	if zid != "" {
+		return cli, zid, nil
+	}
+	zoneName, _ := db.GetSetting(s.DB, "cf_zone_name")
+	zoneName = strings.TrimSpace(zoneName)
+	if zoneName == "" {
+		return nil, "", fmt.Errorf("未指定 Zone（条目 cf_zone_id 为空且系统未设默认 Zone）")
+	}
+	id, err := cli.ResolveZoneID(ctx, zoneName)
+	if err != nil {
+		return nil, "", err
+	}
+	return cli, id, nil
+}
+
+func firstIPv4(vals ...string) string {
+	for _, v := range vals {
+		v = strings.TrimSpace(v)
+		if cloudflare.IsIPv4(v) {
+			return v
+		}
+	}
+	return ""
+}
+
+func pickARecordByContent(recs []cloudflare.DNSRecord, prefer string) cloudflare.DNSRecord {
+	prefer = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(prefer)), ".")
+	if prefer != "" {
+		for _, rec := range recs {
+			if strings.TrimSuffix(strings.ToLower(rec.Name), ".") == prefer {
+				return rec
+			}
+		}
+	}
+	return recs[0]
+}
+
+func cfLookupNames(recs []cloudflare.DNSRecord) []string {
+	out := make([]string, 0, len(recs))
+	seen := map[string]bool{}
+	for _, rec := range recs {
+		name := strings.TrimSuffix(rec.Name, ".")
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+// nodeRepoCFSession builds a CF client and resolves zone + record name.
+// persistZoneID writes the looked-up zone onto an existing repo row.
+func (s *Server) nodeRepoCFSession(ctx context.Context, host, zoneID, recordName string, persist *db.NodeRepoEntry) (nodeRepoCFSession, error) {
 	name, err := cfRecordHost(host, recordName)
 	if err != nil {
 		return nodeRepoCFSession{}, err
 	}
-	zid := strings.TrimSpace(zoneID)
-	if zid == "" {
-		zoneName, _ := db.GetSetting(s.DB, "cf_zone_name")
-		zoneName = strings.TrimSpace(zoneName)
-		if zoneName == "" {
-			return nodeRepoCFSession{}, fmt.Errorf("未指定 Zone（条目 cf_zone_id 为空且系统未设默认 Zone）")
-		}
-		id, err := cli.ResolveZoneID(ctx, zoneName)
-		if err != nil {
-			return nodeRepoCFSession{}, err
-		}
-		zid = id
-		if persist != nil && persist.ID > 0 {
-			_ = db.UpdateNodeRepoEntry(s.DB, persist.ID, persist.Name, persist.Protocol, persist.Host, persist.Port, persist.URI, persist.Remark, persist.ExpiresAt, persist.GroupName, db.NodeRepoCFFields{
-				BackendIP: persist.BackendIP, CFSync: persist.CFSync, CFZoneID: zid, CFRecordName: persist.CFRecordName,
-			})
-			persist.CFZoneID = zid
-		}
+	cli, zid, err := s.cfClientAndZone(ctx, zoneID)
+	if err != nil {
+		return nodeRepoCFSession{}, err
+	}
+	if persist != nil && persist.ID > 0 && strings.TrimSpace(persist.CFZoneID) == "" && zid != "" {
+		_ = db.UpdateNodeRepoEntry(s.DB, persist.ID, persist.Name, persist.Protocol, persist.Host, persist.Port, persist.URI, persist.Remark, persist.ExpiresAt, persist.GroupName, db.NodeRepoCFFields{
+			BackendIP: persist.BackendIP, CFSync: persist.CFSync, CFZoneID: zid, CFRecordName: persist.CFRecordName,
+		})
+		persist.CFZoneID = zid
 	}
 	return nodeRepoCFSession{
 		cli:        cli,
@@ -622,12 +667,15 @@ func (s *Server) apiResyncNodeRepoCF(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true, "node": n, "cf_sync": cfResult})
 }
 
-// apiLookupNodeRepoCF reads the current A record from Cloudflare and
-// returns its IPv4 so the add/edit form can fill 「当前 IP」. Does not write
-// DNS and does not require a saved repo row.
+// apiLookupNodeRepoCF reads Cloudflare DNS for the add/edit form.
+// With an IPv4 (当前 IP / host) and no record name, it finds the matching A
+// record and returns the domain so the UI can fill 「记录名」. With a record
+// name it still returns that A record's IPv4.
 func (s *Server) apiLookupNodeRepoCF(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Host         string `json:"host"`
+		IP           string `json:"ip"`
+		BackendIP    string `json:"backend_ip"`
 		CFZoneID     string `json:"cf_zone_id"`
 		CFRecordName string `json:"cf_record_name"`
 	}
@@ -639,13 +687,49 @@ func (s *Server) apiLookupNodeRepoCF(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.TrimSpace(body.Host)
 	recordName := strings.TrimSpace(body.CFRecordName)
+	ip := firstIPv4(body.BackendIP, body.IP, host)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	if ip != "" && recordName == "" {
+		cli, zid, err := s.cfClientAndZone(ctx, strings.TrimSpace(body.CFZoneID))
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		recs, err := cli.FindARecordsByContent(ctx, zid, ip)
+		if err != nil {
+			jsonErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		if len(recs) == 0 {
+			jsonErr(w, http.StatusNotFound, "Cloudflare 上没有指向 "+ip+" 的 A 记录")
+			return
+		}
+		chosen := pickARecordByContent(recs, host)
+		names := cfLookupNames(recs)
+		msg := "已根据 IP 同步记录名 " + chosen.Name
+		if len(names) > 1 {
+			msg += "（同 IP 共 " + strconv.Itoa(len(names)) + " 条）"
+		}
+		jsonOK(w, map[string]any{
+			"ok":      true,
+			"ip":      ip,
+			"record":  chosen.Name,
+			"records": names,
+			"zone_id": zid,
+			"proxied": chosen.Proxied,
+			"ttl":     chosen.TTL,
+			"message": msg,
+		})
+		return
+	}
+
 	name, err := cfRecordHost(host, recordName)
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
 	sess, err := s.nodeRepoCFSession(ctx, name, strings.TrimSpace(body.CFZoneID), recordName, nil)
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, err.Error())

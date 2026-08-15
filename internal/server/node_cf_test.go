@@ -243,10 +243,52 @@ func TestNodeCFRejectedOnComposite(t *testing.T) {
 	req.AddCookie(admin)
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400 on composite, got %d %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("want 400 on composite, got %d %s", rec.Code, rec.Body.String())
+		}
 	}
-}
+
+	func TestNodeCFLookupByRelayIP(t *testing.T) {
+		d := openDB(t)
+		s := newServer(t, d)
+		admin := loginAsAdmin(t, d)
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.Method == "GET" && strings.Contains(r.URL.Path, "/dns_records") {
+				_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"id":"r1","type":"A","name":"line.example.com","content":"203.0.113.50","ttl":1,"proxied":false}]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[]}`))
+		}))
+		t.Cleanup(srv.Close)
+		_ = db.SetSetting(d, "cf_api_token", "tok")
+		_ = db.SetSetting(d, "cf_api_base", srv.URL)
+
+		n, err := db.CreateNode(d, "line-lookup", "https://p", "tok-lu")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.UpdateNodeRelayHost(d, n.ID, "203.0.113.50"); err != nil {
+			t.Fatal(err)
+		}
+
+		req := newTestRequest("POST", "/api/nodes/"+itoa(n.ID)+"/cf-lookup", bytes.NewReader([]byte(`{"cf_zone_id":"z1"}`)))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(admin)
+		rec := httptest.NewRecorder()
+		s.Router().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("lookup %d %s", rec.Code, rec.Body.String())
+		}
+		var looked map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &looked); err != nil {
+			t.Fatal(err)
+		}
+		if looked["record"] != "line.example.com" || looked["ip"] != "203.0.113.50" {
+			t.Fatalf("lookup=%v", looked)
+		}
+	}
 
 func TestListNodesIncludesCFDefaults(t *testing.T) {
 	d := openDB(t)

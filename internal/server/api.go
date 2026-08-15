@@ -1279,6 +1279,81 @@ func (s *Server) apiSetNodeBackendIP(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true, "node": node, "cf_sync": cfResult})
 }
 
+// apiLookupNodeCF finds the Cloudflare A-record name for this line node's
+// 中继 / 当前 IPv4 and returns it so the form can fill 「记录名」. Does not write DNS.
+func (s *Server) apiLookupNodeCF(w http.ResponseWriter, r *http.Request) {
+	id, err := urlParamInt64(r, "id")
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	node, err := db.GetNode(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusNotFound, "节点不存在")
+		return
+	}
+	if node.NodeType == "composite" {
+		jsonErr(w, http.StatusBadRequest, "组合节点请在入口物理节点上配置 CF")
+		return
+	}
+	var body struct {
+		IP        string `json:"ip"`
+		BackendIP string `json:"backend_ip"`
+		CFZoneID  string `json:"cf_zone_id"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := decodeJSON(r, &body); err != nil {
+			jsonErr(w, http.StatusBadRequest, "请求格式错误")
+			return
+		}
+	}
+	ip := firstIPv4(body.BackendIP, body.IP, node.BackendIP, node.RelayHost)
+	if ip == "" {
+		jsonErr(w, http.StatusBadRequest, "请先填写当前 IP 或中继 IP")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	zoneID := strings.TrimSpace(body.CFZoneID)
+	if zoneID == "" {
+		zoneID = node.CFZoneID
+	}
+	cli, zid, err := s.cfClientAndZone(ctx, zoneID)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	recs, err := cli.FindARecordsByContent(ctx, zid, ip)
+	if err != nil {
+		jsonErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if len(recs) == 0 {
+		jsonErr(w, http.StatusNotFound, "Cloudflare 上没有指向 "+ip+" 的 A 记录")
+		return
+	}
+	prefer := node.CFRecordName
+	if prefer == "" {
+		prefer = node.RelayHost
+	}
+	chosen := pickARecordByContent(recs, prefer)
+	names := cfLookupNames(recs)
+	msg := "已根据中继 IP 同步记录名 " + chosen.Name
+	if len(names) > 1 {
+		msg += "（同 IP 共 " + strconv.Itoa(len(names)) + " 条）"
+	}
+	jsonOK(w, map[string]any{
+		"ok":      true,
+		"ip":      ip,
+		"record":  chosen.Name,
+		"records": names,
+		"zone_id": zid,
+		"proxied": chosen.Proxied,
+		"ttl":     chosen.TTL,
+		"message": msg,
+	})
+}
+
 // apiResyncNodeCF re-pushes the A record without changing other fields.
 func (s *Server) apiResyncNodeCF(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())

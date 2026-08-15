@@ -563,22 +563,27 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
   const pullFromCF = async () => {
     const host = form.host.trim()
     const recordName = form.cf_record_name.trim()
-    const looksIP = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || (s.includes(':') && !/[a-zA-Z]/.test(s))
-    if (!host && !recordName) { toast('请先填写目标地址或记录名', 'error'); return }
-    if (looksIP(host) && !recordName) {
-      toast('目标地址是 IP 时，请先填写记录名（要同步的域名）', 'error')
-      return
-    }
+    const backendIP = form.backend_ip.trim()
+    const looksIP = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s)
+    const ip = looksIP(backendIP) ? backendIP : (looksIP(host) ? host : '')
+    if (!ip && !recordName && !host) { toast('请先填写当前 IP、目标地址或记录名', 'error'); return }
     setCfPulling(true)
     try {
       const d = await api.post('/node-repo/cf-lookup', {
         host,
+        backend_ip: backendIP,
+        ip,
         cf_zone_id: form.cf_zone_id,
         cf_record_name: recordName,
       })
-      if (!d?.ip) { toast(d?.message || 'Cloudflare 上没有这条 A 记录', 'error'); return }
-      setForm(f => ({ ...f, backend_ip: d.ip, cf_sync: true }))
-      toast(d.message || `已从 Cloudflare 拉取 ${d.ip}`)
+      setForm(f => ({
+        ...f,
+        backend_ip: d?.ip || f.backend_ip,
+        cf_record_name: d?.record || f.cf_record_name,
+        cf_zone_id: d?.zone_id || f.cf_zone_id,
+        cf_sync: true,
+      }))
+      toast(d.message || (d?.record ? `已同步记录名 ${d.record}` : `已从 Cloudflare 拉取 ${d?.ip || ''}`))
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -722,12 +727,12 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[13px] font-bold text-ink">Cloudflare DNS</div>
-                <div className="text-[11px] text-ink-mut">可选。从 CF 拉取当前 A 记录，或保存时把 IP 写回去（灰云）。目标是 IP 时在右侧填域名。</div>
+                <div className="text-[11px] text-ink-mut">可选。根据当前 IP 从 CF 同步域名到记录名，或保存时把 IP 写回去（灰云）。</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button type="button" disabled={cfPulling} onClick={pullFromCF}
                   className="h-7 px-2.5 rounded-lg text-[12px] font-semibold border border-line bg-surface text-ink-soft hover:bg-raised hover:text-ink disabled:opacity-50">
-                  {cfPulling ? '拉取中…' : '从 CF 拉取'}
+                  {cfPulling ? '同步中…' : '从 CF 同步'}
                 </button>
               <button type="button" role="switch" aria-checked={form.cf_sync}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${form.cf_sync ? 'bg-[color:var(--brand-from)]' : 'bg-gray-500'}`}

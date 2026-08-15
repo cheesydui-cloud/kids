@@ -444,20 +444,51 @@ func TestNodeRepoChangeIPAndProbe(t *testing.T) {
 	}
 }
 
-func TestNodeRepoCFLookupRequiresDomain(t *testing.T) {
+func TestNodeRepoCFLookupByIPFillsRecordName(t *testing.T) {
 	d := openDB(t)
 	s := newServer(t, d)
 	admin := loginAsAdmin(t, d)
-	req := newTestRequest("POST", "/api/node-repo/cf-lookup", bytes.NewReader([]byte(`{"host":"1.2.3.4"}`)))
+
+	var sawContent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "GET" && strings.Contains(r.URL.Path, "/dns_records") {
+			sawContent = r.URL.Query().Get("content")
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"id":"r1","type":"A","name":"node.example.com","content":"82.22.26.185","ttl":1,"proxied":false}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	_ = db.SetSetting(d, "cf_api_token", "tok")
+	_ = db.SetSetting(d, "cf_api_base", srv.URL)
+
+	req := newTestRequest("POST", "/api/node-repo/cf-lookup", bytes.NewReader([]byte(`{"backend_ip":"82.22.26.185","cf_zone_id":"z1"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lookup %d %s", rec.Code, rec.Body.String())
+	}
+	var looked map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &looked)
+	if looked["record"] != "node.example.com" || looked["ip"] != "82.22.26.185" {
+		t.Fatalf("lookup=%v content=%q", looked, sawContent)
+	}
+}
+
+func TestNodeRepoCFLookupRequiresIPOrDomain(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+	req := newTestRequest("POST", "/api/node-repo/cf-lookup", bytes.NewReader([]byte(`{}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(admin)
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "记录名") {
-		t.Fatalf("want 记录名 hint, got %s", rec.Body.String())
 	}
 }
 

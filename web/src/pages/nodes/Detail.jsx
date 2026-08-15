@@ -152,6 +152,24 @@ export default function NodeDetail() {
     } catch (err) { toast(err.message, 'error') }
     finally { setCfBusy(false) }
   }
+  const pullFromCF = async () => {
+    const looksIP = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test((s || '').trim())
+    const ip = looksIP(backendIP) ? backendIP.trim() : (looksIP(relayHost) ? relayHost.trim() : '')
+    if (!ip) { toast('请先填写当前 IP 或中继 IP', 'error'); return }
+    setCfBusy(true)
+    try {
+      const d = await api.post(`/nodes/${id}/cf-lookup`, {
+        ip,
+        backend_ip: backendIP.trim(),
+        cf_zone_id: cfZoneID.trim(),
+      })
+      if (d?.record) setCfRecordName(d.record)
+      if (d?.ip && !backendIP.trim()) setBackendIP(d.ip)
+      if (d?.zone_id && !cfZoneID.trim()) setCfZoneID(d.zone_id)
+      toast(d.message || `已同步记录名 ${d?.record || ''}`)
+    } catch (err) { toast(err.message, 'error') }
+    finally { setCfBusy(false) }
+  }
   const resyncCF = async () => {
     setCfBusy(true)
     try {
@@ -473,6 +491,9 @@ export default function NodeDetail() {
                   )}
                   <div className="flex flex-wrap gap-2">
                     <button type="submit" className="btn-primary px-5" disabled={cfBusy}>{cfBusy ? '保存中…' : '保存 CF 配置'}</button>
+                    <button type="button" className="btn-secondary px-4" disabled={cfBusy} onClick={pullFromCF}>
+                      {cfBusy ? '同步中…' : '从 CF 同步'}
+                    </button>
                     {node.cf_sync && (
                       <>
                         <button type="button" className="btn-secondary px-4" disabled={cfBusy}

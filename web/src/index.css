@@ -657,6 +657,12 @@ input[type="radio"] {
   border-bottom: 1.5px solid var(--color-line-soft);
   color: var(--color-ink);
 }
+/* User-detail overview: four short columns need more air than list tables. */
+.tbl-roomy { table-layout: fixed; }
+.tbl-roomy th,
+.tbl-roomy td {
+  padding: 16px 22px;
+}
 .tbl tbody tr:last-child td { border-bottom: 0; }
 .tbl tbody tr { @apply transition-colors; }
 .tbl tbody tr:hover {

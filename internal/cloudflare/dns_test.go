@@ -137,6 +137,40 @@ func TestAPIErrorSurface(t *testing.T) {
 	}
 }
 
+func TestFindARecordsByContent(t *testing.T) {
+	var sawContent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		sawContent = r.URL.Query().Get("content")
+		writeCF(w, true, []DNSRecord{
+			{ID: "r1", Type: "A", Name: "node.example.com", Content: "82.22.26.185", TTL: 1, Proxied: false},
+			{ID: "r2", Type: "A", Name: "other.example.com", Content: "1.1.1.1", TTL: 1, Proxied: false},
+		})
+	}))
+	defer srv.Close()
+	c := &Client{Token: "tok", BaseURL: srv.URL, HTTPClient: srv.Client()}
+	recs, err := c.FindARecordsByContent(context.Background(), "zone1", "82.22.26.185")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sawContent != "82.22.26.185" {
+		t.Fatalf("content filter=%q", sawContent)
+	}
+	if len(recs) != 1 || recs[0].Name != "node.example.com" {
+		t.Fatalf("got %+v", recs)
+	}
+}
+
+func TestFindARecordsByContentRejectsBadIP(t *testing.T) {
+	c := &Client{Token: "tok"}
+	_, err := c.FindARecordsByContent(context.Background(), "z", "not-an-ip")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestGetARecord(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

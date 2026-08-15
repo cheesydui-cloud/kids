@@ -141,6 +141,47 @@ func (c *Client) GetARecord(ctx context.Context, zoneID, name string) (*DNSRecor
 	return c.findARecord(ctx, zoneID, name)
 }
 
+// FindARecordsByContent returns A records whose content equals ipv4.
+// Prefers Cloudflare's content filter, then scans the first page of A records.
+func (c *Client) FindARecordsByContent(ctx context.Context, zoneID, ipv4 string) ([]DNSRecord, error) {
+	zoneID = strings.TrimSpace(zoneID)
+	ipv4 = strings.TrimSpace(ipv4)
+	if zoneID == "" {
+		return nil, fmt.Errorf("Zone ID 不能为空")
+	}
+	if ip := net.ParseIP(ipv4); ip == nil || ip.To4() == nil {
+		return nil, fmt.Errorf("必须是 IPv4 地址")
+	}
+	tryPaths := []string{
+		fmt.Sprintf("/zones/%s/dns_records?type=A&content=%s&per_page=100", zoneID, urlQueryEscape(ipv4)),
+		fmt.Sprintf("/zones/%s/dns_records?type=A&per_page=100", zoneID),
+	}
+	var lastErr error
+	for i, path := range tryPaths {
+		var recs []DNSRecord
+		if err := c.do(ctx, http.MethodGet, path, nil, &recs); err != nil {
+			lastErr = err
+			continue
+		}
+		var matches []DNSRecord
+		for _, rec := range recs {
+			if rec.Content == ipv4 {
+				matches = append(matches, rec)
+			}
+		}
+		if len(matches) > 0 {
+			return matches, nil
+		}
+		// Filtered query already returned; still try the unfiltered page in case
+		// the content= filter is ignored or empty on this token/account.
+		_ = i
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, nil
+}
+
 // UpsertARecord ensures an A record name → ipv4 exists (create or update).
 // proxied is forced false (DNS-only) for landing exits.
 // ttl 1 means "automatic" in Cloudflare.

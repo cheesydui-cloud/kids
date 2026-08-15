@@ -247,13 +247,13 @@ export default function UserDetail() {
           {rules.length > 0 && (
             <SectionCard title="规则实时网速" subtitle={`共 ${rules.length} 条 · 仅管理员可见`}>
               <TableBox>
-                <table className="tbl">
+                <table className="tbl tbl-roomy">
                   <thead>
                     <tr>
-                      <th>名称</th>
-                      <th>节点</th>
-                      <th>实时</th>
-                      <th className="text-right">{rate !== 1 ? `用量(×${rate})` : '用量'}</th>
+                      <th className="w-[28%]">名称</th>
+                      <th className="w-[26%]">节点</th>
+                      <th className="w-[26%]">实时</th>
+                      <th className="w-[20%] text-right">{rate !== 1 ? `用量(×${rate})` : '用量'}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -271,13 +271,13 @@ export default function UserDetail() {
                             <td className="font-semibold">
                               <Link to={`/rules/${r.id}`} className="link-accent hover:underline">{r.name}</Link>
                             </td>
-                            <td className="font-mono text-xs text-ink-soft">{nodeMap[r.node_id]?.name || `#${r.node_id}`}</td>
-                            <td className="font-mono text-xs whitespace-nowrap">
+                            <td className="font-mono text-[13px] text-ink-soft">{nodeMap[r.node_id]?.name || `#${r.node_id}`}</td>
+                            <td className="font-mono text-[13px]">
                               <span className="text-emerald-600">↑{fmtSpeed(sp.up)}</span>
-                              {' '}
+                              <span className="inline-block w-3" />
                               <span className="text-emerald-600">↓{fmtSpeed(sp.down)}</span>
                             </td>
-                            <td className="text-right font-mono text-xs">{fmtBytes(Math.round((r.exit_bytes || 0) * rate))}</td>
+                            <td className="text-right font-mono text-[13px]">{fmtBytes(Math.round((r.exit_bytes || 0) * rate))}</td>
                           </tr>
                         )
                       })}
