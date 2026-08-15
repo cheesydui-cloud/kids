@@ -61,6 +61,12 @@ type Daemon struct {
 	owners       OwnerRuleset
 	meta         AgentMeta
 	lastResolved []nft.Rule
+
+	// panelSeen is the last time this process had a live panel session
+	// (hello_ack or still connected). The lease loop drops the panel
+	// segment when the panel stays gone past panelLease.
+	panelSeen  atomic.Int64
+	panelLease time.Duration // 0 = use panelLease(); tests inject a short value
 }
 
 // applySerialized runs dp.Reconcile under reconcileMu so concurrent callers

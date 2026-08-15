@@ -80,6 +80,16 @@ type DialerConfig struct {
 	GetState func() (OwnerRuleset, AgentMeta)
 	OnApply  func(ctx context.Context, rev string, rules []nft.Rule) (warning string, err error)
 
+	// OnSession fires after hello_ack is accepted. The daemon uses it
+	// to refresh the panel lease clock so a live session never expires.
+	OnSession func()
+
+	// OnHelloRejected fires when the panel answers hello with a
+	// non-empty Error (unknown token, reinstalled panel). The daemon
+	// drops the leftover panel segment immediately — waiting out the
+	// lease would leave user entry ports open on a dead control plane.
+	OnHelloRejected func()
+
 	// OnMigrated is called after a successful migrate_rules handshake.
 	// The daemon clears the tui segment so rules now live server-side only.
 	OnMigrated func()
@@ -417,9 +427,15 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 		return false, fmt.Errorf("unmarshal hello_ack: %w", err)
 	}
 	if ha.Error != "" {
+		if d.cfg.OnHelloRejected != nil {
+			d.cfg.OnHelloRejected()
+		}
 		return false, fmt.Errorf("hello rejected: %s", ha.Error)
 	}
 	helloAcked = true
+	if d.cfg.OnSession != nil {
+		d.cfg.OnSession()
+	}
 
 	// Store node identity from the server for status queries.
 	d.nodeMu.Lock()

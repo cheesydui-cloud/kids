@@ -23,6 +23,15 @@ const (
 	DefaultSocketPath = "/var/run/nft.sock"
 	DefaultStatePath  = "/var/lib/nft/state.json"
 	DefaultGroupName  = "nft"
+
+	// defaultPanelLease is how long a connected agent keeps panel-pushed
+	// listens after the WebSocket dies. Short enough that a dead or
+	// reinstalled panel stops user traffic; long enough that a panel
+	// restart or brief network blip does not flap every entry port.
+	defaultPanelLease = 2 * time.Minute
+	// panelLeaseTick is how often the lease loop re-checks the last
+	// successful panel session. Must be well under defaultPanelLease.
+	panelLeaseTick = 15 * time.Second
 )
 
 // safeGo starts a goroutine with panic recovery so a background crash does
@@ -262,6 +271,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 			DeclaredRelayHostV6: d.declaredRelayHostV6,
 			GetState:            d.SnapshotForDialer,
 			OnApply:             d.SetPanelRuleset,
+			OnSession:           d.markPanelSeen,
+			OnHelloRejected:     func() { d.dropPanelRuleset("hello rejected") },
 			OnMigrated:          d.clearTuiSegment,
 			CountersFn:          d.counterSamples,
 			CountersReadd:       d.reAddCounters,
@@ -273,6 +284,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		})
 		d.dialer.Store(dl)
 		safeGo(func() { dl.Run(ctx) })
+		safeGo(func() { d.panelLeaseLoop(ctx) })
 	}
 
 	var shutdownErr error
@@ -366,6 +378,99 @@ func (d *Daemon) RunWithSignals() error {
 	defer stop()
 	log.Printf("nft daemon: listening on %s", d.socketPath)
 	return d.Run(ctx)
+}
+
+// panelLease honours NFT_PANEL_LEASE for operators who need a longer
+// blip window. Zero / invalid / unset falls back to defaultPanelLease.
+// Tests set d.panelLease directly and never go through this helper.
+func panelLease() time.Duration {
+	if s := os.Getenv("NFT_PANEL_LEASE"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultPanelLease
+}
+
+func (d *Daemon) effectivePanelLease() time.Duration {
+	if d.panelLease > 0 {
+		return d.panelLease
+	}
+	return panelLease()
+}
+
+// markPanelSeen records that this process currently has (or just got)
+// a live panel session. Called from the dialer on hello_ack.
+func (d *Daemon) markPanelSeen() {
+	d.panelSeen.Store(time.Now().UnixNano())
+}
+
+// dropPanelRuleset tears down every panel-owned listen and forgets the
+// last-applied rev so a later reconnect cannot skip the empty push.
+// Used when hello is rejected (reinstalled panel, revoked token) and
+// when the panel lease expires. TUI / standalone rules are left alone.
+func (d *Daemon) dropPanelRuleset(reason string) {
+	d.mu.Lock()
+	n := len(d.owners["panel"])
+	d.mu.Unlock()
+	if n == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	_, _, _, err := d.reconcileOwners(ctx,
+		func(candidate OwnerRuleset) {
+			delete(candidate, "panel")
+		},
+		func(meta *AgentMeta) {
+			meta.LastAppliedRev = ""
+		},
+		true,
+	)
+	if err != nil {
+		log.Printf("daemon: drop panel ruleset (%s): %v", reason, err)
+		return
+	}
+	log.Printf("daemon: dropped %d panel rule(s) (%s) — entry ports closed", n, reason)
+}
+
+// panelLeaseLoop watches the last live panel session. After the lease
+// the kernel/userspace listens go away even if the panel never comes
+// back to push an empty ruleset (reinstall, disk wipe, power loss).
+// The clock starts at process start so an agent reboot while the panel
+// is already dead still expires leftover listens.
+func (d *Daemon) panelLeaseLoop(ctx context.Context) {
+	if d.panelSeen.Load() == 0 {
+		d.markPanelSeen()
+	}
+	tick := panelLeaseTick
+	lease := d.effectivePanelLease()
+	if lease < 2*time.Second && lease > 0 {
+		tick = 50 * time.Millisecond
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if dl := d.dialer.Load(); dl != nil && dl.IsConnected() {
+				d.markPanelSeen()
+				continue
+			}
+			seen := d.panelSeen.Load()
+			if seen == 0 {
+				d.markPanelSeen()
+				continue
+			}
+			age := time.Since(time.Unix(0, seen))
+			if age < d.effectivePanelLease() {
+				continue
+			}
+			d.dropPanelRuleset(fmt.Sprintf("panel lease expired after %s", age.Round(time.Second)))
+		}
+	}
 }
 
 // SetPanelRuleset is invoked by the dialer when an apply_ruleset frame
