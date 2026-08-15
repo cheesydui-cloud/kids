@@ -48,7 +48,17 @@ export default function UserList() {
   if (loading && !data) return <Layout><Loading /></Layout>
   if (!data && error) return <Layout><Empty title="加载失败" desc={error}><button onClick={load} className="btn-secondary text-xs mt-3">重试</button></Empty></Layout>
 
-  const { users = [] } = data || {}
+  const { users: allUsers = [] } = data || {}
+  const hiddenAdmin = allUsers.find(u => u.username === 'admin')
+  const users = allUsers.filter(u => u.username !== 'admin')
+  const visibleUngrouped = hiddenAdmin && !(hiddenAdmin.group_id > 0)
+    ? Math.max(0, ungrouped - 1)
+    : ungrouped
+  const visibleFolders = hiddenAdmin && hiddenAdmin.group_id > 0
+    ? folders.map(f => f.id === hiddenAdmin.group_id
+      ? { ...f, count: Math.max(0, (f.count || 0) - 1) }
+      : f)
+    : folders
   const folderName = (id) => folders.find(f => f.id === id)?.name || ''
 
   const moveToFolder = async (folderId) => {
@@ -98,8 +108,8 @@ export default function UserList() {
       <Panel fill>
         <PanelToolbar>
           <FolderBar
-            folders={folders}
-            ungrouped={ungrouped}
+            folders={visibleFolders}
+            ungrouped={visibleUngrouped}
             total={users.length}
             filter={folderFilter}
             onFilter={f => { setFolderFilter(f); setSel(new Set()) }}
@@ -189,7 +199,7 @@ export default function UserList() {
 
       <CreateUserModal open={showCreate} onClose={() => setShowCreate(false)} onDone={(userId) => { setShowCreate(false); userId ? navigate(`/users/${userId}`) : load() }} />
       <PasteGrantsModal open={showPaste} onClose={() => setShowPaste(false)} onDone={load}
-        allNodes={allNodes} allUsers={users} preSelectedUserIds={[]} />
+        allNodes={allNodes.filter(n => n.node_type !== 'self')} allUsers={users} preSelectedUserIds={[]} />
 
       {showMove && (
         <MoveToFolderModal

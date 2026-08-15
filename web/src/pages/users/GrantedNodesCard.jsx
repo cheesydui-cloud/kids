@@ -153,7 +153,7 @@ function GrantNodeForm({ userId, allNodes, grantedNodes, onDone }) {
   if (!allNodes?.length) return <Empty desc={<Link to="/nodes" className="link-accent text-xs">请先创建节点</Link>} />
 
   const grantedIds = new Set((grantedNodes || []).map(n => n.id))
-  const available = allNodes.filter(n => !grantedIds.has(n.id))
+  const available = allNodes.filter(n => n.node_type !== 'self' && !grantedIds.has(n.id))
   if (!available.length) return <div className="text-xs text-ink-mut">所有节点均已授权</div>
 
   const submit = async (e) => {

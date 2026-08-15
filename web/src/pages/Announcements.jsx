@@ -156,7 +156,7 @@ export default function Announcements() {
 
       {formOpen && (
         <AnnouncementForm
-          users={users}
+          users={users.filter(u => u.username !== 'admin')}
           initial={editAnn}
           onClose={() => { setFormOpen(false); setEditAnn(null) }}
           onDone={() => { setFormOpen(false); setEditAnn(null); load() }}

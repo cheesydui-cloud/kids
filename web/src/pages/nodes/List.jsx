@@ -62,7 +62,9 @@ export default function NodeList() {
   if (loading && !data) return <Layout><Loading /></Layout>
   if (!data && error) return <Layout><Empty title="加载失败" desc={error}><button onClick={load} className="btn-secondary text-xs mt-3">重试</button></Empty></Layout>
 
-  const { nodes = [], latest_agent_version, latest_agent_sha, node_traffic = {}, node_raw_traffic = {} } = data || {}
+  const { nodes: allNodes = [], latest_agent_version, latest_agent_sha, node_traffic = {}, node_raw_traffic = {} } = data || {}
+  const hiddenSelf = allNodes.filter(n => n.node_type === 'self')
+  const nodes = allNodes.filter(n => n.node_type !== 'self')
   // Older installers (and failed release-tag resolution) write "latest" into
   // /etc/nft/agent.version. When the binary SHA matches the server's target
   // agent SHA, the node is actually on the latest release — show the concrete
@@ -117,9 +119,10 @@ export default function NodeList() {
   const saveOrder = async (visibleList) => {
     const otherIds = (tab === 'composite' ? singleNodes : compositeNodes).map(n => n.id)
     const tabIds = visibleList.map(n => n.id)
-    const allIds = tab === 'composite' ? [...otherIds, ...tabIds] : [...tabIds, ...otherIds]
-    const byId = Object.fromEntries(nodes.map(n => [n.id, n]))
-    setData(d => ({ ...d, nodes: allIds.map(id => byId[id]) }))
+    const hiddenIds = hiddenSelf.map(n => n.id)
+    const allIds = tab === 'composite' ? [...hiddenIds, ...otherIds, ...tabIds] : [...hiddenIds, ...tabIds, ...otherIds]
+    const byId = Object.fromEntries(allNodes.map(n => [n.id, n]))
+    setData(d => ({ ...d, nodes: allIds.map(id => byId[id]).filter(Boolean) }))
     try { await api.post('/nodes/reorder', { ids: allIds }); toast('顺序已保存') } catch (err) { toast(err.message, 'error'); load() }
   }
   const onDrop = async (toIndex) => {

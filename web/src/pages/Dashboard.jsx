@@ -36,11 +36,19 @@ export default function Dashboard() {
 
   useEffect(() => { load() }, [])
 
-  const attention = useMemo(() => buildAttention(data, users), [data, users])
-  const opsSummary = useMemo(() => buildOpsSummary(data, users), [data, users])
+  const visibleData = useMemo(() => {
+    if (!data) return data
+    return { ...data, nodes: (data.nodes || []).filter(n => n.node_type !== 'self') }
+  }, [data])
+  const tenantUsers = useMemo(
+    () => (Array.isArray(users) ? users.filter(u => u.username !== 'admin') : users),
+    [users],
+  )
+  const attention = useMemo(() => buildAttention(visibleData, tenantUsers), [visibleData, tenantUsers])
+  const opsSummary = useMemo(() => buildOpsSummary(visibleData, tenantUsers), [visibleData, tenantUsers])
   const expiryCalendar = useMemo(
-    () => buildExpiryCalendar(users, data?.landing_expiring || []),
-    [users, data?.landing_expiring],
+    () => buildExpiryCalendar(tenantUsers, data?.landing_expiring || []),
+    [tenantUsers, data?.landing_expiring],
   )
 
   if (loading) return <Layout><Loading /></Layout>
@@ -52,7 +60,10 @@ export default function Dashboard() {
     )
   }
 
-  const { nodes = [], node_traffic = {}, rule_count = 0, rule_count_by_node = {}, total_bytes = 0, user_count = 0, today_raw_bytes = 0 } = data
+  const { nodes: allDashNodes = [], node_traffic = {}, rule_count = 0, rule_count_by_node = {}, total_bytes = 0, user_count = 0, today_raw_bytes = 0 } = data
+  const nodes = allDashNodes.filter(n => n.node_type !== 'self')
+  const visibleUsers = Array.isArray(users) ? users.filter(u => u.username !== 'admin') : null
+  const visibleUserCount = visibleUsers ? visibleUsers.length : user_count
   const onlineCount = nodes.filter(n => !n.disabled && n.online === 1).length
   const offline = nodes.filter(n => n.disabled || n.online !== 1).map(n => n.name)
   const ruleCount = rule_count_by_node
@@ -79,7 +90,7 @@ export default function Dashboard() {
           icon={<><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></>} />
         <StatCard label="当日流量（实际）" value={fmtBytes(today_raw_bytes || 0)} sub="今日实际上行+下行 · 北京时间0点切日"
           icon={<><path d="M12 3v18"/><path d="m5 12 7-7 7 7"/></>} />
-        <StatCard label="用户" value={user_count} sub="系统用户数"
+        <StatCard label="用户" value={visibleUserCount} sub="系统用户数"
           icon={<><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="3.5"/></>} />
       </div>
 
