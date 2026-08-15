@@ -392,7 +392,6 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.collectUserSub(u)
 	uriURL, clashURL, mihomoURL := s.subscribeURLs(r, token)
-	showRate, _ := db.GetSetting(s.DB, "show_rate_to_user")
 	var expires any
 	if u.ExpiresAt.Valid && u.ExpiresAt.Int64 != 0 {
 		expires = u.ExpiresAt.Int64
@@ -408,7 +407,6 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 		"mihomo_url": mihomoURL,
 		"items":      p.Items,
 		"skipped":    p.Skipped,
-		"show_rate":  showRate == "1",
 		"account": map[string]any{
 			"username":                 u.Username,
 			"disabled":                 u.Disabled,

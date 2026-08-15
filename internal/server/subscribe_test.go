@@ -193,10 +193,17 @@ func TestSubscribeUserinfoUsesBillingRate(t *testing.T) {
 		t.Fatalf("subscribe: %d %s", rec.Code, rec.Body.String())
 	}
 	var body struct {
-		Token string `json:"token"`
+		Token   string `json:"token"`
+		Account struct {
+			Used int64   `json:"traffic_used_bytes"`
+			Rate float64 `json:"billing_rate"`
+		} `json:"account"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
+	}
+	if body.Account.Used != 1000 || body.Account.Rate != 2 {
+		t.Fatalf("account used/rate = %d/%g", body.Account.Used, body.Account.Rate)
 	}
 
 	pub := newTestRequest("GET", "/api/v1/sub?token="+body.Token, nil)

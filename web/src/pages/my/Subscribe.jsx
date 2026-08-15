@@ -125,8 +125,8 @@ export default function MySubscribe() {
   if (loading) return <Layout><Loading /></Layout>
 
   const expiresAt = account.expires_at && account.expires_at > 0 ? account.expires_at : null
-  const rate = account.billing_rate ?? 1
-  const used = Math.round((account.traffic_used_bytes || 0) * (data?.show_rate ? rate : 1))
+  const rate = Number(account.billing_rate)
+  const used = Math.round((account.traffic_used_bytes || 0) * (rate > 0 ? rate : 1))
   const quota = account.traffic_quota_bytes || 0
   const empty = items.length === 0
   const expired = !!(expiresAt && isExpired(expiresAt))
@@ -174,7 +174,7 @@ export default function MySubscribe() {
             <strong>{account.username || '—'}</strong>
           </div>
           <div>
-            <span className="sub-account-k">{data?.show_rate ? '流量（计费）' : '流量'}</span>
+            <span className="sub-account-k">流量</span>
             <strong className="font-mono">
               {fmtTrafficGB(used, quota)}
               {quota > 0 && <span className="text-ink-mut font-sans font-medium"> · {pct(used, quota)}%</span>}
