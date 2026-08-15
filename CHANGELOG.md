@@ -9,6 +9,25 @@
 
 ---
 
+## v0.2.17 — 2026-08-15
+
+手机订阅页把账户、流量、到期收成一张卡。
+
+### 改进
+
+- 账户概览不再叠三张空盒子；手机上一行标签、一行数值，桌面仍是三列合在一块
+
+### 升级注意
+
+- 只改面板，节点 agent 不用动
+- 面板升级：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.2.16 — 2026-08-15
 
 客户端订阅信息里的已用流量按计费倍率显示。

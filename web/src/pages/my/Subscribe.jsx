@@ -168,7 +168,7 @@ export default function MySubscribe() {
           </div>
         )}
 
-        <section className="sub-account">
+        <section className="sub-account" aria-label="账户概览">
           <div>
             <span className="sub-account-k">账户</span>
             <strong>{account.username || '—'}</strong>
