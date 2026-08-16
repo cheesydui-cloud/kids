@@ -57,12 +57,33 @@ func TestClassifyExit(t *testing.T) {
 		}
 	})
 
-	t.Run("no entry yet skips relay uri", func(t *testing.T) {
-		it := ruleListItem{Rule: &db.Rule{ExitHost: "1.2.3.4", ExitPort: 443},
-			Entry: "—", Exit: "1.2.3.4:443"}
-		it.classifyExit(idx, true)
-		if it.ExitKind != "landing" || it.RelayURI != "" {
-			t.Fatalf("kind=%q relay=%q, want landing with empty relay", it.ExitKind, it.RelayURI)
-		}
-	})
-}
+		t.Run("no entry yet skips relay uri", func(t *testing.T) {
+			it := ruleListItem{Rule: &db.Rule{ExitHost: "1.2.3.4", ExitPort: 443},
+				Entry: "—", Exit: "1.2.3.4:443"}
+			it.classifyExit(idx, true)
+			if it.ExitKind != "landing" || it.RelayURI != "" {
+				t.Fatalf("kind=%q relay=%q, want landing with empty relay", it.ExitKind, it.RelayURI)
+			}
+		})
+
+		t.Run("domain entry omits raw ipv6 twin", func(t *testing.T) {
+			it := ruleListItem{Rule: &db.Rule{ExitHost: "1.2.3.4", ExitPort: 443},
+				Entry: "per-year.cnodelink.com:10401", EntryV6: "[2001:db8::1]:10401", Exit: "1.2.3.4:443"}
+			it.classifyExit(idx, true)
+			if it.RelayURI == "" {
+				t.Fatal("want domain relay_uri")
+			}
+			if it.RelayURIV6 != "" {
+				t.Fatalf("relay_uri_v6 = %q, want empty when entry is a hostname", it.RelayURIV6)
+			}
+		})
+
+		t.Run("bare ipv4 entry still emits ipv6 twin", func(t *testing.T) {
+			it := ruleListItem{Rule: &db.Rule{ExitHost: "1.2.3.4", ExitPort: 443},
+				Entry: "10.0.0.1:10401", EntryV6: "[2001:db8::1]:10401", Exit: "1.2.3.4:443"}
+			it.classifyExit(idx, true)
+			if it.RelayURIV6 == "" {
+				t.Fatal("want relay_uri_v6 for dual-stack IP entry")
+			}
+		})
+	}

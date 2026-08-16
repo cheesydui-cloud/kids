@@ -223,7 +223,8 @@ export function enrichRuleWithLanding(rule, landingIdx) {
     landing_protocol: node.protocol,
     relay_uri: relay,
   }
-  if (rule.entry_v6) {
+  // Domain entry is already the client-facing name — skip the raw IPv6 twin.
+  if (rule.entry_v6 && ep && looksBareIP(ep.host)) {
     const ep6 = splitEndpoint(rule.entry_v6)
     const relay6 = ep6 && rewriteEndpoint(node.uri, ep6.host, ep6.port)
     if (relay6) out.relay_uri_v6 = relay6

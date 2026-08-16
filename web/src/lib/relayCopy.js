@@ -15,6 +15,34 @@ function exitKey(host, port) {
   return `${host}:${port}`
 }
 
+function hostLooksLikeIP(host) {
+  const v = String(host || '').trim().replace(/^\[|\]$/g, '')
+  if (!v) return false
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return true
+  return v.includes(':') && !/[a-zA-Z]/.test(v)
+}
+
+function entryLooksLikeHostname(entry) {
+  const s = String(entry || '').trim()
+  if (!s) return false
+  const m = s.match(/^\[([^\]]+)\]:(\d+)$/) || s.match(/^([^:]+):(\d+)$/)
+  const host = m ? m[1] : s
+  return !!host && !hostLooksLikeIP(host)
+}
+
+function uriHostLooksLikeHostname(uri) {
+  const s = String(uri || '').trim()
+  if (!s) return false
+  try {
+    const u = new URL(s)
+    return !!u.hostname && !hostLooksLikeIP(u.hostname)
+  } catch {
+    const m = s.match(/@(\[[^\]]+\]|[^:/?#]+)/)
+    const host = m ? m[1].replace(/^\[|\]$/g, '') : ''
+    return !!host && !hostLooksLikeIP(host)
+  }
+}
+
 export function relayExpiryFromMap(expiryMap, host, port) {
   if (!expiryMap) return 0
   const k = exitKey(host, port)
@@ -72,7 +100,8 @@ export function formatRuleCopyParts(rule, {
   if (rule?.relay_uri) {
     parts.push(formatRelayCopyText(rule.relay_uri, opts))
   }
-  if (rule?.relay_uri_v6) {
+  const skipV6Twin = entryLooksLikeHostname(rule?.entry) || uriHostLooksLikeHostname(rule?.relay_uri)
+  if (rule?.relay_uri_v6 && !skipV6Twin) {
     // Same display name for dual-stack pair; Clash may still need unique names
     // when both are imported — callers that batch should allocate.
     const v6Name = opts.displayName
@@ -82,7 +111,7 @@ export function formatRuleCopyParts(rule, {
   }
   if (!parts.length) {
     if (rule?.entry) parts.push(rule.entry)
-    if (rule?.entry_v6) parts.push(rule.entry_v6)
+    if (rule?.entry_v6 && !skipV6Twin) parts.push(rule.entry_v6)
   }
   return parts.filter(Boolean)
 }

@@ -171,18 +171,21 @@ func (it *ruleListItem) classifyExit(idx map[string]landing.Node, withURI bool) 
 		it.LandingProtocol = node.Protocol
 		it.LandingURI = node.URI
 		it.LandingExpiresAt = node.ExpiresAt
-		if withURI && entryOK {
-			if u, err := landing.RewriteEndpoint(node.URI, relayHost, relayPort); err == nil {
-				it.RelayURI = u
-			}
-		}
-		if withURI && it.EntryV6 != "" {
-			if h6, p6, ok6 := splitEntry(it.EntryV6); ok6 {
-				if u, err := landing.RewriteEndpoint(node.URI, h6, p6); err == nil {
-					it.RelayURIV6 = u
+			if withURI && entryOK {
+				if u, err := landing.RewriteEndpoint(node.URI, relayHost, relayPort); err == nil {
+					it.RelayURI = u
 				}
 			}
-		}
+			// A domain entry is already the client-facing name. Do not also
+			// emit a raw IPv6 twin — copy/subscribe would dump two links for
+			// one rule. Dual-stack IP entries still get both.
+			if withURI && it.EntryV6 != "" && net.ParseIP(relayHost) != nil {
+				if h6, p6, ok6 := splitEntry(it.EntryV6); ok6 {
+					if u, err := landing.RewriteEndpoint(node.URI, h6, p6); err == nil {
+						it.RelayURIV6 = u
+					}
+				}
+			}
 	}
 }
 
