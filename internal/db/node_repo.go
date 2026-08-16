@@ -214,6 +214,34 @@ func DeleteNodeRepoEntry(d *sql.DB, id int64) error {
 	return err
 }
 
+// SetNodeRepoBackendIP updates only the current IPv4. Other fields stay put.
+func SetNodeRepoBackendIP(d *sql.DB, id int64, ip string) error {
+	_, err := d.Exec(`UPDATE node_repo SET backend_ip=? WHERE id=?`, strings.TrimSpace(ip), id)
+	return err
+}
+
+// ListNodeRepoByBackendIP returns entries that share a current IPv4.
+func ListNodeRepoByBackendIP(d *sql.DB, ip string) ([]NodeRepoEntry, error) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return nil, nil
+	}
+	rows, err := d.Query(`SELECT `+nodeRepoCols+` FROM node_repo WHERE backend_ip=? ORDER BY sort_order, id`, ip)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NodeRepoEntry
+	for rows.Next() {
+		n, err := scanNodeRepo(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
 // ListNodeRepoByIDs returns specific repo entries by their IDs.
 func ListNodeRepoByIDs(d *sql.DB, ids []int64) ([]NodeRepoEntry, error) {
 	if len(ids) == 0 {

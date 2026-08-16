@@ -95,6 +95,50 @@ func TestAPIReorderNodeRepo(t *testing.T) {
 	}
 }
 
+func TestAPIChangeBackendIPUpdatesSiblings(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+
+	ss, err := db.CreateNodeRepoEntry(d, "pv1", "ss", "ss.example.com", 36615, "", "", 0, "", db.NodeRepoCFFields{BackendIP: "70.231.54.201"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vl, err := db.CreateNodeRepoEntry(d, "pv1", "vless", "vl.example.com", 47632, "", "", 0, "", db.NodeRepoCFFields{BackendIP: "70.231.54.201"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.CreateNodeRepoEntry(d, "other", "ss", "ot.example.com", 1, "", "", 0, "", db.NodeRepoCFFields{BackendIP: "1.2.3.4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := adminPost(t, s, admin, "/api/node-repo/"+itoa(ss.ID)+"/backend-ip", map[string]any{
+		"backend_ip": "8.8.8.8",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("change ip: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Updated != 2 {
+		t.Fatalf("updated=%d want 2", resp.Updated)
+	}
+	ss2, _ := db.GetNodeRepoEntry(d, ss.ID)
+	vl2, _ := db.GetNodeRepoEntry(d, vl.ID)
+	ot2, _ := db.GetNodeRepoEntry(d, other.ID)
+	if ss2.BackendIP != "8.8.8.8" || vl2.BackendIP != "8.8.8.8" {
+		t.Fatalf("siblings ip ss=%s vl=%s", ss2.BackendIP, vl2.BackendIP)
+	}
+	if ot2.BackendIP != "1.2.3.4" {
+		t.Fatalf("unrelated changed to %s", ot2.BackendIP)
+	}
+}
+
 func pickUsernames(users []*db.User, ids []int64) string {
 	want := map[int64]bool{}
 	for _, id := range ids {

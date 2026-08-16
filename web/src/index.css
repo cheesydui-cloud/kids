@@ -668,6 +668,19 @@ input[type="radio"] {
 .tbl tbody tr:hover {
   background: color-mix(in srgb, var(--color-raised) 72%, transparent);
 }
+.tbl tbody tr.repo-machine td {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  background: color-mix(in srgb, var(--color-raised) 88%, transparent);
+  border-bottom-color: var(--color-line);
+}
+.tbl tbody tr.repo-machine:hover td {
+  background: color-mix(in srgb, var(--color-raised) 96%, transparent);
+}
+.tbl tbody tr.repo-proto td {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
 
 /* Form label */
 .fl { @apply text-[13px] font-semibold; color: var(--color-ink-soft); }

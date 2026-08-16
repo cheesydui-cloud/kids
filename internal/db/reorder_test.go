@@ -103,6 +103,46 @@ func TestReorderNodeRepo(t *testing.T) {
 	}
 }
 
+func TestListAndSetNodeRepoBackendIP(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	ss, err := CreateNodeRepoEntry(d, "pv1", "ss", "a.example.com", 1, "", "", 0, "", NodeRepoCFFields{BackendIP: "1.1.1.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vl, err := CreateNodeRepoEntry(d, "pv1", "vless", "b.example.com", 2, "", "", 0, "", NodeRepoCFFields{BackendIP: "1.1.1.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CreateNodeRepoEntry(d, "other", "ss", "c.example.com", 3, "", "", 0, "", NodeRepoCFFields{BackendIP: "9.9.9.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sibs, err := ListNodeRepoByBackendIP(d, "1.1.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sibs) != 2 {
+		t.Fatalf("siblings=%d want 2", len(sibs))
+	}
+	if err := SetNodeRepoBackendIP(d, ss.ID, "2.2.2.2"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := GetNodeRepoEntry(d, ss.ID)
+	if got.BackendIP != "2.2.2.2" {
+		t.Fatalf("ip=%s", got.BackendIP)
+	}
+	still, _ := GetNodeRepoEntry(d, vl.ID)
+	if still.BackendIP != "1.1.1.1" {
+		t.Fatalf("sibling should be unchanged by Set, got %s", still.BackendIP)
+	}
+}
+
 func names(nodes []*Node) string {
 	out := ""
 	for i, n := range nodes {

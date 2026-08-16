@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Layout, useToast } from '../components/Layout'
@@ -131,13 +131,25 @@ export default function NodeRepo() {
   if (q) filtered = filtered.filter(n =>
     [n.name, n.protocol, `${n.host}:${n.port}`, n.backend_ip, n.remark, n.group_name].some(v => (v || '').toLowerCase().includes(q)))
 
+  const machines = groupByMachine(filtered)
+
   const toggleSelAll = () => setSel(s =>
     s.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(n => n.id)))
 
+  const toggleSelGroup = (members) => {
+    const ids = members.map(n => n.id)
+    setSel(s => {
+      const next = new Set(s)
+      const allOn = ids.every(id => next.has(id))
+      ids.forEach(id => allOn ? next.delete(id) : next.add(id))
+      return next
+    })
+  }
+
   // 搜索 / 分组过滤时不能拖：saveOrder 以可见行为全量顺序，子集视图会丢掉其它行。
   const draggable = !q && !folderFilter
-  const saveOrder = async (visibleList) => {
-    const visibleIds = visibleList.map(n => n.id)
+  const saveOrder = async (visibleGroups) => {
+    const visibleIds = visibleGroups.flatMap(g => g.members.map(n => n.id))
     const hiddenIds = (list || []).filter(n => !visibleIds.includes(n.id)).map(n => n.id)
     const allIds = [...hiddenIds, ...visibleIds]
     const byId = Object.fromEntries((list || []).map(n => [n.id, n]))
@@ -146,11 +158,16 @@ export default function NodeRepo() {
   }
   const onDrop = async (toIndex) => {
     if (dragIndex === null || dragIndex === toIndex) { setDragIndex(null); return }
-    const next = [...filtered]
+    const next = [...machines]
     const [moved] = next.splice(dragIndex, 1)
     next.splice(toIndex, 0, moved)
     setDragIndex(null)
     saveOrder(next)
+  }
+
+  const changeIPForMachine = (members) => {
+    const lead = members.find(n => looksDomain(n.host) || n.cf_sync || n.cf_record_name) || members[0]
+    setChangeIPFor({ node: lead, siblings: members })
   }
 
   return (
@@ -194,100 +211,177 @@ export default function NodeRepo() {
                 checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
               <th>名称</th><th>分组</th><th>协议</th><th>地址</th><th>使用</th><th>到期时间</th><th>备注</th><th>创建时间</th><th className="text-right">操作</th></tr></thead>
             <tbody>
-              {filtered.map((n, i) => (
-                <tr key={n.id}
-                  className={dragIndex === i ? 'opacity-50' : ''}
-                  onDragOver={draggable ? e => e.preventDefault() : undefined}
-                  onDrop={draggable ? () => onDrop(i) : undefined}>
-                  <td><input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} /></td>
-                  <td className="font-semibold whitespace-nowrap">
-                    {draggable && <span className="text-ink-mut mr-1.5 select-none cursor-move font-normal" title="拖拽排序"
-                      draggable onDragStart={() => setDragIndex(i)}>⠿</span>}
-                    {n.name}
-                  </td>
-                  <td className="text-xs">{n.group_name ? <Badge color="blue">{n.group_name}</Badge> : <span className="text-ink-mut">—</span>}</td>
-                  <td className="font-mono text-xs text-ink-soft">{n.protocol || '—'}</td>
-                  <td className="text-xs"><AddrCell n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} /></td>
-                  <td className="text-xs">
-                    {(n.user_count || 0) > 0 ? (
-                      <button type="button" onClick={() => openUsers(n)}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11.5px] font-semibold border-[1.5px] bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)] hover:-translate-y-px transition-all"
-                        title="查看使用此落地的用户">
-                        {n.user_count} 人
-                      </button>
-                    ) : (
-                      <span className="text-ink-mut">—</span>
+              {machines.map((g, gi) => {
+                const multi = g.members.length > 1
+                const allOn = g.members.every(n => sel.has(n.id))
+                const cfLead = machineCFLead(g.members)
+                const canChangeIP = g.members.some(n => looksDomain(n.host) || n.cf_sync || n.cf_record_name)
+                return (
+                  <Fragment key={g.key}>
+                    {multi && (
+                      <tr
+                        className={`repo-machine ${dragIndex === gi ? 'opacity-50' : ''}`}
+                        onDragOver={draggable ? e => e.preventDefault() : undefined}
+                        onDrop={draggable ? () => onDrop(gi) : undefined}>
+                        <td>
+                          <input type="checkbox" checked={allOn} onChange={() => toggleSelGroup(g.members)} />
+                        </td>
+                        <td colSpan={8}>
+                          <div className="flex items-center gap-2.5 flex-wrap py-0.5">
+                            {draggable && <span className="text-ink-mut select-none cursor-move" title="拖拽整台机器"
+                              draggable onDragStart={() => setDragIndex(gi)}>⠿</span>}
+                            <span className="font-semibold">{g.name}</span>
+                            {g.members[0].group_name ? <Badge color="blue">{g.members[0].group_name}</Badge> : null}
+                            {g.ip && <span className="font-mono text-[12px] text-ink-mut">{g.ip}</span>}
+                            {cfLead && <CFStatus n={cfLead} onRetry={() => resyncCF(cfLead)} busy={busyId === cfLead.id} />}
+                            <span className="text-[11.5px] text-ink-mut">{g.members.length} 个协议</span>
+                          </div>
+                        </td>
+                        <td className="text-right">
+                          {canChangeIP && (
+                            <button type="button" onClick={() => changeIPForMachine(g.members)} className={rowBtnPrimary} title="同一 IP 的协议一起改">
+                              改 IP
+                            </button>
+                          )}
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                  <td className="text-xs">
-                    {n.expires_at > 0 ? (
-                      <span className="inline-flex items-center gap-1.5">{fmtDate(n.expires_at)}{(() => { const b = expiryBadge(n.expires_at); return b ? <Badge color={b.color}>{b.label}</Badge> : null })()}</span>
-                    ) : <span className="text-ink-mut">—</span>}
-                  </td>
-                  <td className="text-xs text-ink-soft">{n.remark || '—'}</td>
-                  <td className="text-xs text-ink-mut">{new Date(n.created_at * 1000).toLocaleDateString('zh-CN')}</td>
-                  <td className="text-right">
-                    <RowActions
-                      n={n}
-                      busy={busyId === n.id}
-                      onProbe={() => probeDNS(n)}
-                      onChangeIP={() => setChangeIPFor(n)}
-                      onEdit={() => { setEditing(n); setShowForm(true) }}
-                      onDelete={() => deleteNode(n)}
-                    />
-                  </td>
-                </tr>
-              ))}
+                    {g.members.map(n => (
+                      <tr
+                        key={n.id}
+                        className={`${multi ? 'repo-proto' : ''} ${!multi && dragIndex === gi ? 'opacity-50' : ''}`}
+                        onDragOver={!multi && draggable ? e => e.preventDefault() : undefined}
+                        onDrop={!multi && draggable ? () => onDrop(gi) : undefined}>
+                        <td>
+                          {multi
+                            ? <input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} />
+                            : <input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} />}
+                        </td>
+                        <td className="font-semibold whitespace-nowrap">
+                          {!multi && draggable && <span className="text-ink-mut mr-1.5 select-none cursor-move font-normal" title="拖拽排序"
+                            draggable onDragStart={() => setDragIndex(gi)}>⠿</span>}
+                          {multi ? <span className="text-ink-mut font-normal pl-4">↳</span> : n.name}
+                        </td>
+                        <td className="text-xs">{multi ? <span className="text-ink-mut">—</span> : (n.group_name ? <Badge color="blue">{n.group_name}</Badge> : <span className="text-ink-mut">—</span>)}</td>
+                        <td className="font-mono text-xs text-ink-soft">{n.protocol || '—'}</td>
+                        <td className="text-xs">
+                          {multi
+                            ? <span className="font-mono text-[12.5px]">{n.host}:{n.port}</span>
+                            : <AddrCell n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} />}
+                        </td>
+                        <td className="text-xs">
+                          {(n.user_count || 0) > 0 ? (
+                            <button type="button" onClick={() => openUsers(n)}
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11.5px] font-semibold border-[1.5px] bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)] hover:-translate-y-px transition-all"
+                              title="查看使用此落地的用户">
+                              {n.user_count} 人
+                            </button>
+                          ) : (
+                            <span className="text-ink-mut">—</span>
+                          )}
+                        </td>
+                        <td className="text-xs">
+                          {n.expires_at > 0 ? (
+                            <span className="inline-flex items-center gap-1.5">{fmtDate(n.expires_at)}{(() => { const b = expiryBadge(n.expires_at); return b ? <Badge color={b.color}>{b.label}</Badge> : null })()}</span>
+                          ) : <span className="text-ink-mut">—</span>}
+                        </td>
+                        <td className="text-xs text-ink-soft">{n.remark || '—'}</td>
+                        <td className="text-xs text-ink-mut">{new Date(n.created_at * 1000).toLocaleDateString('zh-CN')}</td>
+                        <td className="text-right">
+                          <RowActions
+                            n={n}
+                            busy={busyId === n.id}
+                            hideChangeIP={multi}
+                            onProbe={() => probeDNS(n)}
+                            onChangeIP={() => changeIPForMachine(g.members)}
+                            onEdit={() => { setEditing(n); setShowForm(true) }}
+                            onDelete={() => deleteNode(n)}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>}
           {isMobile && <div>
-            {filtered.map(n => (
-              <div key={n.id} className="mobile-card">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="flex items-center gap-2 font-semibold">
-                    <input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} />
-                    {n.name}
-                  </label>
-                  <RowActions
-                    n={n}
-                    busy={busyId === n.id}
-                    onProbe={() => probeDNS(n)}
-                    onChangeIP={() => setChangeIPFor(n)}
-                    onEdit={() => { setEditing(n); setShowForm(true) }}
-                    onDelete={() => deleteNode(n)}
-                    compact
-                  />
-                </div>
-                <div className="mt-1.5 space-y-1">
-                  <div className="font-mono text-[12.5px] text-ink">{n.host}:{n.port}</div>
-                  {(n.backend_ip || n.cf_sync) && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {n.backend_ip && <span className="font-mono text-[12px] text-ink-mut">{n.backend_ip}</span>}
-                      <CFStatus n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} />
+            {machines.map(g => {
+              const multi = g.members.length > 1
+              const cfLead = machineCFLead(g.members)
+              return (
+                <div key={g.key} className="mobile-card">
+                  {multi && (
+                    <div className="flex items-center justify-between mb-2 gap-2">
+                      <label className="flex items-center gap-2 font-semibold min-w-0">
+                        <input type="checkbox" checked={g.members.every(n => sel.has(n.id))} onChange={() => toggleSelGroup(g.members)} />
+                        <span className="truncate">{g.name}</span>
+                      </label>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {g.members[0].group_name && <Badge color="blue">{g.members[0].group_name}</Badge>}
+                        {g.members.some(n => looksDomain(n.host) || n.cf_sync || n.cf_record_name) && (
+                          <button type="button" onClick={() => changeIPForMachine(g.members)} className={rowBtnPrimary}>改 IP</button>
+                        )}
+                      </div>
                     </div>
                   )}
-                  <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
-                    {n.group_name && <Badge color="blue">{n.group_name}</Badge>}
-                    <span className="font-mono">{n.protocol || '—'}</span>
-                    {(n.user_count || 0) > 0 ? (
-                      <button type="button" onClick={() => openUsers(n)}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border-[1.5px] bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)]">
-                        {n.user_count} 人
-                      </button>
-                    ) : (
-                      <span className="text-ink-mut">未使用</span>
-                    )}
-                    {n.expires_at > 0 && (
-                      <span className="inline-flex items-center gap-1">
-                        {fmtDate(n.expires_at)}
-                        {(() => { const b = expiryBadge(n.expires_at); return b ? <Badge color={b.color}>{b.label}</Badge> : null })()}
-                      </span>
-                    )}
-                    {n.remark && <span className="text-ink-mut">{n.remark}</span>}
-                  </div>
+                  {multi && (
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      {g.ip && <span className="font-mono text-[12px] text-ink-mut">{g.ip}</span>}
+                      {cfLead && <CFStatus n={cfLead} onRetry={() => resyncCF(cfLead)} busy={busyId === cfLead.id} />}
+                    </div>
+                  )}
+                  {g.members.map(n => (
+                    <div key={n.id} className={multi ? 'pl-1 pt-2 mt-2 border-t border-line-soft' : ''}>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="flex items-center gap-2 font-semibold">
+                          <input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} />
+                          {multi ? (n.protocol || n.name) : n.name}
+                        </label>
+                        <RowActions
+                          n={n}
+                          busy={busyId === n.id}
+                          hideChangeIP={multi}
+                          onProbe={() => probeDNS(n)}
+                          onChangeIP={() => changeIPForMachine(g.members)}
+                          onEdit={() => { setEditing(n); setShowForm(true) }}
+                          onDelete={() => deleteNode(n)}
+                          compact
+                        />
+                      </div>
+                      <div className="mt-1.5 space-y-1">
+                        <div className="font-mono text-[12.5px] text-ink">{n.host}:{n.port}</div>
+                        {!multi && (n.backend_ip || n.cf_sync) && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {n.backend_ip && <span className="font-mono text-[12px] text-ink-mut">{n.backend_ip}</span>}
+                            <CFStatus n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} />
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
+                          {!multi && n.group_name && <Badge color="blue">{n.group_name}</Badge>}
+                          <span className="font-mono">{n.protocol || '—'}</span>
+                          {(n.user_count || 0) > 0 ? (
+                            <button type="button" onClick={() => openUsers(n)}
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border-[1.5px] bg-transparent text-[color:var(--brand-from)] border-[color:var(--brand-from)]">
+                              {n.user_count} 人
+                            </button>
+                          ) : (
+                            <span className="text-ink-mut">未使用</span>
+                          )}
+                          {n.expires_at > 0 && (
+                            <span className="inline-flex items-center gap-1">
+                              {fmtDate(n.expires_at)}
+                              {(() => { const b = expiryBadge(n.expires_at); return b ? <Badge color={b.color}>{b.label}</Badge> : null })()}
+                            </span>
+                          )}
+                          {n.remark && <span className="text-ink-mut">{n.remark}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>}
         </>)}
         </TableScroll>
@@ -372,7 +466,8 @@ export default function NodeRepo() {
       )}
       {changeIPFor && (
         <ChangeIPModal
-          node={changeIPFor}
+          node={changeIPFor.node}
+          siblings={changeIPFor.siblings}
           onClose={() => setChangeIPFor(null)}
           onDone={() => { setChangeIPFor(null); load() }}
           notifyCF={notifyCF}
@@ -388,6 +483,64 @@ function looksDomain(host) {
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false
   if (host.includes(':')) return false // v6 literal rough
   return /[a-zA-Z]/.test(host)
+}
+
+const PROTO_RANK = { ss: 0, vless: 1, vmess: 2, trojan: 3, socks5: 4, naive: 5, mieru: 6, hysteria2: 7, tuic: 8, snell: 9 }
+
+function machineKey(n) {
+  const ip = (n.backend_ip || '').trim()
+  if (ip) return 'ip:' + ip
+  return 'id:' + n.id
+}
+
+function machineName(members) {
+  const names = [...new Set(members.map(n => (n.name || '').trim()).filter(Boolean))]
+  if (names.length === 1) return names[0]
+  const compact = names.map(s => s.replace(/[\s_-]+/g, '').toLowerCase())
+  if (compact.length > 1 && compact.every(s => s === compact[0])) return names[0]
+  return names[0] || members[0]?.host || '未命名'
+}
+
+function sortProtocols(members) {
+  return [...members].sort((a, b) => {
+    const pa = PROTO_RANK[(a.protocol || '').toLowerCase()]
+    const pb = PROTO_RANK[(b.protocol || '').toLowerCase()]
+    const da = pa === undefined ? 50 : pa
+    const db = pb === undefined ? 50 : pb
+    if (da !== db) return da - db
+    return (a.id || 0) - (b.id || 0)
+  })
+}
+
+// Same current IPv4 = same machine. Keep first-seen order so drag still works.
+function groupByMachine(list) {
+  const groups = []
+  const index = new Map()
+  for (const n of list || []) {
+    const key = machineKey(n)
+    if (key.startsWith('id:')) {
+      groups.push({ key, ip: '', name: n.name || n.host || '未命名', members: [n] })
+      continue
+    }
+    const i = index.get(key)
+    if (i === undefined) {
+      index.set(key, groups.length)
+      groups.push({ key, ip: (n.backend_ip || '').trim(), name: n.name || n.host || '未命名', members: [n] })
+    } else {
+      groups[i].members.push(n)
+    }
+  }
+  for (const g of groups) {
+    if (g.members.length > 1) {
+      g.members = sortProtocols(g.members)
+      g.name = machineName(g.members)
+    }
+  }
+  return groups
+}
+
+function machineCFLead(members) {
+  return members.find(n => n.cf_sync) || null
 }
 
 const rowBtn = 'inline-flex items-center justify-center h-7 px-2.5 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
@@ -435,9 +588,9 @@ function AddrCell({ n, onRetry, busy }) {
   )
 }
 
-function RowActions({ n, busy, onProbe, onChangeIP, onEdit, onDelete, compact }) {
+function RowActions({ n, busy, onProbe, onChangeIP, onEdit, onDelete, compact, hideChangeIP }) {
   const showDNS = looksDomain(n.host)
-  const showChangeIP = showDNS || n.cf_sync || !!n.cf_record_name
+  const showChangeIP = !hideChangeIP && (showDNS || n.cf_sync || !!n.cf_record_name)
   return (
     <div className={`inline-flex items-center flex-wrap justify-end ${compact ? 'gap-1.5' : 'gap-1.5'}`}>
       {(showDNS || showChangeIP) && (
@@ -467,10 +620,11 @@ function RowActions({ n, busy, onProbe, onChangeIP, onEdit, onDelete, compact })
   )
 }
 
-function ChangeIPModal({ node, onClose, onDone, notifyCF }) {
+function ChangeIPModal({ node, siblings = [], onClose, onDone, notifyCF }) {
   const [ip, setIP] = useState(node?.backend_ip || '')
   const [saving, setSaving] = useState(false)
   const toast = useToast()
+  const peers = (siblings.length ? siblings : [node]).filter(Boolean)
   const submit = async (e) => {
     e.preventDefault()
     const v = ip.trim()
@@ -481,17 +635,27 @@ function ChangeIPModal({ node, onClose, onDone, notifyCF }) {
       // Auto-enable CF when target is a domain so one-click works after first bind.
       if (looksDomain(node.host) && !node.cf_sync) body.cf_sync = true
       const res = await api.post(`/node-repo/${node.id}/backend-ip`, body)
-      toast('IP 已更新')
+      const n = res?.updated || peers.length
+      toast(n > 1 ? `已更新 ${n} 条同 IP 落地` : 'IP 已更新')
       notifyCF?.(res?.cf_sync)
       onDone()
     } catch (err) { toast(err.message, 'error') }
     finally { setSaving(false) }
   }
   return (
-    <Modal open onClose={onClose} title={`改 IP · ${node.name}`}>
+    <Modal open onClose={onClose} title={`改 IP · ${machineName(peers)}`}>
       <form onSubmit={submit} className="space-y-4">
         <div className="text-[13px] text-ink-soft">
-          目标 <span className="font-mono font-semibold text-ink">{node.host}:{node.port}</span>
+          {peers.length > 1 ? (
+            <>
+              同一当前 IP 共 {peers.length} 个协议，会一起改：
+              <div className="mt-1.5 space-y-0.5 font-mono text-[12.5px] text-ink">
+                {peers.map(p => <div key={p.id}>{p.protocol || '—'} · {p.host}:{p.port}</div>)}
+              </div>
+            </>
+          ) : (
+            <>目标 <span className="font-mono font-semibold text-ink">{node.host}:{node.port}</span></>
+          )}
           <div className="text-[12px] text-ink-mut mt-1">只改当前落地 IP 并推送到 CF；域名与用户规则不变。</div>
         </div>
         <div>

@@ -700,13 +700,60 @@ func (s *Server) apiSetNodeRepoBackendIP(w http.ResponseWriter, r *http.Request)
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := db.UpdateNodeRepoEntry(s.DB, id, n.Name, n.Protocol, n.Host, n.Port, n.URI, n.Remark, n.ExpiresAt, n.GroupName, cf); err != nil {
-		jsonErr(w, http.StatusInternalServerError, err.Error())
-		return
+	// Same backend IP = same machine. Changing one protocol's IP updates
+	// the siblings so ss/vless stay on the same host.
+	oldIP := strings.TrimSpace(n.BackendIP)
+	targets := []db.NodeRepoEntry{n}
+	if oldIP != "" {
+		if sibs, err := db.ListNodeRepoByBackendIP(s.DB, oldIP); err == nil && len(sibs) > 0 {
+			targets = sibs
+		}
+	}
+	for i := range targets {
+		t := targets[i]
+		tCF := db.NodeRepoCFFields{
+			BackendIP: ip, CFSync: t.CFSync,
+			CFZoneID: t.CFZoneID, CFRecordName: t.CFRecordName,
+		}
+		if t.ID == n.ID {
+			tCF.CFSync = cfSync
+		}
+		if err := validateNodeRepoCF(t.Host, tCF); err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	for i := range targets {
+		t := targets[i]
+		if t.ID == n.ID {
+			if err := db.UpdateNodeRepoEntry(s.DB, t.ID, t.Name, t.Protocol, t.Host, t.Port, t.URI, t.Remark, t.ExpiresAt, t.GroupName, cf); err != nil {
+				jsonErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			continue
+		}
+		if err := db.SetNodeRepoBackendIP(s.DB, t.ID, ip); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	n, _ = db.GetNodeRepoEntry(s.DB, id)
 	cfResult := s.maybeSyncNodeRepoCF(r.Context(), u.ID, &n)
-	jsonOK(w, map[string]any{"ok": true, "node": n, "cf_sync": cfResult})
+	updated := 1
+	for i := range targets {
+		if targets[i].ID == n.ID {
+			continue
+		}
+		sib, err := db.GetNodeRepoEntry(s.DB, targets[i].ID)
+		if err != nil {
+			continue
+		}
+		updated++
+		if sib.CFSync {
+			s.maybeSyncNodeRepoCF(r.Context(), u.ID, &sib)
+		}
+	}
+	jsonOK(w, map[string]any{"ok": true, "node": n, "updated": updated, "cf_sync": cfResult})
 }
 
 // apiResyncNodeRepoCF re-pushes the A record without changing other fields.
