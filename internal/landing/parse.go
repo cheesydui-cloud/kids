@@ -480,12 +480,28 @@ func RewriteName(uri, name string) (string, error) {
 	if idx <= 0 {
 		return renameSnell(uri, name)
 	}
-	switch strings.ToLower(uri[:idx]) {
-	case "vmess":
-		return renameVMess(uri, name)
-	default:
-		return renameFragment(uri, name)
+		switch strings.ToLower(uri[:idx]) {
+		case "vmess":
+			return renameVMess(uri, name)
+		case "mierus":
+			return renameMierus(uri, name)
+		default:
+			return renameFragment(uri, name)
+		}
+}
+
+// renameMierus writes the display name into profile= (what official clients
+// show) and the fragment (same convention as other share URIs).
+func renameMierus(uri, name string) (string, error) {
+	u, err := url.Parse(uri)
+	if err != nil || u.Hostname() == "" {
+		return "", errInvalid
 	}
+	q := u.Query()
+	q.Set("profile", name)
+	u.RawQuery = q.Encode()
+	u.Fragment = name
+	return u.String(), nil
 }
 
 // renameFragment swaps (or appends) the URL fragment. Percent-encoding via

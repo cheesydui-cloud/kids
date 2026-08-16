@@ -331,6 +331,7 @@ export function setURIName(uri, name) {
   if (i <= 0) return setSnellName(uri, n)
   const scheme = uri.slice(0, i).toLowerCase()
   if (scheme === 'vmess') return setVMessName(uri, n)
+  if (scheme === 'mierus') return setMierusName(uri, n)
   const hash = uri.indexOf('#')
   const base = hash >= 0 ? uri.slice(0, hash) : uri
   return `${base}#${encodeURIComponent(n)}`
@@ -605,6 +606,21 @@ function rewriteMierus(uri, newHost, newPort) {
   if (!params.get('profile')) params.set('profile', 'default')
   const hostPart = String(newHost).includes(':') ? `[${newHost}]` : newHost
   return `${prefix}${userinfo}${hostPart}?${params.toString()}${frag}`
+}
+
+function setMierusName(uri, name) {
+  const i = uri.indexOf('://')
+  if (i <= 0) return uri
+  const prefix = uri.slice(0, i + 3)
+  let rest = uri.slice(i + 3)
+  const hash = rest.indexOf('#')
+  if (hash >= 0) rest = rest.slice(0, hash)
+  const q = rest.indexOf('?')
+  const authority = q >= 0 ? rest.slice(0, q) : rest
+  const query = q >= 0 ? rest.slice(q + 1) : ''
+  const params = new URLSearchParams(query)
+  params.set('profile', name)
+  return `${prefix}${authority}?${params.toString()}#${encodeURIComponent(name)}`
 }
 
 function parseSS(uri) {
