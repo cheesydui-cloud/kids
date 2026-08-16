@@ -89,11 +89,11 @@ export default function PasteGrantsModal({ open, onClose, onDone, allNodes, allU
             </table>
           </div>
         )}
-        <div className="flex items-center gap-3 pt-4 border-t border-line-soft">
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-line-soft">
+          <button onClick={onClose} className="btn-secondary">取消</button>
           <button onClick={submit} disabled={!canSubmit} className="btn-primary">
             {submitting ? '授权中…' : `授权 ${valid.length} 个节点给 ${userIds.length} 个用户`}
           </button>
-          <button onClick={onClose} className="btn-secondary">取消</button>
         </div>
       </div>
     </Modal>

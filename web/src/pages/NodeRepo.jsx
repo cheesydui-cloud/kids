@@ -472,9 +472,9 @@ function ChangeIPModal({ node, onClose, onDone, notifyCF }) {
           <input className="input-field font-mono" value={ip} onChange={e => setIP(e.target.value)}
             placeholder="例如 68.252.208.113" autoFocus />
         </div>
-        <div className="flex gap-2 pt-1">
-          <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? '保存中…' : '保存并同步 CF'}</button>
-          <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
+        <div className="flex gap-2 justify-end pt-1">
+          <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          <button type="submit" disabled={saving} className="btn-primary">{saving ? '保存中…' : '保存并同步 CF'}</button>
         </div>
       </form>
     </Modal>
@@ -796,9 +796,9 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
               placeholder="留空永不过期"
             />
           </div>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={submitting} className="btn-primary flex-1">{submitting ? '保存中…' : '保存'}</button>
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
+          <div className="flex gap-2 justify-end pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+            <button type="submit" disabled={submitting} className="btn-primary">{submitting ? '保存中…' : '保存'}</button>
           </div>
         </form>
     </Modal>
@@ -858,9 +858,9 @@ function BulkImportForm({ folders = [], onClose, onDone }) {
               {folders.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
             </select>
           </div>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={submitting} className="btn-primary flex-1">{submitting ? '导入中…' : '导入'}</button>
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
+          <div className="flex gap-2 justify-end pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+            <button type="submit" disabled={submitting} className="btn-primary">{submitting ? '导入中…' : '导入'}</button>
           </div>
         </form>
     </Modal>

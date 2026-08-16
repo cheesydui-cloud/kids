@@ -125,9 +125,9 @@ export default function FolderBar({
               <input className="input-field" value={name} onChange={e => setName(e.target.value)} placeholder="如：VIP / 测试" autoFocus
                 onKeyDown={e => e.key === 'Enter' && create()} />
             </div>
-            <div className="flex gap-2">
-              <button type="button" disabled={busy} onClick={create} className="btn-primary flex-1">{busy ? '创建中…' : '创建'}</button>
+            <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary">取消</button>
+              <button type="button" disabled={busy} onClick={create} className="btn-primary">{busy ? '创建中…' : '创建'}</button>
             </div>
           </div>
         </Modal>
@@ -167,9 +167,9 @@ export default function FolderBar({
               <input className="input-field" value={name} onChange={e => setName(e.target.value)} autoFocus
                 onKeyDown={e => e.key === 'Enter' && rename()} />
             </div>
-            <div className="flex gap-2">
-              <button type="button" disabled={busy} onClick={rename} className="btn-primary flex-1">{busy ? '保存中…' : '保存'}</button>
+            <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setRenaming(null)} className="btn-secondary">取消</button>
+              <button type="button" disabled={busy} onClick={rename} className="btn-primary">{busy ? '保存中…' : '保存'}</button>
             </div>
           </div>
         </Modal>

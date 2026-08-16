@@ -633,12 +633,12 @@ export default function NodeDetail() {
               onChange={e => setChangeIPVal(e.target.value)}
               placeholder="例如 68.252.208.113" autoFocus />
           </div>
-          <div className="flex gap-2 pt-1">
-            <button type="submit" disabled={cfBusy} className="btn-primary flex-1">
-              {cfBusy ? '保存中…' : '保存并同步 CF'}
-            </button>
-            <button type="button" disabled={cfBusy} onClick={() => setChangeIPOpen(false)} className="btn-secondary flex-1">
+          <div className="flex gap-2 justify-end pt-1">
+            <button type="button" disabled={cfBusy} onClick={() => setChangeIPOpen(false)} className="btn-secondary">
               取消
+            </button>
+            <button type="submit" disabled={cfBusy} className="btn-primary">
+              {cfBusy ? '保存中…' : '保存并同步 CF'}
             </button>
           </div>
         </form>

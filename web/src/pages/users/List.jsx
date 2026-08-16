@@ -390,9 +390,9 @@ function CreateUserModal({ open, onClose, onDone }) {
             </>
           )}
         </div>
-        <div className="flex items-center gap-3 pt-4 border-t border-line-soft">
-          <button type="submit" disabled={loading} className="btn-primary">创建并复制名片</button>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-line-soft">
           <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          <button type="submit" disabled={loading} className="btn-primary">创建并复制名片</button>
         </div>
       </form>
     </Modal>

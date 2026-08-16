@@ -322,9 +322,9 @@ export function RuleFormModal({ open, onClose, title, submitLabel = '保存', no
           <label className="fl">备注 <span className="text-ink-mut font-normal text-xs">(可选)</span></label>
           <input className="input-field" value={form.comment} onChange={e => set('comment', e.target.value)} placeholder="备注" />
         </div>
-        <div className="flex items-center gap-3 pt-4 border-t border-line-soft">
-          <button type="submit" disabled={loading} className="btn-primary">{submitLabel}</button>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-line-soft">
           <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          <button type="submit" disabled={loading} className="btn-primary">{submitLabel}</button>
         </div>
       </form>
     </Modal>

@@ -597,11 +597,11 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
           </div>
         )}
 
-        <div className="flex gap-2 pt-1 border-t border-line-soft">
-          <button type="button" onClick={assign} disabled={assigning || selected.size === 0} className="btn-primary flex-1">
+        <div className="flex gap-2 justify-end pt-1 border-t border-line-soft">
+          <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          <button type="button" onClick={assign} disabled={assigning || selected.size === 0} className="btn-primary">
             {assigning ? '分配中…' : selected.size > 0 ? `分配选中 (${selected.size})` : '分配选中节点'}
           </button>
-          <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
         </div>
       </div>
     </Modal>

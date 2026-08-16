@@ -453,10 +453,10 @@ function AddNodeModal({ open, onClose, onDone }) {
               value={portEnd} onChange={e => setPortEnd(e.target.value)} placeholder="60000" />
           </div>
         </div>
-        <div className="flex gap-3 pt-4 border-t border-line-soft">
-          <button type="submit" disabled={loading} className="btn-primary">添加节点</button>
+        <div className="flex items-center gap-3 pt-4 border-t border-line-soft">
+          <span className="text-xs text-ink-mut mr-auto">添加后会生成 token 与安装命令。</span>
           <button type="button" onClick={onClose} className="btn-secondary">取消</button>
-          <span className="text-xs text-ink-mut ml-auto">添加后会生成 token 与安装命令。</span>
+          <button type="submit" disabled={loading} className="btn-primary">添加节点</button>
         </div>
       </form>
     </Modal>
@@ -580,9 +580,9 @@ function CompositeNodeModal({ open, onClose, nodes, onDone }) {
           <button type="button" onClick={addHop} className="btn-secondary text-xs mt-2">+ 添加一跳</button>
         </div>
 
-        <div className="flex gap-3 pt-4 border-t border-line-soft">
-          <button type="submit" disabled={loading} className="btn-primary">创建组合节点</button>
+        <div className="flex gap-3 justify-end pt-4 border-t border-line-soft">
           <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          <button type="submit" disabled={loading} className="btn-primary">创建组合节点</button>
         </div>
       </form>
     </Modal>

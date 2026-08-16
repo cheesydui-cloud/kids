@@ -338,11 +338,11 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
               <DateInput value={expiryDate} onChange={setExpiryDate} className="w-full" />
             )}
           </div>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={submitting} className="btn-primary flex-1">
+          <div className="flex gap-2 justify-end pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+            <button type="submit" disabled={submitting} className="btn-primary">
               {submitting ? (editing ? '保存中…' : '发布中…') : (editing ? '保存' : '发布')}
             </button>
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">取消</button>
           </div>
         </form>
       </div>
