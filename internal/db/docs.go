@@ -8,18 +8,19 @@ import (
 
 // Doc is an admin-maintained usage article (Markdown body).
 type Doc struct {
-	ID        int64  `json:"id"`
-	Title     string `json:"title"`
-	Content   string `json:"content"`
-	SortOrder int    `json:"sort_order"`
-	Published bool   `json:"published"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	ID         int64  `json:"id"`
+	Title      string `json:"title"`
+	TitleColor string `json:"title_color"`
+	Content    string `json:"content"`
+	SortOrder  int    `json:"sort_order"`
+	Published  bool   `json:"published"`
+	CreatedAt  int64  `json:"created_at"`
+	UpdatedAt  int64  `json:"updated_at"`
 }
 
 func scanDoc(rows *sql.Rows, d *Doc) error {
 	var published int
-	if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.SortOrder, &published, &d.CreatedAt, &d.UpdatedAt); err != nil {
+	if err := rows.Scan(&d.ID, &d.Title, &d.TitleColor, &d.Content, &d.SortOrder, &published, &d.CreatedAt, &d.UpdatedAt); err != nil {
 		return err
 	}
 	d.Published = published != 0
@@ -28,14 +29,14 @@ func scanDoc(rows *sql.Rows, d *Doc) error {
 
 func scanDocRow(row *sql.Row, d *Doc) error {
 	var published int
-	if err := row.Scan(&d.ID, &d.Title, &d.Content, &d.SortOrder, &published, &d.CreatedAt, &d.UpdatedAt); err != nil {
+	if err := row.Scan(&d.ID, &d.Title, &d.TitleColor, &d.Content, &d.SortOrder, &published, &d.CreatedAt, &d.UpdatedAt); err != nil {
 		return err
 	}
 	d.Published = published != 0
 	return nil
 }
 
-const docCols = `id, title, content, sort_order, published, created_at, updated_at`
+const docCols = `id, title, title_color, content, sort_order, published, created_at, updated_at`
 
 // ListDocs returns every document (admin view), ordered for display.
 func ListDocs(d *sql.DB) ([]Doc, error) {
@@ -100,7 +101,7 @@ func nextDocSortOrder(d *sql.DB) (int, error) {
 }
 
 // CreateDoc inserts a new document. Empty title is rejected by the API layer.
-func CreateDoc(d *sql.DB, title, content string, published bool) (Doc, error) {
+func CreateDoc(d *sql.DB, title, content, titleColor string, published bool) (Doc, error) {
 	order, err := nextDocSortOrder(d)
 	if err != nil {
 		return Doc{}, err
@@ -111,16 +112,17 @@ func CreateDoc(d *sql.DB, title, content string, published bool) (Doc, error) {
 		pub = 1
 	}
 	doc := Doc{
-		Title:     strings.TrimSpace(title),
-		Content:   content,
-		SortOrder: order,
-		Published: published,
-		CreatedAt: n,
-		UpdatedAt: n,
+		Title:      strings.TrimSpace(title),
+		TitleColor: strings.TrimSpace(titleColor),
+		Content:    content,
+		SortOrder:  order,
+		Published:  published,
+		CreatedAt:  n,
+		UpdatedAt:  n,
 	}
 	res, err := d.Exec(
-		`INSERT INTO docs (title, content, sort_order, published, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		doc.Title, doc.Content, doc.SortOrder, pub, doc.CreatedAt, doc.UpdatedAt,
+		`INSERT INTO docs (title, title_color, content, sort_order, published, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		doc.Title, doc.TitleColor, doc.Content, doc.SortOrder, pub, doc.CreatedAt, doc.UpdatedAt,
 	)
 	if err != nil {
 		return doc, err
@@ -130,15 +132,15 @@ func CreateDoc(d *sql.DB, title, content string, published bool) (Doc, error) {
 }
 
 // UpdateDoc replaces title/content/published for an existing document.
-func UpdateDoc(d *sql.DB, id int64, title, content string, published bool) (Doc, error) {
+func UpdateDoc(d *sql.DB, id int64, title, content, titleColor string, published bool) (Doc, error) {
 	pub := 0
 	if published {
 		pub = 1
 	}
 	n := now()
 	res, err := d.Exec(
-		`UPDATE docs SET title = ?, content = ?, published = ?, updated_at = ? WHERE id = ?`,
-		strings.TrimSpace(title), content, pub, n, id,
+		`UPDATE docs SET title = ?, title_color = ?, content = ?, published = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(title), strings.TrimSpace(titleColor), content, pub, n, id,
 	)
 	if err != nil {
 		return Doc{}, err

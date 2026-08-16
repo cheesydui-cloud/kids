@@ -6,6 +6,14 @@ import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableSc
 import { Markdown } from '../lib/markdown'
 import { fmtDate } from '../lib/fmt'
 
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
+function titleStyle(color) {
+  const c = String(color || '').trim()
+  if (!HEX_COLOR.test(c)) return undefined
+  return { color: c }
+}
+
 async function uploadDocImage(file) {
   const fd = new FormData()
   fd.append('file', file)
@@ -119,7 +127,13 @@ export default function Docs() {
                   {list.map((d, idx) => (
                     <tr key={d.id}>
                       <td className="text-ink-mut font-mono text-xs">{idx + 1}</td>
-                      <td className="font-semibold">{d.title}</td>
+                      <td className="font-semibold">
+                        <button type="button" onClick={() => setViewing(d)}
+                          className="text-left font-semibold text-ink cursor-pointer hover:underline"
+                          style={titleStyle(d.title_color)}>
+                          {d.title}
+                        </button>
+                      </td>
                       <td>
                         {d.published
                           ? <Badge color="green">已发布</Badge>
@@ -152,7 +166,12 @@ export default function Docs() {
           </TableScroll>
         </Panel>
       </div>
-      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.title || '查看文档'} wide>
+      <Modal
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        title={<span style={titleStyle(viewing?.title_color)}>{viewing?.title || '查看文档'}</span>}
+        wide
+      >
         {viewing?.content
           ? <div className="max-h-[70vh] overflow-auto -mx-1 px-1"><Markdown source={viewing.content} /></div>
           : <p className="text-sm text-ink-mut">这篇还没有内容。</p>}
@@ -161,13 +180,26 @@ export default function Docs() {
   )
 }
 
+const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28]
+const FONT_COLORS = [
+  { label: '墨色', value: '#1b1612' },
+  { label: '陶土', value: '#9a4a28' },
+  { label: '砖红', value: '#b42318' },
+  { label: '翠绿', value: '#067647' },
+  { label: '靛蓝', value: '#175cd3' },
+  { label: '琥珀', value: '#b54708' },
+]
+
 function DocEditor({ doc, onCancel, onSaved }) {
   const [title, setTitle] = useState(doc?.title || '')
+  const [titleColor, setTitleColor] = useState(HEX_COLOR.test(String(doc?.title_color || '').trim()) ? String(doc.title_color).trim() : '')
   const [content, setContent] = useState(doc?.content || '')
   const [published, setPublished] = useState(!!doc?.published)
   const [tab, setTab] = useState('edit') // edit | preview
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [fontSize, setFontSize] = useState(16)
+  const [fontColor, setFontColor] = useState('#9a4a28')
   const taRef = useRef(null)
   const fileRef = useRef(null)
   const toast = useToast()
@@ -187,6 +219,80 @@ function DocEditor({ doc, onCancel, onSaved }) {
       const pos = start + snippet.length
       el.setSelectionRange(pos, pos)
     })
+  }
+
+  const wrapSelection = (before, after, placeholder = '文字') => {
+    const el = taRef.current
+    if (!el) {
+      setContent(c => c + before + placeholder + after)
+      return
+    }
+    const start = el.selectionStart ?? content.length
+    const end = el.selectionEnd ?? content.length
+    const selected = content.slice(start, end)
+    const inner = selected || placeholder
+    const next = content.slice(0, start) + before + inner + after + content.slice(end)
+    setContent(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      if (selected) {
+        el.setSelectionRange(start, start + before.length + inner.length + after.length)
+      } else {
+        const from = start + before.length
+        el.setSelectionRange(from, from + inner.length)
+      }
+    })
+  }
+
+  const toggleBold = () => {
+    const el = taRef.current
+    if (!el) {
+      wrapSelection('**', '**')
+      return
+    }
+    const start = el.selectionStart ?? content.length
+    const end = el.selectionEnd ?? content.length
+    const selected = content.slice(start, end)
+    if (selected.startsWith('**') && selected.endsWith('**') && selected.length >= 4) {
+      const inner = selected.slice(2, -2)
+      const next = content.slice(0, start) + inner + content.slice(end)
+      setContent(next)
+      requestAnimationFrame(() => {
+        el.focus()
+        el.setSelectionRange(start, start + inner.length)
+      })
+      return
+    }
+    if (start >= 2 && end + 2 <= content.length && content.slice(start - 2, start) === '**' && content.slice(end, end + 2) === '**') {
+      const next = content.slice(0, start - 2) + selected + content.slice(end + 2)
+      setContent(next)
+      requestAnimationFrame(() => {
+        el.focus()
+        el.setSelectionRange(start - 2, start - 2 + selected.length)
+      })
+      return
+    }
+    wrapSelection('**', '**')
+  }
+
+  const applySize = (n) => {
+    const size = Number(n) || 16
+    setFontSize(size)
+    wrapSelection(`{s=${size}}`, '{/}')
+  }
+
+  const applyColor = (hex) => {
+    const c = String(hex || '').trim()
+    if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c)) return
+    setFontColor(c)
+    wrapSelection(`{c=${c}}`, '{/}')
+  }
+
+  const onEditorKeyDown = (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'B')) {
+      e.preventDefault()
+      toggleBold()
+    }
   }
 
   const doUpload = async (file) => {
@@ -226,7 +332,7 @@ function DocEditor({ doc, onCancel, onSaved }) {
     if (!title.trim()) { toast('标题不能为空', 'error'); return }
     setSaving(true)
     try {
-      const body = { title: title.trim(), content, published }
+      const body = { title: title.trim(), title_color: titleColor, content, published }
       if (doc?.id) {
         await api.put(`/docs/${doc.id}`, body)
         toast('已保存')
@@ -265,7 +371,35 @@ function DocEditor({ doc, onCancel, onSaved }) {
               onChange={e => setTitle(e.target.value)}
               placeholder="文档标题，例如：快速入门"
               autoFocus
+              style={titleStyle(titleColor)}
             />
+            <label className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-soft whitespace-nowrap">
+              标题颜色
+              <select
+                className="input-field !h-[34px] !w-[92px] !px-2 text-[13px]"
+                value={titleColor && FONT_COLORS.some(c => c.value === titleColor) ? titleColor : (titleColor ? '__custom' : '')}
+                onChange={e => {
+                  const v = e.target.value
+                  if (v === '' || v === '__custom') {
+                    setTitleColor(v === '' ? '' : (titleColor || '#9a4a28'))
+                    return
+                  }
+                  setTitleColor(v)
+                }}
+                title="文档标题颜色"
+              >
+                <option value="">默认</option>
+                {FONT_COLORS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                {titleColor && !FONT_COLORS.some(c => c.value === titleColor) ? <option value="__custom">自定义</option> : null}
+              </select>
+              <input
+                type="color"
+                value={/^#([0-9a-fA-F]{6})$/.test(titleColor) ? titleColor : '#9a4a28'}
+                onChange={e => setTitleColor(e.target.value)}
+                className="h-[34px] w-[34px] p-0.5 rounded-lg border-[1.5px] border-line bg-surface cursor-pointer"
+                title="自定义标题颜色"
+              />
+            </label>
             <label className="inline-flex items-center gap-2 text-sm font-semibold text-ink-soft cursor-pointer whitespace-nowrap">
               <input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} />
               标记为已发布
@@ -275,6 +409,44 @@ function DocEditor({ doc, onCancel, onSaved }) {
             <div className="detail-tabs !mb-0 !p-1">
               <button type="button" className={`detail-tab ${tab === 'edit' ? 'is-active' : ''}`} onClick={() => setTab('edit')}>编辑</button>
               <button type="button" className={`detail-tab ${tab === 'preview' ? 'is-active' : ''}`} onClick={() => setTab('preview')}>预览</button>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button type="button" disabled={tab !== 'edit'} onClick={toggleBold}
+                className="btn-secondary !h-[34px] !px-3 text-[13px] font-bold" title="加粗（Ctrl/⌘+B）">
+                B
+              </button>
+              <label className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-soft">
+                <span className="hidden sm:inline">字号</span>
+                <select
+                  className="input-field !h-[34px] !w-[78px] !px-2 text-[13px]"
+                  value={fontSize}
+                  disabled={tab !== 'edit'}
+                  onChange={e => applySize(e.target.value)}
+                  title="选中文字后改字号"
+                >
+                  {FONT_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-soft">
+                <span className="hidden sm:inline">颜色</span>
+                <select
+                  className="input-field !h-[34px] !w-[92px] !px-2 text-[13px]"
+                  value={fontColor}
+                  disabled={tab !== 'edit'}
+                  onChange={e => applyColor(e.target.value)}
+                  title="选中文字后改颜色"
+                >
+                  {FONT_COLORS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+                <input
+                  type="color"
+                  value={/^#([0-9a-fA-F]{6})$/.test(fontColor) ? fontColor : '#9a4a28'}
+                  disabled={tab !== 'edit'}
+                  onChange={e => applyColor(e.target.value)}
+                  className="h-[34px] w-[34px] p-0.5 rounded-lg border-[1.5px] border-line bg-surface cursor-pointer disabled:opacity-50"
+                  title="自定义颜色"
+                />
+              </label>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden"
@@ -296,12 +468,13 @@ function DocEditor({ doc, onCancel, onSaved }) {
               value={content}
               onChange={e => setContent(e.target.value)}
               onPaste={onPaste}
+              onKeyDown={onEditorKeyDown}
               placeholder={'用 Markdown 编写教程…\n\n# 标题\n\n正文段落\n\n- 列表项\n\n命令用三个反引号包起来，预览里是黑底框，可一键复制：\n\n```bash\ncurl -fsSL https://example.com/install.sh | bash\n```\n\n![说明](图片地址)\n'}
               spellCheck={false}
             />
           ) : (
             <div className="px-6 py-5">
-              <h2 className="text-[20px] font-bold text-ink mb-4">{title.trim() || '未命名文档'}</h2>
+              <h2 className="text-[20px] font-bold text-ink mb-4" style={titleStyle(titleColor)}>{title.trim() || '未命名文档'}</h2>
               <Markdown source={content} />
             </div>
           )}

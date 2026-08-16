@@ -1,5 +1,7 @@
 /* Lightweight Markdown → React for usage docs.
-   Supports: headings, paragraphs, lists, code, blockquote, links, images, hr, bold/italic/code.
+   Supports: headings, paragraphs, lists, code, blockquote, links, images, hr,
+   bold/italic/code, and safe font size/color spans:
+     {s=18}文字{/}   {c=#9a4a28}文字{/}   {s=18 c=#9a4a28}文字{/}
    No raw HTML. Unsafe schemes on links/images are blocked. */
 
 import { useState } from 'react'
@@ -45,33 +47,131 @@ function safeURL(url) {
   return null
 }
 
+const ALLOWED_SIZES = new Set([12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32])
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
+function parseStyleOpen(text, i) {
+  if (text[i] !== '{') return null
+  const close = text.indexOf('}', i + 1)
+  if (close === -1 || close - i > 80) return null
+  const inner = text.slice(i + 1, close).trim()
+  if (!inner || inner === '/') return null
+  const style = {}
+  const parts = inner.split(/\s+/)
+  let any = false
+  for (const p of parts) {
+    const eq = p.indexOf('=')
+    if (eq <= 0) return null
+    const key = p.slice(0, eq)
+    const val = p.slice(eq + 1)
+    if (key === 's' || key === 'size') {
+      const n = Number(val)
+      if (!ALLOWED_SIZES.has(n)) return null
+      style.fontSize = `${n}px`
+      any = true
+    } else if (key === 'c' || key === 'color') {
+      if (!HEX_COLOR.test(val)) return null
+      style.color = val
+      any = true
+    } else {
+      return null
+    }
+  }
+  if (!any) return null
+  return { end: close + 1, style }
+}
+
+function findStyleClose(text, from) {
+  let depth = 1
+  let i = from
+  while (i < text.length) {
+    if (text.startsWith('{/}', i)) {
+      depth--
+      if (depth === 0) return i
+      i += 3
+      continue
+    }
+    const open = parseStyleOpen(text, i)
+    if (open) {
+      depth++
+      i = open.end
+      continue
+    }
+    i++
+  }
+  return -1
+}
+
+function matchAt(text, i, re) {
+  re.lastIndex = i
+  const m = re.exec(text)
+  if (!m || m.index !== i) return null
+  return m[0]
+}
+
 function renderInline(text, keyPrefix = 'i') {
   const nodes = []
-  // Order: code, image, link, bold, italic
-  const re = /(`[^`]+`)|(!\[[^\]]*\]\([^)]+\))|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)/g
-  let last = 0
-  let m
+  let i = 0
   let k = 0
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) {
-      nodes.push(text.slice(last, m.index))
+  let buf = ''
+  const flush = () => {
+    if (buf) {
+      nodes.push(buf)
+      buf = ''
     }
-    const token = m[0]
-    if (token.startsWith('`')) {
-      nodes.push(<code key={`${keyPrefix}-c${k++}`} className="md-code">{token.slice(1, -1)}</code>)
-    } else if (token.startsWith('![')) {
-      const im = token.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)
+  }
+  const codeRe = /`[^`]+`/y
+  const imgRe = /!\[[^\]]*\]\([^)]+\)/y
+  const linkRe = /\[[^\]]+\]\([^)]+\)/y
+  const boldRe = /(\*\*[^*]+\*\*)|(__[^_]+__)/y
+  const emRe = /(\*[^*]+\*)|(_[^_]+_)/y
+
+  while (i < text.length) {
+    const styleOpen = parseStyleOpen(text, i)
+    if (styleOpen) {
+      const close = findStyleClose(text, styleOpen.end)
+      if (close !== -1) {
+        flush()
+        const inner = text.slice(styleOpen.end, close)
+        nodes.push(
+          <span key={`${keyPrefix}-s${k++}`} className="md-fmt" style={styleOpen.style}>
+            {renderInline(inner, `${keyPrefix}-s${k}`)}
+          </span>
+        )
+        i = close + 3
+        continue
+      }
+    }
+
+    const code = matchAt(text, i, codeRe)
+    if (code) {
+      flush()
+      nodes.push(<code key={`${keyPrefix}-c${k++}`} className="md-code">{code.slice(1, -1)}</code>)
+      i += code.length
+      continue
+    }
+
+    const img = matchAt(text, i, imgRe)
+    if (img) {
+      const im = img.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)
       const src = im && safeURL(im[2])
+      flush()
       if (src) {
         nodes.push(
           <img key={`${keyPrefix}-img${k++}`} src={src} alt={im[1] || ''} className="md-img" loading="lazy" />
         )
       } else {
-        nodes.push(token)
+        nodes.push(img)
       }
-    } else if (token.startsWith('[')) {
-      const lm = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+      i += img.length
+      continue
+    }
+
+    const link = matchAt(text, i, linkRe)
+    if (link) {
+      const lm = link.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
       const href = lm && safeURL(lm[2])
+      flush()
       if (href) {
         const external = /^https?:/i.test(href)
         nodes.push(
@@ -81,18 +181,32 @@ function renderInline(text, keyPrefix = 'i') {
           </a>
         )
       } else {
-        nodes.push(token)
+        nodes.push(link)
       }
-    } else if (token.startsWith('**') || token.startsWith('__')) {
-      nodes.push(<strong key={`${keyPrefix}-b${k++}`}>{token.slice(2, -2)}</strong>)
-    } else if (token.startsWith('*') || token.startsWith('_')) {
-      nodes.push(<em key={`${keyPrefix}-e${k++}`}>{token.slice(1, -1)}</em>)
-    } else {
-      nodes.push(token)
+      i += link.length
+      continue
     }
-    last = m.index + token.length
+
+    const bold = matchAt(text, i, boldRe)
+    if (bold) {
+      flush()
+      nodes.push(<strong key={`${keyPrefix}-b${k++}`}>{renderInline(bold.slice(2, -2), `${keyPrefix}-b${k}`)}</strong>)
+      i += bold.length
+      continue
+    }
+
+    const em = matchAt(text, i, emRe)
+    if (em) {
+      flush()
+      nodes.push(<em key={`${keyPrefix}-e${k++}`}>{renderInline(em.slice(1, -1), `${keyPrefix}-e${k}`)}</em>)
+      i += em.length
+      continue
+    }
+
+    buf += text[i]
+    i++
   }
-  if (last < text.length) nodes.push(text.slice(last))
+  flush()
   return nodes
 }
 

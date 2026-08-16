@@ -14,15 +14,15 @@ func TestDocsCRUDAndPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a, err := CreateDoc(d, "入门", "# hello\n\nbody", false)
+	a, err := CreateDoc(d, "入门", "# hello\n\nbody", "#9a4a28", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ID == 0 || a.Published {
+	if a.ID == 0 || a.Published || a.TitleColor != "#9a4a28" {
 		t.Fatalf("unexpected create: %+v", a)
 	}
 
-	b, err := CreateDoc(d, "进阶", "more", true)
+	b, err := CreateDoc(d, "进阶", "more", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,11 +39,11 @@ func TestDocsCRUDAndPublish(t *testing.T) {
 		t.Fatalf("list published: %v %#v", err, pub)
 	}
 
-	if _, err := UpdateDoc(d, a.ID, "入门改", "updated", true); err != nil {
+	if _, err := UpdateDoc(d, a.ID, "入门改", "updated", "#b42318", true); err != nil {
 		t.Fatal(err)
 	}
 	got, err := GetPublishedDoc(d, a.ID)
-	if err != nil || got.Title != "入门改" || got.Content != "updated" {
+	if err != nil || got.Title != "入门改" || got.Content != "updated" || got.TitleColor != "#b42318" {
 		t.Fatalf("get published after update: %v %+v", err, got)
 	}
 

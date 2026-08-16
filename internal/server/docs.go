@@ -20,6 +20,23 @@ const (
 	docContentMax     = 2 << 20 // 2 MiB of Markdown text
 )
 
+var docTitleColorRe = regexp.MustCompile(`(?i)^#([0-9a-f]{3}|[0-9a-f]{6})$`)
+
+func sanitizeDocTitleColor(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if !docTitleColorRe.MatchString(s) {
+		return ""
+	}
+	s = strings.ToLower(s)
+	if len(s) == 4 {
+		return "#" + string([]byte{s[1], s[1], s[2], s[2], s[3], s[3]})
+	}
+	return s
+}
+
 var docAssetNameRe = regexp.MustCompile(`^[a-f0-9]{16,64}\.(jpg|jpeg|png|gif|webp)$`)
 
 // ensureDocsDir creates the on-disk asset directory when configured.
@@ -68,9 +85,10 @@ func (s *Server) apiGetDoc(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiCreateDoc(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title     string `json:"title"`
-		Content   string `json:"content"`
-		Published bool   `json:"published"`
+		Title      string `json:"title"`
+		TitleColor string `json:"title_color"`
+		Content    string `json:"content"`
+		Published  bool   `json:"published"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -89,7 +107,7 @@ func (s *Server) apiCreateDoc(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "content is too long")
 		return
 	}
-	doc, err := db.CreateDoc(s.DB, title, body.Content, body.Published)
+	doc, err := db.CreateDoc(s.DB, title, body.Content, sanitizeDocTitleColor(body.TitleColor), body.Published)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -104,9 +122,10 @@ func (s *Server) apiUpdateDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Title     string `json:"title"`
-		Content   string `json:"content"`
-		Published bool   `json:"published"`
+		Title      string `json:"title"`
+		TitleColor string `json:"title_color"`
+		Content    string `json:"content"`
+		Published  bool   `json:"published"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -125,7 +144,7 @@ func (s *Server) apiUpdateDoc(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "content is too long")
 		return
 	}
-	doc, err := db.UpdateDoc(s.DB, id, title, body.Content, body.Published)
+	doc, err := db.UpdateDoc(s.DB, id, title, body.Content, sanitizeDocTitleColor(body.TitleColor), body.Published)
 	if err == sql.ErrNoRows {
 		jsonErr(w, http.StatusNotFound, "document not found")
 		return
