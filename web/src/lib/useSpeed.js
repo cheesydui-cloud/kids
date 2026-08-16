@@ -158,3 +158,14 @@ export function fmtSpeed(bps) {
   if (bps < 1073741824) return (bps / 1048576).toFixed(2) + ' MB/s'
   return (bps / 1073741824).toFixed(2) + ' GB/s'
 }
+
+// Sum per-rule live rates. Each rule already picks the entry hop only, so
+// this is "all users right now" without counting the same chain twice.
+export function sumRuleSpeeds(ruleSpeeds) {
+  let up = 0, down = 0
+  for (const s of Object.values(ruleSpeeds || {})) {
+    up += s?.up || 0
+    down += s?.down || 0
+  }
+  return { up, down }
+}
