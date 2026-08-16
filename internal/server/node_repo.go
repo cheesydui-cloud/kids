@@ -12,6 +12,7 @@ import (
 
 	"nft/internal/cloudflare"
 	"nft/internal/db"
+	"nft/internal/landing"
 	"nft/internal/resolver"
 )
 
@@ -32,6 +33,9 @@ func (s *Server) apiListNodeRepo(w http.ResponseWriter, r *http.Request) {
 			key := list[i].Host + ":" + strconv.Itoa(list[i].Port)
 			list[i].UserCount = counts[key]
 		}
+	}
+	for i := range list {
+		list[i].URI = rewriteRepoShareURI(list[i].URI, list[i].Name, repoShareHost(list[i].Host, list[i].CFRecordName), list[i].Port)
 	}
 	jsonOK(w, map[string]any{"nodes": list})
 }
@@ -83,6 +87,49 @@ func (b nodeRepoBody) cfFields() db.NodeRepoCFFields {
 		CFZoneID:     strings.TrimSpace(b.CFZoneID),
 		CFRecordName: strings.TrimSpace(b.CFRecordName),
 	}
+}
+
+// repoShareHost is the hostname written into a copied/stored share URI.
+// Prefer an explicit CF record name when the forwarding target is still an IP.
+func repoShareHost(host, recordName string) string {
+	rec := strings.TrimSpace(recordName)
+	host = strings.TrimSpace(host)
+	if rec != "" && net.ParseIP(host) != nil {
+		return rec
+	}
+	if host != "" && net.ParseIP(host) == nil {
+		return host
+	}
+	if rec != "" {
+		return rec
+	}
+	return host
+}
+
+func rewriteRepoShareURI(uri, name, host string, port int) string {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return uri
+	}
+	out := uri
+	if host != "" && port > 0 {
+		if next, err := landing.RewriteEndpoint(uri, host, port); err == nil && next != "" {
+			out = next
+		}
+	}
+	if strings.TrimSpace(name) != "" {
+		if next, err := landing.RewriteName(out, name); err == nil && next != "" {
+			out = next
+		}
+	}
+	return out
+}
+
+func applyRepoShareURI(body *nodeRepoBody, cf db.NodeRepoCFFields) {
+	if body == nil {
+		return
+	}
+	body.URI = rewriteRepoShareURI(body.URI, body.Name, repoShareHost(body.Host, cf.CFRecordName), body.Port)
 }
 
 func validateNodeRepoHost(host string) error {
@@ -179,6 +226,7 @@ func (s *Server) apiCreateNodeRepoEntry(w http.ResponseWriter, r *http.Request) 
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	applyRepoShareURI(&body, cf)
 	groupName := strings.TrimSpace(body.GroupName)
 	if body.GroupID > 0 {
 		if f, err := db.GetNodeRepoFolder(s.DB, body.GroupID); err == nil {
@@ -233,6 +281,7 @@ func (s *Server) apiUpdateNodeRepoEntry(w http.ResponseWriter, r *http.Request) 
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	applyRepoShareURI(&body, cf)
 	prev, err := db.GetNodeRepoEntry(s.DB, id)
 	if err != nil {
 		jsonErr(w, http.StatusNotFound, "节点不存在")

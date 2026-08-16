@@ -385,9 +385,127 @@ export default function Settings() {
               <button type="submit" disabled={saving} className="btn-primary">{saving ? '保存中…' : '保存设置'}</button>
             </div>
           </form>
+          {tab === 'cloudflare' && (
+            <CFRecordsPanel enabled={!!form.cf_token_configured && !form.cf_clear_token} zoneName={form.cf_zone_name} />
+          )}
         </div>
       </div>
     </Layout>
+  )
+}
+
+function CFRecordsPanel({ enabled, zoneName }) {
+  const toast = useToast()
+  const confirm = useConfirm()
+  const [recs, setRecs] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [name, setName] = useState('')
+  const [ip, setIP] = useState('')
+
+  const load = async () => {
+    if (!enabled) { setRecs(null); return }
+    setLoading(true)
+    try {
+      const d = await api.get('/settings/cf-records')
+      setRecs(d?.records || [])
+    } catch (err) {
+      setRecs([])
+      toast(err.message, 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [enabled, zoneName]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const add = async () => {
+    const recName = name.trim()
+    const content = ip.trim()
+    if (!recName || !content) { toast('请填写记录名和 IPv4', 'error'); return }
+    setBusy(true)
+    try {
+      await api.post('/settings/cf-records', { name: recName, content })
+      toast('已添加 / 更新 A 记录')
+      setName('')
+      setIP('')
+      await load()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const del = async (rec) => {
+    if (!(await confirm({ title: '删除 DNS 记录', message: `确认删除 ${rec.name} → ${rec.content}？`, confirmText: '删除', danger: true }))) return
+    setBusy(true)
+    try {
+      await api.del(`/settings/cf-records/${encodeURIComponent(rec.id)}`)
+      toast('已删除')
+      await load()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 pt-[18px] border-t border-line-soft">
+      <div className="flex items-start gap-6">
+        <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-2">A 记录</label>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] text-ink-mut m-0 mb-3">在默认 Zone 下添加或删除灰云 A 记录，不用再去 Cloudflare 网站。</p>
+          {!enabled ? (
+            <p className="text-[13px] text-ink-mut m-0">先保存 Token 和默认 Zone，才能管理记录。</p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 flex-wrap mb-3">
+                <input className="input-field !h-[36px] flex-1 min-w-[160px] font-mono text-[13px]"
+                  placeholder="host.example.com" value={name} onChange={e => setName(e.target.value)} />
+                <input className="input-field !h-[36px] w-[160px] font-mono text-[13px]"
+                  placeholder="1.2.3.4" value={ip} onChange={e => setIP(e.target.value)} />
+                <button type="button" className="btn-secondary !h-[36px] px-3" disabled={busy} onClick={add}>添加</button>
+                <button type="button" className="btn-secondary !h-[36px] px-3" disabled={loading || busy} onClick={load}>
+                  {loading ? '刷新中…' : '刷新'}
+                </button>
+              </div>
+              {loading && recs == null ? (
+                <p className="text-[13px] text-ink-mut m-0">加载中…</p>
+              ) : !recs || recs.length === 0 ? (
+                <p className="text-[13px] text-ink-mut m-0">这个 Zone 还没有 A 记录。</p>
+              ) : (
+                <div className="overflow-auto max-h-72 rounded-xl border border-line-soft">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>名称</th>
+                        <th>IP</th>
+                        <th style={{ width: 72 }}>TTL</th>
+                        <th className="text-right">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recs.map(rec => (
+                        <tr key={rec.id || rec.name}>
+                          <td className="font-mono text-[12.5px]">{rec.name}</td>
+                          <td className="font-mono text-[12.5px]">{rec.content}</td>
+                          <td className="text-[12px] text-ink-mut">{rec.ttl === 1 ? 'Auto' : rec.ttl}</td>
+                          <td className="text-right">
+                            <button type="button" className="link-danger text-xs" disabled={busy || !rec.id} onClick={() => del(rec)}>删除</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 

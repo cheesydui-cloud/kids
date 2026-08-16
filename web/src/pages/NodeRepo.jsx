@@ -5,7 +5,7 @@ import { Layout, useToast } from '../components/Layout'
 import { Loading, Empty, Badge, CopyText, Modal, useConfirm, DateInput } from '../components/ui'
 import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
 import FolderBar, { MoveToFolderModal } from '../components/FolderBar'
-import { parseURIs, tryParseURI, extractUserPass, tryParseNaiveHTTPS, isAuthFormProtocol, buildSimpleAuthURI } from '../lib/landing'
+import { parseURIs, tryParseURI, extractUserPass, tryParseNaiveHTTPS, isAuthFormProtocol, buildSimpleAuthURI, rewriteRepoShareURI, repoShareHost } from '../lib/landing'
 import { billedUsedBytes, fmtDate, expiryBadge, fmtTrafficGB } from '../lib/fmt'
 import { useIsMobile } from '../lib/useIsMobile'
 
@@ -429,7 +429,7 @@ function RowActions({ n, busy, onProbe, onChangeIP, onEdit, onDelete, compact })
       )}
       <div className="inline-flex items-center gap-1.5">
         {n.uri && (
-          <CopyText text={n.uri} hideIcon>
+          <CopyText text={rewriteRepoShareURI(n.uri, { name: n.name, host: n.host, recordName: n.cf_record_name, port: n.port })} hideIcon>
             <span className={`${rowBtnPrimary} cursor-pointer`}>复制</span>
           </CopyText>
         )}
@@ -576,13 +576,21 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
         cf_zone_id: form.cf_zone_id,
         cf_record_name: recordName,
       })
-      setForm(f => ({
-        ...f,
-        backend_ip: d?.ip || f.backend_ip,
-        cf_record_name: d?.record || f.cf_record_name,
-        cf_zone_id: d?.zone_id || f.cf_zone_id,
-        cf_sync: true,
-      }))
+      setForm(f => {
+        const next = {
+          ...f,
+          backend_ip: d?.ip || f.backend_ip,
+          cf_record_name: d?.record || f.cf_record_name,
+          cf_zone_id: d?.zone_id || f.cf_zone_id,
+          cf_sync: true,
+        }
+        if (next.uri) {
+          next.uri = rewriteRepoShareURI(next.uri, {
+            name: next.name, host: next.host, recordName: next.cf_record_name, port: next.port,
+          })
+        }
+        return next
+      })
       toast(d.message || (d?.record ? `已同步记录名 ${d.record}` : `已从 Cloudflare 拉取 ${d?.ip || ''}`))
     } catch (err) {
       toast(err.message, 'error')
@@ -608,11 +616,18 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
       if (isAuthFormProtocol(protocol)) {
         uri = buildSimpleAuthURI({
           protocol,
-          host: form.host.trim(),
+          host: repoShareHost(form.host.trim(), form.cf_record_name.trim()) || form.host.trim(),
           port: form.port,
           username: form.username,
           password: form.password,
           name: form.name.trim(),
+        }) || uri
+      } else {
+        uri = rewriteRepoShareURI(uri, {
+          name: form.name.trim(),
+          host: form.host.trim(),
+          recordName: form.cf_record_name.trim(),
+          port: form.port,
         }) || uri
       }
       const body = {
@@ -717,9 +732,9 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
               <input className="input-field font-mono" type="number" min="1" max="65535" value={form.port} onChange={e => set('port', e.target.value)} placeholder="端口" />
             </div>
           </div>
-          {form.uri && form.host && form.uri.includes(form.host) === false && /@\d+\.\d+\.\d+\.\d+/.test(form.uri) && (
+          {form.uri && form.cf_record_name && !form.uri.includes(form.cf_record_name) && /@\d+\.\d+\.\d+\.\d+/.test(form.uri) && (
             <p className="text-[11px] text-amber-700 dark:text-amber-300 m-0 -mt-1">
-              URI 里仍是 IP，规则已走上方域名；URI 仅作展示/复制，不影响用户入口链接。
+              保存或复制时会把 URI 换成记录名和当前名称；规则仍走上方目标地址。
             </p>
           )}
 

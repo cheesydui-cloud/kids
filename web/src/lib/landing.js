@@ -254,6 +254,41 @@ export function mergeLanding(...lists) {
 }
 
 /* Replace a proxy URI's connection host:port, preserving everything else. */
+function looksBareIP(s) {
+  const v = String(s || '').trim()
+  if (!v) return false
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return true
+  return v.includes(':') && !/[a-zA-Z]/.test(v)
+}
+
+/* Hostname written into a copied/stored share URI.
+   Prefer the CF record name when the forwarding target is still an IP. */
+export function repoShareHost(host, recordName) {
+  const rec = String(recordName || '').trim()
+  const h = String(host || '').trim()
+  if (rec && looksBareIP(h)) return rec
+  if (h && !looksBareIP(h)) return h
+  return rec || h
+}
+
+/* Rewrite a repo share URI onto the current name + domain (or IP if no domain). */
+export function rewriteRepoShareURI(uri, { name, host, recordName, port } = {}) {
+  let out = String(uri || '').trim()
+  if (!out) return out
+  const shareHost = repoShareHost(host, recordName)
+  const portNum = Number(port)
+  if (shareHost && portNum > 0) {
+    const next = rewriteEndpoint(out, shareHost, portNum)
+    if (next) out = next
+  }
+  const label = String(name || '').trim()
+  if (label) {
+    const next = setURIName(out, label)
+    if (next) out = next
+  }
+  return out
+}
+
 export function rewriteEndpoint(uri, host, port) {
   const i = uri.indexOf('://')
   if (i <= 0) return rewriteSnell(uri, host, port)

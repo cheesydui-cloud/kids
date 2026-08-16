@@ -570,3 +570,139 @@ func TestNodeRepoCFSyncIPHostWithRecordName(t *testing.T) {
 		t.Fatalf("backend-ip: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestRewriteRepoShareURIUsesRecordAndName(t *testing.T) {
+	uri := "vless://87f44ed6-2fd8-4ab3-b75c-b68534f7f1ee@31.40.214.186:9639?encryption=none&security=none#old"
+	got := rewriteRepoShareURI(uri, "hostdare", "31.40.214.186", 9639)
+	if !strings.Contains(got, "@31.40.214.186:9639") {
+		t.Fatalf("without record name should keep IP: %s", got)
+	}
+	got = rewriteRepoShareURI(uri, "hostdare", repoShareHost("31.40.214.186", "cheesydu.cnodelink.com"), 9639)
+	if !strings.Contains(got, "@cheesydu.cnodelink.com:9639") {
+		t.Fatalf("want domain host, got %s", got)
+	}
+	if !strings.Contains(got, "hostdare") {
+		t.Fatalf("want name hostdare, got %s", got)
+	}
+}
+
+func TestNodeRepoSaveRewritesShareURI(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+
+	body := map[string]any{
+		"name": "hostdare", "protocol": "vless",
+		"host": "31.40.214.186", "port": 9639,
+		"uri":            "vless://87f44ed6-2fd8-4ab3-b75c-b68534f7f1ee@31.40.214.186:9639?encryption=none&security=none#old",
+		"cf_record_name": "cheesydu.cnodelink.com",
+	}
+	buf, _ := json.Marshal(body)
+	req := newTestRequest("POST", "/api/node-repo", bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Node db.NodeRepoEntry `json:"node"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Node.Host != "31.40.214.186" {
+		t.Fatalf("forward host must stay IP, got %q", resp.Node.Host)
+	}
+	if !strings.Contains(resp.Node.URI, "@cheesydu.cnodelink.com:9639") {
+		t.Fatalf("share uri host=%s", resp.Node.URI)
+	}
+	if !strings.Contains(resp.Node.URI, "hostdare") {
+		t.Fatalf("share uri name=%s", resp.Node.URI)
+	}
+
+	req = newTestRequest("GET", "/api/node-repo", nil)
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Nodes []db.NodeRepoEntry `json:"nodes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Nodes) != 1 || !strings.Contains(list.Nodes[0].URI, "@cheesydu.cnodelink.com:9639") {
+		t.Fatalf("list uri=%+v", list.Nodes)
+	}
+}
+
+func TestSettingsCFRecordsCRUD(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+
+	var deleted string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/zones"):
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"id":"z1","name":"cnodelink.com"}]}`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/dns_records"):
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"id":"r1","type":"A","name":"a.cnodelink.com","content":"1.2.3.4","ttl":1,"proxied":false}]}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/dns_records"):
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":{"id":"r2","type":"A","name":"b.cnodelink.com","content":"5.6.7.8","ttl":1,"proxied":false}}`))
+		case r.Method == http.MethodDelete:
+			deleted = r.URL.Path
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":{"id":"r1"}}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			_, _ = w.Write([]byte(`{"success":false,"errors":[{"message":"unexpected"}]}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	_ = db.SetSetting(d, "cf_api_token", "tok")
+	_ = db.SetSetting(d, "cf_zone_name", "cnodelink.com")
+	_ = db.SetSetting(d, "cf_api_base", srv.URL)
+
+	req := newTestRequest("GET", "/api/settings/cf-records", nil)
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	var listed struct {
+		Records []map[string]any `json:"records"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Records) != 1 || listed.Records[0]["name"] != "a.cnodelink.com" {
+		t.Fatalf("listed=%v", listed.Records)
+	}
+
+	buf, _ := json.Marshal(map[string]any{"name": "b.cnodelink.com", "content": "5.6.7.8"})
+	req = newTestRequest("POST", "/api/settings/cf-records", bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = newTestRequest("DELETE", "/api/settings/cf-records/r1", nil)
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(deleted, "/dns_records/r1") {
+		t.Fatalf("deleted path=%s", deleted)
+	}
+}

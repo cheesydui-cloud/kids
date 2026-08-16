@@ -646,6 +646,9 @@ func (s *Server) Router() http.Handler {
 			r.Delete("/settings/logo", s.apiClearPanelLogo)
 			r.Get("/settings/update", s.apiGetPanelUpdate)
 			r.Post("/settings/update", s.apiStartPanelUpdate)
+			r.Get("/settings/cf-records", s.apiListCFRecords)
+			r.Post("/settings/cf-records", s.apiCreateCFRecord)
+			r.Delete("/settings/cf-records/{id}", s.apiDeleteCFRecord)
 			r.Post("/node-roles", s.apiSetNodeRoles)
 
 			r.Get("/rules", s.apiListRules)

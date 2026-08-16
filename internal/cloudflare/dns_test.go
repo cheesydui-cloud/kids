@@ -226,6 +226,25 @@ func TestSanitizeAPIToken(t *testing.T) {
 	}
 }
 
+func TestDeleteDNSRecord(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+		gotPath = r.URL.Path
+		writeCF(w, true, map[string]string{"id": "r1"})
+	}))
+	defer srv.Close()
+	c := &Client{Token: "tok", BaseURL: srv.URL, HTTPClient: srv.Client()}
+	if err := c.DeleteDNSRecord(context.Background(), "zone1", "r1"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotPath, "/dns_records/r1") {
+		t.Fatalf("path=%s", gotPath)
+	}
+}
+
 func TestRecordNameForHost(t *testing.T) {
 	if got := RecordNameForHost("Home.Example.com", ""); got != "home.example.com" {
 		t.Fatalf("got %q", got)

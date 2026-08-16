@@ -347,6 +347,37 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
+// ListARecords returns A records in the zone (first page, up to 100).
+func (c *Client) ListARecords(ctx context.Context, zoneID string) ([]DNSRecord, error) {
+	zoneID = strings.TrimSpace(zoneID)
+	if zoneID == "" {
+		return nil, fmt.Errorf("Zone ID 不能为空")
+	}
+	var recs []DNSRecord
+	path := fmt.Sprintf("/zones/%s/dns_records?type=A&per_page=100", zoneID)
+	if err := c.do(ctx, http.MethodGet, path, nil, &recs); err != nil {
+		return nil, err
+	}
+	if recs == nil {
+		recs = []DNSRecord{}
+	}
+	return recs, nil
+}
+
+// DeleteDNSRecord removes a DNS record by id.
+func (c *Client) DeleteDNSRecord(ctx context.Context, zoneID, id string) error {
+	zoneID = strings.TrimSpace(zoneID)
+	id = strings.TrimSpace(id)
+	if zoneID == "" {
+		return fmt.Errorf("Zone ID 不能为空")
+	}
+	if id == "" {
+		return fmt.Errorf("记录 ID 不能为空")
+	}
+	path := fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, id)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // RecordNameForHost picks the DNS record name for a repo host.
 // If explicit is non-empty it wins; otherwise the host itself is used when it
 // looks like a hostname.
