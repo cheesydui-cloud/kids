@@ -12,8 +12,8 @@ import (
 
 // ClashProxyYAML converts a single proxy URI into a Clash/Mihomo proxy list
 // item. name overrides the URI's own display name when non-empty. Unsupported
-// schemes (socks5, naive, mieru, snell, …) return ok=false so callers can keep
-// them in the URI list but omit them from the YAML profile.
+// schemes (naive, snell, …) return ok=false so callers can keep them in the
+// URI list but omit them from the YAML profile.
 func ClashProxyYAML(uri, name string) (string, bool) {
 	uri = strings.TrimSpace(uri)
 	if uri == "" {
@@ -42,11 +42,13 @@ func ClashProxyYAML(uri, name string) (string, bool) {
 		return clashTrojan(uri, name)
 	case "hy2", "hysteria2":
 		return clashHy2(uri, name)
-	case "socks5", "socks5h", "socks":
-		return clashSocks5(uri, name)
-	default:
-		return "", false
-	}
+		case "socks5", "socks5h", "socks":
+			return clashSocks5(uri, name)
+		case "mieru", "mierus":
+			return clashMieru(uri, name)
+		default:
+			return "", false
+		}
 }
 
 // NamedURI is a display name paired with a proxy URI for profile assembly.
@@ -370,6 +372,55 @@ func clashSocks5(uri, name string) (string, bool) {
 		if pass, ok := u.User.Password(); ok && pass != "" {
 			L = append(L, "  password: "+yamlQuoted(pass))
 		}
+	}
+	L = append(L, "  udp: true")
+	return strings.Join(L, "\n"), true
+}
+
+// clashMieru maps official mierus:// (port in query) and authority mieru://
+// into Mihomo's type: mieru. Clash Premium cannot load this; Clash Verge /
+// Mihomo can.
+func clashMieru(uri, name string) (string, bool) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return "", false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return "", false
+	}
+	q := u.Query()
+	port := firstMieruPort(q["port"])
+	if port == 0 {
+		port, _ = strconv.Atoi(u.Port())
+	}
+	if port < 1 || port > 65535 {
+		return "", false
+	}
+	transport := strings.ToUpper(strings.TrimSpace(q.Get("protocol")))
+	if transport != "TCP" && transport != "UDP" {
+		transport = "TCP"
+	}
+	L := []string{
+		fmt.Sprintf("- name: %s", yamlQuoted(name)),
+		"  type: mieru",
+		fmt.Sprintf("  server: %s", yamlScalar(host)),
+		fmt.Sprintf("  port: %d", port),
+		"  transport: " + transport,
+	}
+	if u.User != nil {
+		if user := u.User.Username(); user != "" {
+			L = append(L, "  username: "+yamlQuoted(user))
+		}
+		if pass, ok := u.User.Password(); ok && pass != "" {
+			L = append(L, "  password: "+yamlQuoted(pass))
+		}
+	}
+	if mux := strings.TrimSpace(q.Get("multiplexing")); mux != "" {
+		L = append(L, "  multiplexing: "+yamlScalar(mux))
+	}
+	if hs := firstNonEmpty(q.Get("handshake-mode"), q.Get("handshakeMode")); hs != "" {
+		L = append(L, "  handshake-mode: "+yamlScalar(hs))
 	}
 	L = append(L, "  udp: true")
 	return strings.Join(L, "\n"), true

@@ -13,6 +13,8 @@ export function uriToClashYaml(uri) {
     case 'trojan': return trojanToYaml(uri)
     case 'hy2':
     case 'hysteria2': return hy2ToYaml(uri)
+    case 'mieru':
+    case 'mierus': return mieruToYaml(uri)
     default: return null
   }
 }
@@ -157,6 +159,48 @@ function trojanToYaml(uri) {
   const net = params.type || 'tcp'
   if (net !== 'tcp') L.push(`  network: ${net}`)
   appendTransport(L, net, params)
+  L.push(`  udp: true`)
+  return L.join('\n')
+}
+
+function mieruToYaml(uri) {
+  const i = uri.indexOf('://')
+  let rest = uri.slice(i + 3)
+  let name = ''
+  const h = rest.indexOf('#')
+  if (h >= 0) { name = dec(rest.slice(h + 1)); rest = rest.slice(0, h) }
+  let params = {}
+  const q = rest.indexOf('?')
+  if (q >= 0) { params = parseQS(rest.slice(q + 1)); rest = rest.slice(0, q) }
+  let user = '', pass = ''
+  const at = rest.lastIndexOf('@')
+  if (at >= 0) {
+    const auth = rest.slice(0, at)
+    rest = rest.slice(at + 1)
+    const c = auth.indexOf(':')
+    if (c >= 0) { user = dec(auth.slice(0, c)); pass = dec(auth.slice(c + 1)) }
+    else user = dec(auth)
+  }
+  let host = rest, port = Number(params.port)
+  if (String(params.port || '').includes('-')) port = Number(String(params.port).split('-')[0])
+  const hp = hostport(rest)
+  if (hp) { host = hp[0]; if (!port) port = hp[1] }
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
+  let transport = String(params.protocol || 'TCP').toUpperCase()
+  if (transport !== 'TCP' && transport !== 'UDP') transport = 'TCP'
+  const L = []
+  L.push(`- name: "${esc(name)}"`)
+  L.push(`  type: mieru`)
+  L.push(`  server: ${host}`)
+  L.push(`  port: ${port}`)
+  L.push(`  transport: ${transport}`)
+  if (user) L.push(`  username: "${esc(user)}"`)
+  if (pass) L.push(`  password: "${esc(pass)}"`)
+  if (params.multiplexing) L.push(`  multiplexing: ${params.multiplexing}`)
+  if (params['handshake-mode'] || params.handshakeMode) {
+    L.push(`  handshake-mode: ${params['handshake-mode'] || params.handshakeMode}`)
+  }
   L.push(`  udp: true`)
   return L.join('\n')
 }

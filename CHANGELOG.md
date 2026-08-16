@@ -9,6 +9,28 @@
 
 ---
 
+## v0.4.1 — 2026-08-17
+
+Clash / Mihomo 订阅能带上 Mieru 节点。
+
+### 修复
+
+- Clash、Mihomo 的 YAML 以前会丢掉 `mierus://`，拉下来是空的 `proxies: []`
+- 现在按 Mihomo 的 `type: mieru` 写出服务器、端口、账号、密码
+- 管理端复制 YAML 同样能出这段
+
+### 升级注意
+
+- 这是**面板**改动，升面板即可，节点不用动
+- 升完后让用户重新拉一次 Clash / Mihomo 订阅
+- 要用 Clash Verge / Mihomo / Clash Meta；原版 Clash Premium 不认 `type: mieru`
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s update
+```
+
+---
+
 ## v0.4.0 — 2026-08-17
 
 Mieru 复制出来的节点名和其他协议一样，用用户名、规则名和到期日。

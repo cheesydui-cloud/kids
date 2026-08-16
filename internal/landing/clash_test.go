@@ -61,9 +61,29 @@ func TestClashProfilePacksMixedProtocols(t *testing.T) {
 	}
 }
 
+func TestClashProxyYAMLMierus(t *testing.T) {
+	y, ok := ClashProxyYAML("mierus://alice:s3cret@per-year.cnodelink.com?profile=pv2-1062&port=10401&protocol=TCP#pv2-1062", "水宝宝-1-9月6日")
+	if !ok {
+		t.Fatal("mierus should convert for Mihomo")
+	}
+	for _, want := range []string{
+		`name: "水宝宝-1-9月6日"`,
+		"type: mieru",
+		"server: per-year.cnodelink.com",
+		"port: 10401",
+		"transport: TCP",
+		`username: "alice"`,
+		`password: "s3cret"`,
+	} {
+		if !strings.Contains(y, want) {
+			t.Errorf("yaml missing %q\n%s", want, y)
+		}
+	}
+}
+
 func TestClashProxyYAMLUnsupported(t *testing.T) {
-	if _, ok := ClashProxyYAML("mieru://u:p@1.2.3.4:1080#s", "s"); ok {
-		t.Fatal("mieru should not convert")
+	if _, ok := ClashProxyYAML("naive+https://u:p@1.2.3.4:443#s", "s"); ok {
+		t.Fatal("naive should not convert")
 	}
 }
 
