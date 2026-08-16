@@ -680,6 +680,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/users/{id}/landing-exits/expires", s.apiSetLandingExitExpires)
 
 			r.Get("/users", s.apiListUsers)
+			r.Post("/users/reorder", s.apiReorderUsers)
 			r.Patch("/users/{id}/profile", s.apiUpdateUserProfile)
 			r.Post("/users/{id}/admin-note", s.apiSetAdminNote)
 			r.Post("/users/{id}/group", s.apiSetUserGroup)
@@ -714,6 +715,7 @@ func (s *Server) Router() http.Handler {
 			// Node repository
 			r.Get("/node-repo", s.apiListNodeRepo)
 			r.Post("/node-repo", s.apiCreateNodeRepoEntry)
+			r.Post("/node-repo/reorder", s.apiReorderNodeRepo)
 			r.Get("/node-repo/{id}/users", s.apiListNodeRepoUsers)
 			r.Get("/node-repo/{id}/probe-dns", s.apiProbeNodeRepoDNS)
 			r.Patch("/node-repo/{id}", s.apiUpdateNodeRepoEntry)

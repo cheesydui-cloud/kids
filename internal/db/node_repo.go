@@ -20,6 +20,8 @@ type NodeRepoEntry struct {
 	// denormalized label kept in sync for display and legacy clients.
 	GroupID   int64  `json:"group_id"`
 	GroupName string `json:"group_name"`
+	// SortOrder is the admin list display order (drag-and-drop).
+	SortOrder int64 `json:"sort_order"`
 	// UserCount is how many users currently hold this endpoint via source=repo
 	// present landing exits. Filled by list API; not a DB column.
 	UserCount int `json:"user_count"`
@@ -44,14 +46,14 @@ type NodeRepoCFFields struct {
 }
 
 const nodeRepoCols = `id, name, protocol, host, port, uri, remark, expires_at, created_at, group_name, group_id,
-	backend_ip, cf_sync, cf_zone_id, cf_record_name, cf_last_sync_at, cf_last_error, cf_last_ip`
+		backend_ip, cf_sync, cf_zone_id, cf_record_name, cf_last_sync_at, cf_last_error, cf_last_ip, sort_order`
 
 func scanNodeRepo(rows *sql.Rows) (NodeRepoEntry, error) {
 	var n NodeRepoEntry
 	var cfSync int
 	err := rows.Scan(
 		&n.ID, &n.Name, &n.Protocol, &n.Host, &n.Port, &n.URI, &n.Remark, &n.ExpiresAt, &n.CreatedAt, &n.GroupName, &n.GroupID,
-		&n.BackendIP, &cfSync, &n.CFZoneID, &n.CFRecordName, &n.CFLastSyncAt, &n.CFLastError, &n.CFLastIP,
+		&n.BackendIP, &cfSync, &n.CFZoneID, &n.CFRecordName, &n.CFLastSyncAt, &n.CFLastError, &n.CFLastIP, &n.SortOrder,
 	)
 	n.CFSync = cfSync != 0
 	return n, err
@@ -62,7 +64,7 @@ func scanNodeRepoRow(row *sql.Row) (NodeRepoEntry, error) {
 	var cfSync int
 	err := row.Scan(
 		&n.ID, &n.Name, &n.Protocol, &n.Host, &n.Port, &n.URI, &n.Remark, &n.ExpiresAt, &n.CreatedAt, &n.GroupName, &n.GroupID,
-		&n.BackendIP, &cfSync, &n.CFZoneID, &n.CFRecordName, &n.CFLastSyncAt, &n.CFLastError, &n.CFLastIP,
+		&n.BackendIP, &cfSync, &n.CFZoneID, &n.CFRecordName, &n.CFLastSyncAt, &n.CFLastError, &n.CFLastIP, &n.SortOrder,
 	)
 	n.CFSync = cfSync != 0
 	return n, err
@@ -70,7 +72,7 @@ func scanNodeRepoRow(row *sql.Row) (NodeRepoEntry, error) {
 
 // ListNodeRepo returns all nodes in the repository.
 func ListNodeRepo(d *sql.DB) ([]NodeRepoEntry, error) {
-	rows, err := d.Query(`SELECT ` + nodeRepoCols + ` FROM node_repo ORDER BY created_at DESC`)
+	rows, err := d.Query(`SELECT ` + nodeRepoCols + ` FROM node_repo ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -109,16 +111,33 @@ func CreateNodeRepoEntry(d *sql.DB, name, protocol, host string, port int, uri, 
 		CFZoneID: strings.TrimSpace(cf.CFZoneID), CFRecordName: strings.TrimSpace(cf.CFRecordName),
 	}
 	res, err := d.Exec(`INSERT INTO node_repo (
-		name, protocol, host, port, uri, remark, expires_at, created_at, group_name, group_id,
-		backend_ip, cf_sync, cf_zone_id, cf_record_name
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			name, protocol, host, port, uri, remark, expires_at, created_at, group_name, group_id,
+			backend_ip, cf_sync, cf_zone_id, cf_record_name, sort_order
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order),0)+1 FROM node_repo))`,
 		n.Name, n.Protocol, n.Host, n.Port, n.URI, n.Remark, n.ExpiresAt, n.CreatedAt, n.GroupName, n.GroupID,
 		n.BackendIP, cfSync, n.CFZoneID, n.CFRecordName)
 	if err != nil {
 		return n, err
 	}
 	n.ID, _ = res.LastInsertId()
+	_ = d.QueryRow(`SELECT sort_order FROM node_repo WHERE id=?`, n.ID).Scan(&n.SortOrder)
 	return n, nil
+}
+
+// ReorderNodeRepo assigns sort_order to match the given id sequence (1-based).
+// IDs absent from the list keep their previous order value.
+func ReorderNodeRepo(d *sql.DB, ids []int64) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for i, id := range ids {
+		if _, err := tx.Exec(`UPDATE node_repo SET sort_order=? WHERE id=?`, i+1, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // GetNodeRepoEntry returns one repository node by id.

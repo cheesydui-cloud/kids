@@ -1734,6 +1734,25 @@ func (s *Server) apiReorderNodes(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true})
 }
 
+// apiReorderUsers persists the manual user display order from a drag-and-drop
+// reorder in the admin user list.
+func (s *Server) apiReorderUsers(w http.ResponseWriter, r *http.Request) {
+	u := userFromCtx(r.Context())
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if err := db.ReorderUsers(s.DB, body.IDs); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	db.WriteAudit(s.DB, u.ID, "user.reorder", "", "")
+	jsonOK(w, map[string]any{"ok": true})
+}
+
 func (s *Server) apiResyncAllNodes(w http.ResponseWriter, r *http.Request) {
 	nodes, err := db.ListNodes(s.DB)
 	if err != nil {

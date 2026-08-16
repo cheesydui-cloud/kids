@@ -26,6 +26,7 @@ export default function UserList() {
   const [folderFilter, setFolderFilter] = useState('') // '' all | '0' ungrouped | folder id
   const [sel, setSel] = useState(new Set())
   const [sortBy, setSortBy] = useState(null) // null | 'expires_asc' | 'expires_desc'
+  const [dragIndex, setDragIndex] = useState(null)
   const toast = useToast()
   const navigate = useNavigate()
 
@@ -100,6 +101,27 @@ export default function UserList() {
   const toggleSelAll = () => setSel(s =>
     s.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(u => u.id)))
 
+  // 搜索 / 分组 / 到期排序任一生效时不能拖：saveOrder 以可见行为全量顺序，
+  // 子集视图会把隐藏的 admin 和其它分组从顺序里丢掉。
+  const draggable = !q && !folderFilter && !sortBy
+  const saveOrder = async (visibleList) => {
+    const visibleIds = visibleList.map(u => u.id)
+    const hiddenIds = []
+    if (hiddenAdmin) hiddenIds.push(hiddenAdmin.id)
+    const allIds = [...hiddenIds, ...visibleIds]
+    const byId = Object.fromEntries(allUsers.map(u => [u.id, u]))
+    setData(d => ({ ...d, users: allIds.map(id => byId[id]).filter(Boolean) }))
+    try { await api.post('/users/reorder', { ids: allIds }); toast('顺序已保存') } catch (err) { toast(err.message, 'error'); load() }
+  }
+  const onDrop = async (toIndex) => {
+    if (dragIndex === null || dragIndex === toIndex) { setDragIndex(null); return }
+    const next = [...filtered]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(toIndex, 0, moved)
+    setDragIndex(null)
+    saveOrder(next)
+  }
+
   return (
     <Layout>
       <div className="h-full flex flex-col">
@@ -138,17 +160,24 @@ export default function UserList() {
             <thead><tr>
               <th className="w-8"><input type="checkbox"
                 checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
-              <th className="w-12">ID</th><th>用户名</th><th>分组</th><th>角色</th><th>规则配额</th><th>流量</th><th>状态</th>
+              <th className="w-16">ID</th><th>用户名</th><th>分组</th><th>角色</th><th>规则配额</th><th>流量</th><th>状态</th>
               <th className="cursor-pointer select-none whitespace-nowrap" onClick={toggleExpirySort}>到期{sortBy === 'expires_asc' ? ' ↑' : sortBy === 'expires_desc' ? ' ↓' : ''}</th>
               <th>备注</th>
             </tr></thead>
             <tbody>
-              {filtered.map(u => (
-                  <tr key={u.id} className="cursor-pointer" onClick={() => navigate(`/users/${u.id}`)}>
+              {filtered.map((u, i) => (
+                  <tr key={u.id}
+                    className={`cursor-pointer ${dragIndex === i ? 'opacity-50' : ''}`}
+                    onClick={() => navigate(`/users/${u.id}`)}
+                    onDragOver={draggable ? e => e.preventDefault() : undefined}
+                    onDrop={draggable ? () => onDrop(i) : undefined}>
                     <td onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={sel.has(u.id)} onChange={e => toggleSel(u.id, e)} />
                     </td>
-                    <td className="font-mono text-xs text-ink-mut">{u.id}</td>
+                    <td className="font-mono text-xs text-ink-mut whitespace-nowrap">
+                      {draggable && <span className="text-ink-mut mr-1 select-none cursor-move" title="拖拽排序"
+                        draggable onDragStart={e => { e.stopPropagation(); setDragIndex(i) }}>⠿</span>}{u.id}
+                    </td>
                     <td className="font-semibold" style={{ color: 'var(--brand-from)' }}>{u.username}</td>
                     <td className="text-xs">{u.group_name ? <Badge color="blue">{u.group_name}</Badge> : <span className="text-ink-mut">—</span>}</td>
                     <td><span className="inline-flex items-center font-mono text-xs bg-raised text-ink-soft px-1.5 py-0.5 rounded">{u.role}</span></td>

@@ -21,6 +21,7 @@ export default function NodeRepo() {
   const [search, setSearch] = useState('')
   const [folderFilter, setFolderFilter] = useState('') // '' all | '0' ungrouped | folder id
   const [sel, setSel] = useState(new Set())
+  const [dragIndex, setDragIndex] = useState(null)
   const [usersFor, setUsersFor] = useState(null) // node entry when modal open
   const [usersList, setUsersList] = useState(null)
   const [usersLoading, setUsersLoading] = useState(false)
@@ -133,6 +134,25 @@ export default function NodeRepo() {
   const toggleSelAll = () => setSel(s =>
     s.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(n => n.id)))
 
+  // 搜索 / 分组过滤时不能拖：saveOrder 以可见行为全量顺序，子集视图会丢掉其它行。
+  const draggable = !q && !folderFilter
+  const saveOrder = async (visibleList) => {
+    const visibleIds = visibleList.map(n => n.id)
+    const hiddenIds = (list || []).filter(n => !visibleIds.includes(n.id)).map(n => n.id)
+    const allIds = [...hiddenIds, ...visibleIds]
+    const byId = Object.fromEntries((list || []).map(n => [n.id, n]))
+    setList(allIds.map(id => byId[id]).filter(Boolean))
+    try { await api.post('/node-repo/reorder', { ids: allIds }); toast('顺序已保存') } catch (err) { toast(err.message, 'error'); load() }
+  }
+  const onDrop = async (toIndex) => {
+    if (dragIndex === null || dragIndex === toIndex) { setDragIndex(null); return }
+    const next = [...filtered]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(toIndex, 0, moved)
+    setDragIndex(null)
+    saveOrder(next)
+  }
+
   return (
     <Layout>
       <div className="h-full flex flex-col">
@@ -174,10 +194,17 @@ export default function NodeRepo() {
                 checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
               <th>名称</th><th>分组</th><th>协议</th><th>地址</th><th>使用</th><th>到期时间</th><th>备注</th><th>创建时间</th><th className="text-right">操作</th></tr></thead>
             <tbody>
-              {filtered.map(n => (
-                <tr key={n.id}>
+              {filtered.map((n, i) => (
+                <tr key={n.id}
+                  className={dragIndex === i ? 'opacity-50' : ''}
+                  onDragOver={draggable ? e => e.preventDefault() : undefined}
+                  onDrop={draggable ? () => onDrop(i) : undefined}>
                   <td><input type="checkbox" checked={sel.has(n.id)} onChange={() => toggleSel(n.id)} /></td>
-                  <td className="font-semibold">{n.name}</td>
+                  <td className="font-semibold whitespace-nowrap">
+                    {draggable && <span className="text-ink-mut mr-1.5 select-none cursor-move font-normal" title="拖拽排序"
+                      draggable onDragStart={() => setDragIndex(i)}>⠿</span>}
+                    {n.name}
+                  </td>
                   <td className="text-xs">{n.group_name ? <Badge color="blue">{n.group_name}</Badge> : <span className="text-ink-mut">—</span>}</td>
                   <td className="font-mono text-xs text-ink-soft">{n.protocol || '—'}</td>
                   <td className="text-xs"><AddrCell n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} /></td>

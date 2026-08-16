@@ -40,6 +40,25 @@ func (s *Server) apiListNodeRepo(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"nodes": list})
 }
 
+// apiReorderNodeRepo persists the manual landing-repo display order from a
+// drag-and-drop reorder in the admin node-repo list.
+func (s *Server) apiReorderNodeRepo(w http.ResponseWriter, r *http.Request) {
+	u := userFromCtx(r.Context())
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if err := db.ReorderNodeRepo(s.DB, body.IDs); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	db.WriteAudit(s.DB, u.ID, "node_repo.reorder", "", "")
+	jsonOK(w, map[string]any{"ok": true})
+}
+
 // apiListNodeRepoUsers returns users who currently use a repo node endpoint
 // (present source=repo landing exit at the same host:port).
 func (s *Server) apiListNodeRepoUsers(w http.ResponseWriter, r *http.Request) {
