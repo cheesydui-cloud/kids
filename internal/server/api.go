@@ -2760,6 +2760,7 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		LandingSubURL     string  `json:"landing_sub_url"`
 		AdminNote         string  `json:"admin_note"`
 		BillingRate       float64 `json:"billing_rate"`
+		GroupID           int64   `json:"group_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "请求格式错误")
@@ -2808,6 +2809,12 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.LandingSubURL != "" || body.AdminNote != "" {
 		s.DB.Exec(`UPDATE users SET landing_sub_url=?, admin_note=? WHERE id=?`, strings.TrimSpace(body.LandingSubURL), strings.TrimSpace(body.AdminNote), id)
+	}
+	if body.GroupID > 0 {
+		if err := db.SetUserFolder(s.DB, id, body.GroupID); err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	db.WriteAudit(s.DB, u.ID, "user.create", strconv.FormatInt(id, 10), username)
 	created, _ := db.GetUserByID(s.DB, id)

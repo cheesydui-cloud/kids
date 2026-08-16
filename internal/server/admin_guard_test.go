@@ -126,6 +126,39 @@ func TestCreateUserPersistsBillingRateAndShanghaiExpiry(t *testing.T) {
 	}
 }
 
+func TestCreateUserAssignsGroup(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+	folder, err := db.CreateUserFolder(d, "VIP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"username": "grouped-user",
+		"password": "pw",
+		"role":     "user",
+		"group_id": folder.ID,
+	})
+	req := newTestRequest("POST", "/api/users", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		User db.User `json:"user"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.User.GroupID != folder.ID || resp.User.GroupName != "VIP" {
+		t.Fatalf("group = %d/%q, want %d/VIP", resp.User.GroupID, resp.User.GroupName, folder.ID)
+	}
+}
+
 func TestSelfNodeMutationsRejected(t *testing.T) {
 	d := openDB(t)
 	self, err := db.UpsertSelfNode(d)

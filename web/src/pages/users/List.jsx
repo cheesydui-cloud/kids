@@ -197,7 +197,7 @@ export default function UserList() {
       </Panel>
       </div>
 
-      <CreateUserModal open={showCreate} onClose={() => setShowCreate(false)} onDone={(userId) => { setShowCreate(false); userId ? navigate(`/users/${userId}`) : load() }} />
+      <CreateUserModal folders={folders} open={showCreate} onClose={() => setShowCreate(false)} onDone={(userId) => { setShowCreate(false); userId ? navigate(`/users/${userId}`) : load() }} />
       <PasteGrantsModal open={showPaste} onClose={() => setShowPaste(false)} onDone={load}
         allNodes={allNodes.filter(n => n.node_type !== 'self')} allUsers={users} preSelectedUserIds={[]} />
 
@@ -265,9 +265,9 @@ function genPassword(len = 16) {
   crypto.getRandomValues(arr)
   return [...arr].map(n => chars[n % chars.length]).join('')
 }
-const emptyForm = () => ({ username: '', password: CARD_INITIAL_PASSWORD, role: 'user', max_forwards: '100', traffic_quota_gb: '0', expires_at: todayStr(), landing_sub_url: '', admin_note: '', billing_rate: '1' })
+const emptyForm = () => ({ username: '', password: CARD_INITIAL_PASSWORD, role: 'user', group_id: '0', max_forwards: '100', traffic_quota_gb: '0', expires_at: todayStr(), landing_sub_url: '', admin_note: '', billing_rate: '1' })
 
-function CreateUserModal({ open, onClose, onDone }) {
+function CreateUserModal({ folders = [], open, onClose, onDone }) {
   const [form, setForm] = useState(emptyForm)
   const [loading, setLoading] = useState(false)
   const [panelURL, setPanelURL] = useState('')
@@ -325,6 +325,7 @@ function CreateUserModal({ open, onClose, onDone }) {
         // Store the same password the card advertises unless admin typed another.
         password: form.password || CARD_INITIAL_PASSWORD,
         role: form.role,
+        group_id: Number(form.group_id) || 0,
         ...(isUser ? {
           max_forwards: Number(form.max_forwards),
           traffic_quota_bytes: Math.max(0, Math.round((Number(form.traffic_quota_gb) || 0) * 1073741824)),
@@ -353,6 +354,11 @@ function CreateUserModal({ open, onClose, onDone }) {
           </div>
           <label className="fl">角色</label>
           <Select value={form.role} onChange={v => set('role', v)} options={[{ value: 'user', label: 'user (普通用户)' }, { value: 'admin', label: 'admin (管理员)' }]} style={{ maxWidth: 200 }} />
+          <label className="fl">分组</label>
+          <select className="input-field" value={form.group_id} onChange={e => set('group_id', e.target.value)}>
+            <option value="0">未分组</option>
+            {folders.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+          </select>
           {form.role === 'user' && (
             <>
               <label className="fl">最大转发数</label>
