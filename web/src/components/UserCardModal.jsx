@@ -6,9 +6,8 @@ import { api } from '../lib/api'
 
 /**
  * Preview + copy admin user delivery card.
- * When rules are not passed, loads GET /users/:id for relay links.
  */
-export function UserCardModal({ open, onClose, user, rules: rulesProp, toast }) {
+export function UserCardModal({ open, onClose, user, toast }) {
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
@@ -25,24 +24,15 @@ export function UserCardModal({ open, onClose, user, rules: rulesProp, toast }) 
     ;(async () => {
       try {
         const { panelURL, panelName } = await loadPanelBranding(api)
-        let rules = rulesProp
         let fullUser = user
-        let expiryMap
-        if (!rules) {
+        if (!user.username || user.expires_at == null) {
           const d = await api.get(`/users/${user.id}`)
           fullUser = d?.user || user
-          rules = d?.rules || []
-          expiryMap = new Map()
-          for (const n of d?.landing_nodes || []) {
-            if (n.expires_at > 0) expiryMap.set(`${n.host}:${n.port}`, n.expires_at)
-          }
         }
         const card = buildUserCardText({
           panelName,
           panelURL,
           user: fullUser,
-          rules: rules || [],
-          expiryMap,
           password: CARD_INITIAL_PASSWORD,
         })
         if (!cancelled) setText(card)
@@ -53,7 +43,7 @@ export function UserCardModal({ open, onClose, user, rules: rulesProp, toast }) 
       }
     })()
     return () => { cancelled = true }
-  }, [open, user?.id, rulesProp])
+  }, [open, user?.id])
 
   const copy = async () => {
     if (!text) return

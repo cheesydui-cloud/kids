@@ -310,17 +310,11 @@ function CreateUserModal({ open, onClose, onDone }) {
     const draftUser = {
       username: form.username,
       expires_at: expUnix,
-      traffic_used_bytes: 0,
-      traffic_quota_bytes: Math.max(0, Math.round((Number(form.traffic_quota_gb) || 0) * 1073741824)),
-      max_forwards: Number(form.max_forwards) || 0,
-      billing_rate: Math.max(0, Number(form.billing_rate) || 1),
-      rule_count: 0,
     }
     const info = buildUserCardText({
       panelName: brand.panelName,
       panelURL: brand.panelURL || panelURL,
       user: draftUser,
-      rules: [],
       password: CARD_INITIAL_PASSWORD,
     })
     let copied = true
