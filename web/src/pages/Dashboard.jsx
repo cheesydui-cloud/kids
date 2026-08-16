@@ -10,6 +10,27 @@ import { useRuleSpeed, fmtSpeed, sumRuleSpeeds } from '../lib/useSpeed'
 
 const DAY = 86400
 
+// Invisible widest-ish sample so ↑696 B/s vs ↑12.34 MB/s never changes the tile width.
+const SPEED_SLOT = '↑999.99 MB/s'
+
+function LiveSpeed({ value }) {
+  return (
+    <div className="flex flex-col gap-1.5 text-[15px] leading-none tabular-nums">
+      <SpeedLine arrow="↑" bps={value.up} />
+      <SpeedLine arrow="↓" bps={value.down} />
+    </div>
+  )
+}
+
+function SpeedLine({ arrow, bps }) {
+  return (
+    <span className="relative inline-block whitespace-nowrap text-emerald-600">
+      <span className="invisible select-none" aria-hidden="true">{SPEED_SLOT}</span>
+      <span className="absolute inset-0">{arrow}{fmtSpeed(bps)}</span>
+    </span>
+  )
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [users, setUsers] = useState(null)
@@ -70,12 +91,7 @@ export default function Dashboard() {
     {
       key: 'live',
       label: '实时',
-      value: (
-        <span className="inline-flex items-baseline gap-2.5">
-          <span className="text-emerald-600">↑{fmtSpeed(live.up)}</span>
-          <span className="text-emerald-600">↓{fmtSpeed(live.down)}</span>
-        </span>
-      ),
+      value: <LiveSpeed value={live} />,
       hint: '全部规则入口',
     },
   ]
@@ -85,14 +101,14 @@ export default function Dashboard() {
       <PageHeader title="运营概览" />
 
       <div className="card mb-5">
-        <div className="grid grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_minmax(10.5rem,1.15fr)]">
           {metrics.map((m, i) => (
             <div
               key={m.key}
-              className={`px-5 py-4 border-line-soft ${i % 2 === 0 ? 'max-lg:border-r' : ''} ${i < 4 ? 'border-b lg:border-b-0' : ''} ${i < 4 ? 'lg:border-r' : ''}`}
+              className={`px-5 py-4 min-w-0 border-line-soft ${i % 2 === 0 ? 'max-lg:border-r' : ''} ${i < 4 ? 'border-b lg:border-b-0' : ''} ${i < 4 ? 'lg:border-r' : ''}`}
             >
               <div className="text-[12px] font-medium text-ink-mut">{m.label}</div>
-              <div className={`mt-1.5 text-[22px] font-bold leading-none tracking-tight tabular-nums ${m.accent ? 'text-green-600 dark:text-green-400' : 'text-ink'}`}>
+              <div className={`mt-1.5 font-bold leading-none tracking-tight tabular-nums ${m.key === 'live' ? '' : 'text-[22px]'} ${m.accent ? 'text-green-600 dark:text-green-400' : 'text-ink'}`}>
                 {m.value}
               </div>
               <div className="mt-1.5 text-[12px] text-ink-mut truncate">{m.hint}</div>
