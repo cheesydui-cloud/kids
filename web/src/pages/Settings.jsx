@@ -17,6 +17,7 @@ export default function Settings() {
   const [form, setForm] = useState({
     panel_url: '',
     panel_name: '',
+    monitor_url: '',
     logo_url: '',
     show_rate_to_user: false,
     pool_size: 4,
@@ -47,6 +48,7 @@ export default function Settings() {
         ...f,
         panel_url: data.panel_url || '',
         panel_name: data.panel_name || '',
+        monitor_url: data.monitor_url || '',
         logo_url: data.logo_url || '',
         show_rate_to_user: !!data.show_rate_to_user,
         pool_size: data.pool_size ?? 4,
@@ -93,6 +95,7 @@ export default function Settings() {
       const body = {
         panel_url: form.panel_url,
         panel_name: form.panel_name,
+        monitor_url: form.monitor_url,
         show_rate_to_user: form.show_rate_to_user,
         pool_size: ps,
         panel_lease_hours: leaseH,
@@ -104,11 +107,12 @@ export default function Settings() {
         body.cf_api_token = form.cf_api_token.trim()
       }
       await api.post('/settings', body)
-      applySession({ panel_name: form.panel_name })
       toast('设置已保存')
       const data = await api.get('/settings')
+      applySession({ panel_name: form.panel_name, monitor_url: data.monitor_url || '' })
       setForm(f => ({
         ...f,
+        monitor_url: data.monitor_url || '',
         logo_url: data.logo_url || '',
         cf_token_configured: !!data.cf_token_configured,
         cf_token_prefix: data.cf_token_prefix || '',
@@ -308,9 +312,16 @@ export default function Settings() {
                     <p className="text-[12px] text-ink-mut mt-1.5 m-0">节点升级会从该地址下载 agent。请带协议（http/https）；只写 IP:端口 时保存会自动补 http://。</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-6 mb-[22px]">
                   <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">面板名称</label>
                   <input className="input-field max-w-[560px]" type="text" placeholder="nft" value={form.panel_name} onChange={e => set('panel_name', e.target.value)} />
+                </div>
+                <div className="flex items-center gap-6">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">监控地址</label>
+                  <div className="flex-1 max-w-[560px]">
+                    <input className="input-field w-full" type="text" placeholder="https://monitor.example.com" value={form.monitor_url} onChange={e => set('monitor_url', e.target.value)} />
+                    <p className="text-[12px] text-ink-mut mt-1.5 m-0">填 Komari 等独立监控面板的地址。保存后管理员侧栏会出现「主机监控」，新标签打开。留空则不显示。普通用户看不到。</p>
+                  </div>
                 </div>
               </>
             )}
