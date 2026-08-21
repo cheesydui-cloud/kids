@@ -6,7 +6,7 @@ import { Loading, Empty, Badge, CopyText, Modal, useConfirm, DateInput } from '.
 import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
 import FolderBar, { MoveToFolderModal } from '../components/FolderBar'
 import { parseURIs, tryParseURI, extractUserPass, tryParseNaiveHTTPS, isAuthFormProtocol, buildSimpleAuthURI, rewriteRepoShareURI, repoShareHost } from '../lib/landing'
-import { billedUsedBytes, fmtDate, expiryBadge, fmtTrafficGB } from '../lib/fmt'
+import { billedUsedBytes, fmtDate, fmtDateInput, expiryBadge, fmtTrafficGB, unixFromDateInput } from '../lib/fmt'
 import { useIsMobile } from '../lib/useIsMobile'
 
 export default function NodeRepo() {
@@ -705,7 +705,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
     password: initialCreds.password,
     remark: node?.remark || '',
     group_id: node?.group_id > 0 ? String(node.group_id) : '0',
-    expires_at: node?.expires_at > 0 ? new Date(node.expires_at * 1000).toISOString().slice(0, 10) : '',
+    expires_at: node?.expires_at > 0 ? fmtDateInput(node.expires_at) : '',
     backend_ip: node?.backend_ip || '',
     cf_sync: !!node?.cf_sync,
     cf_zone_id: node?.cf_zone_id || '',
@@ -830,7 +830,7 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
         remark: form.remark.trim(),
         group_id: gid,
         group_name: '',
-        expires_at: form.expires_at ? Math.floor(new Date(form.expires_at).getTime() / 1000) : 0,
+        expires_at: form.expires_at ? unixFromDateInput(form.expires_at) : 0,
         backend_ip: form.backend_ip.trim(),
         cf_sync: !!form.cf_sync,
         cf_zone_id: form.cf_zone_id.trim(),

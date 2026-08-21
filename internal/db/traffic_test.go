@@ -205,6 +205,25 @@ func TestParseBusinessDateEndShanghaiEOD(t *testing.T) {
 	}
 }
 
+func TestParseBusinessDateEndShanghaiDateTime(t *testing.T) {
+	got, err := ParseBusinessDateEnd("2026-08-22 18:30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 8, 22, 18, 30, 0, 0, panelBusinessLocation).Unix()
+	if got != want {
+		t.Fatalf("datetime = %d, want %d", got, want)
+	}
+	got, err = ParseBusinessDateEnd("2026-08-22T09:05:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = time.Date(2026, 8, 22, 9, 5, 0, 0, panelBusinessLocation).Unix()
+	if got != want {
+		t.Fatalf("T-separator = %d, want %d", got, want)
+	}
+}
+
 func TestCheckAndResetTrafficCycleZerosRuleHops(t *testing.T) {
 	d := openTestDB(t)
 	uid := createTestUser(t, d)

@@ -3074,7 +3074,7 @@ func (s *Server) apiSetUserExpiry(w http.ResponseWriter, r *http.Request) {
 	if raw != "" {
 		et, err := db.ParseBusinessDateEnd(raw)
 		if err != nil {
-			jsonErr(w, http.StatusBadRequest, "日期格式无效（需 YYYY-MM-DD）")
+			jsonErr(w, http.StatusBadRequest, "日期格式无效（需 YYYY-MM-DD 或 YYYY-MM-DD HH:MM）")
 			return
 		}
 		expiresAt = et
@@ -3160,7 +3160,7 @@ func (s *Server) apiUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 	if raw != "" {
 		et, err := db.ParseBusinessDateEnd(raw)
 		if err != nil {
-			jsonErr(w, http.StatusBadRequest, "日期格式无效（需 YYYY-MM-DD）")
+			jsonErr(w, http.StatusBadRequest, "日期格式无效（需 YYYY-MM-DD 或 YYYY-MM-DD HH:MM）")
 			return
 		}
 		expiresAt = et

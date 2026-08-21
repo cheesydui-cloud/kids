@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { billedUsedBytes, fmtTrafficGB, nullStr, nullInt } from '../../lib/fmt'
+import { billedUsedBytes, fmtDate, fmtTrafficGB, nullStr, nullInt, toLocalDateTimeValue, unixFromDateInput } from '../../lib/fmt'
 import { Layout, useToast } from '../../components/Layout'
 import { Loading, Empty, Badge, Modal, Select, DateInput } from '../../components/ui'
 import { copyToClipboard } from '../../lib/clipboard'
@@ -243,9 +243,7 @@ export default function UserList() {
 }
 
 function fmtExpiry(unix) {
-  if (!unix) return '--'
-  const d = new Date(unix * 1000)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return fmtDate(unix)
 }
 
 function expiryDaysLeft(unix) {
@@ -282,10 +280,11 @@ function ExpiryInline({ unix }) {
 
 function todayStr() {
   const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  d.setHours(23, 59, 0, 0)
+  return toLocalDateTimeValue(d)
 }
 function toDateStr(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return toLocalDateTimeValue(d)
 }
 // Unambiguous alphabet (no O/0/I/l/1) for a copy-pasteable random password.
 function genPassword(len = 16) {
@@ -313,7 +312,7 @@ function CreateUserModal({ folders = [], open, onClose, onDone }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const addToExpiry = (kind) => {
-    const base = form.expires_at ? new Date(form.expires_at + 'T00:00:00') : new Date()
+    const base = form.expires_at ? new Date(unixFromDateInput(form.expires_at) * 1000) : new Date()
     if (kind === '1d') base.setDate(base.getDate() + 1)
     if (kind === '1m') base.setMonth(base.getMonth() + 1)
     if (kind === '3m') base.setMonth(base.getMonth() + 3)
@@ -333,9 +332,7 @@ function CreateUserModal({ folders = [], open, onClose, onDone }) {
     // the credentials were copied.
     // Card always publishes the fixed initial password for delivery consistency.
     const brand = await loadPanelBranding(api).catch(() => ({ panelURL, panelName: '' }))
-    const expUnix = form.expires_at
-      ? Math.floor(new Date(form.expires_at + 'T00:00:00').getTime() / 1000)
-      : 0
+    const expUnix = form.expires_at ? unixFromDateInput(form.expires_at) : 0
     const draftUser = {
       username: form.username,
       expires_at: expUnix,
@@ -401,7 +398,7 @@ function CreateUserModal({ folders = [], open, onClose, onDone }) {
               </div>
               <label className="fl">到期时间</label>
               <div className="flex items-center gap-2 flex-wrap">
-                <DateInput value={form.expires_at} onChange={v => set('expires_at', v)} style={{ maxWidth: 200, width: 200 }} />
+                <DateInput value={form.expires_at} onChange={v => set('expires_at', v)} style={{ maxWidth: 250, width: 250 }} />
                 <button type="button" onClick={() => set('expires_at', todayStr())} title="重置为当天"
                   className="btn-secondary flex-none px-2" style={{ height: 38 }}>
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>

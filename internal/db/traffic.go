@@ -103,12 +103,21 @@ func DayKeyNow() string {
 	return dayKey(time.Now())
 }
 
-// ParseBusinessDateEnd parses a YYYY-MM-DD account-expiry date in Asia/Shanghai
-// and returns the unix timestamp of that calendar day's last second (23:59:59).
-// time.Parse("2006-01-02") would store UTC midnight, which is 北京时间 08:00 and
-// cuts the purchased day short.
+// ParseBusinessDateEnd parses an account-expiry timestamp in Asia/Shanghai.
+// YYYY-MM-DD is that calendar day's last second (23:59:59). YYYY-MM-DD HH:MM
+// (optional seconds) is that exact wall time. time.Parse("2006-01-02") would
+// store UTC midnight, which is 北京时间 08:00 and cuts the purchased day short.
 func ParseBusinessDateEnd(raw string) (int64, error) {
-	t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(raw), panelBusinessLocation)
+	s := strings.TrimSpace(raw)
+	s = strings.ReplaceAll(s, "T", " ")
+	s = strings.ReplaceAll(s, "/", "-")
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", s, panelBusinessLocation); err == nil {
+		return t.Unix(), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04", s, panelBusinessLocation); err == nil {
+		return t.Unix(), nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, panelBusinessLocation)
 	if err != nil {
 		return 0, err
 	}

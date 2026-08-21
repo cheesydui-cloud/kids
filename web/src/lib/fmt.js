@@ -48,12 +48,52 @@ export function fmtDate(unix) {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  if (hh === '23' && mm === '59') return `${y}-${m}-${day}`
+  return `${y}-${m}-${day} ${hh}:${mm}`
 }
 
 export function fmtDateInput(unix) {
   if (!unix) return ''
-  return fmtDate(unix)
+  const d = new Date(unix * 1000)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${hh}:${mm}`
+}
+
+export function parseLocalDateTime(s) {
+  if (!s || typeof s !== 'string') return null
+  const t = s.trim().replace('T', ' ').replace(/\//g, '-').replace(/\./g, '-')
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/.exec(t)
+  if (!m) return null
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3])
+  const hh = m[4] != null ? Number(m[4]) : 23
+  const mm = m[5] != null ? Number(m[5]) : 59
+  const ss = m[6] != null ? Number(m[6]) : (m[4] != null ? 0 : 59)
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mm > 59 || ss > 59) return null
+  const dt = new Date(y, mo - 1, d, hh, mm, ss)
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null
+  return dt
+}
+
+export function toLocalDateTimeValue(dt) {
+  if (!dt) return ''
+  const y = dt.getFullYear()
+  const m = String(dt.getMonth() + 1).padStart(2, '0')
+  const d = String(dt.getDate()).padStart(2, '0')
+  const hh = String(dt.getHours()).padStart(2, '0')
+  const mm = String(dt.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${d} ${hh}:${mm}`
+}
+
+export function unixFromDateInput(s) {
+  const dt = parseLocalDateTime(s)
+  if (!dt) return 0
+  return Math.floor(dt.getTime() / 1000)
 }
 
 export function pct(used, total) {

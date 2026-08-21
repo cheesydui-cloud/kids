@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api } from '../../lib/api'
-import { fmtDateInput } from '../../lib/fmt'
+import { fmtDateInput, toLocalDateTimeValue, unixFromDateInput } from '../../lib/fmt'
 import { useToast } from '../../components/Layout'
 import { DateInput } from '../../components/ui'
 
@@ -20,12 +20,9 @@ export default function UserConfigCard({ userId, expiresAt, maxForwards, quotaBy
   const initExpiry = expiresAt ? fmtDateInput(expiresAt) : ''
 
   const addDays = (days) => {
-    const base = form.expiresAt ? new Date(form.expiresAt + 'T00:00:00') : new Date()
+    const base = form.expiresAt ? new Date(unixFromDateInput(form.expiresAt) * 1000) : new Date()
     base.setDate(base.getDate() + days)
-    const y = base.getFullYear()
-    const m = String(base.getMonth() + 1).padStart(2, '0')
-    const d = String(base.getDate()).padStart(2, '0')
-    setForm(f => ({ ...f, expiresAt: `${y}-${m}-${d}` }))
+    setForm(f => ({ ...f, expiresAt: toLocalDateTimeValue(base) }))
   }
 
   const submit = async (e) => {

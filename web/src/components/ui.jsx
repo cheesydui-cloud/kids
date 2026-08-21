@@ -573,7 +573,8 @@ export function Select({ value, onChange, options = [], groups, placeholder = '�
 }
 
 /* ---------- DateInput ---------- */
-// Custom date picker (yyyy-mm-dd). Calendar is portaled to document.body so
+// Custom date-time picker (yyyy-mm-dd HH:MM, Asia/Shanghai wall clock via
+// the browser's local timezone). Calendar is portaled to document.body so
 // TableBox / detail-panel / overflow-hidden containers cannot clip it.
 //
 // Free entry via the text field; calendar is a helper with year/month jump and
@@ -583,14 +584,16 @@ const WEEKDAYS_ZH = ['日', '一', '二', '三', '四', '五', '六']
 
 function parseYMD(s) {
   if (!s || typeof s !== 'string') return null
-  const t = s.trim()
-  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t)
-  if (!m) m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(t)
-  if (!m) m = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(t)
+  const t = s.trim().replace('T', ' ')
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/.exec(t)
+  if (!m) m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/.exec(t)
+  if (!m) m = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/.exec(t)
   if (!m) return null
   const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3])
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null
-  const dt = new Date(y, mo - 1, d)
+  const hh = m[4] != null ? Number(m[4]) : 23
+  const mm = m[5] != null ? Number(m[5]) : 59
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mm > 59) return null
+  const dt = new Date(y, mo - 1, d, hh, mm, 0)
   if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null
   return dt
 }
@@ -600,7 +603,9 @@ function toYMD(dt) {
   const y = dt.getFullYear()
   const m = String(dt.getMonth() + 1).padStart(2, '0')
   const d = String(dt.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  const hh = String(dt.getHours()).padStart(2, '0')
+  const mm = String(dt.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${d} ${hh}:${mm}`
 }
 
 function sameDay(a, b) {
@@ -613,7 +618,12 @@ function sameDay(a, b) {
 function displayDate(s) {
   const dt = parseYMD(s)
   if (!dt) return s || ''
-  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getDate()).padStart(2, '0')}`
+  const y = dt.getFullYear()
+  const m = String(dt.getMonth() + 1).padStart(2, '0')
+  const d = String(dt.getDate()).padStart(2, '0')
+  const hh = String(dt.getHours()).padStart(2, '0')
+  const mm = String(dt.getMinutes()).padStart(2, '0')
+  return `${y}/${m}/${d} ${hh}:${mm}`
 }
 
 function startOfToday() {
@@ -627,7 +637,7 @@ export function DateInput({
   className = '',
   style,
   disabled = false,
-  placeholder = '选择日期',
+  placeholder = '选择日期时间',
   allowClear = true,
 }) {
   const wrapRef = useRef(null)
@@ -641,8 +651,16 @@ export function DateInput({
     const base = parseYMD(value) || startOfToday()
     return { y: base.getFullYear(), m: base.getMonth() }
   })
+  const [clock, setClock] = useState(() => {
+    const base = parseYMD(value)
+    return {
+      h: base ? base.getHours() : 23,
+      m: base ? base.getMinutes() : 59,
+    }
+  })
 
   const selected = useMemo(() => parseYMD(value), [value])
+  const [pickedDay, setPickedDay] = useState(() => parseYMD(value) || startOfToday())
   const today = useMemo(() => startOfToday(), [])
 
   // Sync draft when parent value changes (load / external clear), not while typing.
@@ -655,7 +673,7 @@ export function DateInput({
     const el = wrapRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    const panelH = 380
+    const panelH = 430
     const panelW = Math.max(300, Math.min(320, r.width < 180 ? 300 : Math.max(r.width, 300)))
     const spaceBelow = window.innerHeight - r.bottom - 8
     const placeUp = spaceBelow < panelH && r.top > spaceBelow
@@ -676,8 +694,14 @@ export function DateInput({
       setBox(null)
       return
     }
-    const base = parseYMD(value) || startOfToday()
+    const parsed = parseYMD(value)
+    const base = parsed || startOfToday()
     setView({ y: base.getFullYear(), m: base.getMonth() })
+    setPickedDay(base)
+    setClock({
+      h: parsed ? parsed.getHours() : 23,
+      m: parsed ? parsed.getMinutes() : 59,
+    })
     place()
     const onScroll = () => place()
     const onResize = () => place()
@@ -757,11 +781,25 @@ export function DateInput({
     setDraft(displayDate(ymd))
   }
 
-  const pick = (dt) => {
+  const applyTime = (dt, h = clock.h, m = clock.m) => (
+    new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), h, m, 0)
+  )
+
+  const commitDT = (dt, close = true) => {
     const ymd = toYMD(dt)
     onChange?.(ymd)
     setDraft(displayDate(ymd))
-    setOpen(false)
+    if (close) setOpen(false)
+  }
+
+  const pickDay = (dt) => {
+    setPickedDay(dt)
+    commitDT(applyTime(dt), false)
+  }
+
+  const pick = (dt) => {
+    setPickedDay(dt)
+    commitDT(applyTime(dt), true)
   }
 
   const shiftMonth = (delta) => {
@@ -780,7 +818,7 @@ export function DateInput({
     <div
       ref={panelRef}
       role="dialog"
-      aria-label="选择日期"
+      aria-label="选择日期时间"
       className="fixed z-[200] rounded-2xl border border-line bg-surface shadow-[0_20px_50px_-16px_rgba(0,0,0,0.55)] p-3 select-none"
       style={{ left: box.left, top: box.top, width: box.width }}
       onMouseDown={e => {
@@ -840,13 +878,13 @@ export function DateInput({
       </div>
       <div className="grid grid-cols-7 gap-0.5">
         {days.map(({ date, outside }, i) => {
-          const isSel = sameDay(date, selected)
+          const isSel = sameDay(date, pickedDay) || sameDay(date, selected)
           const isToday = sameDay(date, today)
           return (
             <button
               key={`${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${i}`}
               type="button"
-              onClick={() => pick(date)}
+              onClick={() => pickDay(date)}
               className={`h-8 rounded-lg text-[12.5px] font-semibold tabular-nums transition-colors
                 ${outside ? 'text-ink-mut/45' : 'text-ink'}
                 ${isSel ? 'border border-[color:var(--brand-from)] text-[color:var(--brand-from)] bg-raised' : 'hover:bg-raised'}
@@ -859,7 +897,53 @@ export function DateInput({
         })}
       </div>
       <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-line-soft">
-        <button type="button" className="text-[12px] font-semibold link-accent hover:underline" onClick={() => pick(today)}>今天</button>
+        <div className="flex items-center gap-1.5">
+          <select
+            className="input-field text-[12px] font-semibold py-1 px-1.5 h-8"
+            style={{ width: 64 }}
+            value={clock.h}
+            onChange={e => {
+              const h = Number(e.target.value)
+              setClock(c => ({ ...c, h }))
+              commitDT(applyTime(pickedDay || selected || today, h, clock.m), false)
+            }}
+            aria-label="小时"
+          >
+            {Array.from({ length: 24 }, (_, i) => (
+              <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
+            ))}
+          </select>
+          <span className="text-[12px] text-ink-mut">:</span>
+          <select
+            className="input-field text-[12px] font-semibold py-1 px-1.5 h-8"
+            style={{ width: 64 }}
+            value={clock.m}
+            onChange={e => {
+              const m = Number(e.target.value)
+              setClock(c => ({ ...c, m }))
+              commitDT(applyTime(pickedDay || selected || today, clock.h, m), false)
+            }}
+            aria-label="分钟"
+          >
+            {Array.from({ length: 60 }, (_, i) => (
+              <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
+            ))}
+          </select>
+        </div>
+        <button type="button" className="text-[12px] font-semibold link-accent hover:underline" onClick={() => {
+          const n = new Date()
+          setClock({ h: n.getHours(), m: n.getMinutes() })
+          setPickedDay(n)
+          commitDT(n, true)
+        }}>现在</button>
+      </div>
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <button type="button" className="text-[12px] font-semibold link-accent hover:underline" onClick={() => {
+          setClock({ h: 23, m: 59 })
+          const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 0)
+          setPickedDay(end)
+          commitDT(end, true)
+        }}>今天</button>
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -872,9 +956,12 @@ export function DateInput({
           {allowClear && (
             <button type="button" className="text-[12px] font-semibold text-ink-mut hover:text-ink hover:underline" onClick={() => { onChange?.(''); setDraft(''); setOpen(false) }}>清除</button>
           )}
+          <button type="button" className="text-[12px] font-semibold link-accent hover:underline" onClick={() => {
+            commitDT(applyTime(pickedDay || selected || today), true)
+          }}>确定</button>
         </div>
       </div>
-      <div className="mt-1.5 text-[11px] text-ink-mut text-center">可输入日期，如 2026-12-31</div>
+      <div className="mt-1.5 text-[11px] text-ink-mut text-center">可输入 2026-12-31 18:30；只填日期按当天 23:59</div>
     </div>,
     document.body,
   ) : null

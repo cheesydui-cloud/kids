@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '../../lib/api'
-import { billedUsedBytes, fmtTrafficGB, fmtDate, expiryBadge } from '../../lib/fmt'
+import { billedUsedBytes, fmtTrafficGB, fmtDate, fmtDateInput, expiryBadge, unixFromDateInput } from '../../lib/fmt'
 import {
   fetchNodeRoles, nodeRoleKey, applyNodeRole, applyNodeRoleBatch, saveNodeRoles,
   ROLE_LANDING, ROLE_DIRECT,
@@ -378,11 +378,6 @@ function ExitQuotaForm({ userId, exit, onDone }) {
 }
 
 function ExitExpiresForm({ userId, host, port, exit, onDone }) {
-  const fmtDateInput = (ts) => {
-    if (!ts || ts <= 0) return ''
-    const d = new Date(ts * 1000)
-    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0')
-  }
   const [val, setVal] = useState(fmtDateInput(exit?.expires_at))
   useEffect(() => { setVal(fmtDateInput(exit?.expires_at)) }, [exit?.expires_at])
   const [saving, setSaving] = useState(false)
@@ -394,8 +389,8 @@ function ExitExpiresForm({ userId, host, port, exit, onDone }) {
     try {
       let ts = 0
       if (nextVal) {
-        ts = Math.floor(new Date(nextVal + 'T00:00:00').getTime() / 1000)
-        if (isNaN(ts)) { toast('日期无效', 'error'); setSaving(false); return }
+        ts = unixFromDateInput(nextVal)
+        if (!ts) { toast('日期无效', 'error'); setSaving(false); return }
       }
       await api.post(`/users/${userId}/landing-exits/expires`, { host, port, expires_at: ts })
       toast(ts ? '已设置' : '已清除')
@@ -415,7 +410,7 @@ function ExitExpiresForm({ userId, host, port, exit, onDone }) {
         value={val}
         onChange={onCommit}
         className="text-[12px]"
-        style={{ width: 148, minWidth: 148 }}
+        style={{ width: 188, minWidth: 188 }}
         placeholder="到期"
         allowClear={false}
       />

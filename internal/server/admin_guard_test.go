@@ -126,6 +126,39 @@ func TestCreateUserPersistsBillingRateAndShanghaiExpiry(t *testing.T) {
 	}
 }
 
+func TestCreateUserPersistsShanghaiDateTimeExpiry(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+	body, _ := json.Marshal(map[string]any{
+		"username":   "time-user",
+		"password":   "pw",
+		"role":       "user",
+		"expires_at": "2026-08-22 18:30",
+	})
+	req := newTestRequest("POST", "/api/users", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		User db.User `json:"user"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	want, err := db.ParseBusinessDateEnd("2026-08-22 18:30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.User.ExpiresAt.Valid || resp.User.ExpiresAt.Int64 != want {
+		t.Fatalf("expires_at = %+v, want %d", resp.User.ExpiresAt, want)
+	}
+}
+
 func TestCreateUserAssignsGroup(t *testing.T) {
 	d := openDB(t)
 	s := newServer(t, d)

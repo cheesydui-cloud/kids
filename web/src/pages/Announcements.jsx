@@ -3,7 +3,7 @@ import { api } from '../lib/api'
 import { Layout, useToast } from '../components/Layout'
 import { Loading, Empty, Badge, useConfirm, DateInput} from '../components/ui'
 import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
-import { fmtDate, isExpired } from '../lib/fmt'
+import { fmtDate, fmtDateInput, isExpired, unixFromDateInput } from '../lib/fmt'
 
 const COLOR_OPTS = [
   { value: 'default', label: '默认', badge: 'gray' },
@@ -192,16 +192,9 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
   })
   const [search, setSearch] = useState('')
   const [hasExpiry, setHasExpiry] = useState(!!(initial?.expires_at > 0))
-  const [expiryDate, setExpiryDate] = useState(() => {
-    if (initial?.expires_at > 0) {
-      const d = new Date(initial.expires_at * 1000)
-      const y = d.getFullYear()
-      const m = String(d.getMonth() + 1).padStart(2, '0')
-      const day = String(d.getDate()).padStart(2, '0')
-      return `${y}-${m}-${day}`
-    }
-    return ''
-  })
+  const [expiryDate, setExpiryDate] = useState(() => (
+    initial?.expires_at > 0 ? fmtDateInput(initial.expires_at) : ''
+  ))
   const [pinned, setPinned] = useState(initial?.pinned === 1 || initial?.pinned === true)
   const [loginPopup, setLoginPopup] = useState(initial?.login_popup === 1 || initial?.login_popup === true)
   const [color, setColor] = useState(initial?.color || 'default')
@@ -224,7 +217,7 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
     try {
       let expiresAt = 0
       if (hasExpiry && expiryDate) {
-        expiresAt = Math.floor(new Date(expiryDate).getTime() / 1000)
+        expiresAt = unixFromDateInput(expiryDate)
       }
       const body = {
         title: title.trim(),
