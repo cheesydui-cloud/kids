@@ -35,7 +35,7 @@ export default function MySubscribe() {
       width: 280,
       margin: 2,
       errorCorrectionLevel: 'M',
-      color: { dark: '#1b1612', light: '#fffdf9' },
+      color: { dark: '#1b1612', light: '#ffffff' },
     }).then((url) => {
       if (!cancelled) { setQr(url); setQrErr('') }
     }).catch((e) => {

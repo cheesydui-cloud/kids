@@ -81,6 +81,7 @@ func (s *Server) brandingPayload() map[string]any {
 	return map[string]any{
 		"panel_name": panelName,
 		"logo_url":   logoURLFor(logo),
+		"panel_skin": s.panelSkin(),
 	}
 }
 

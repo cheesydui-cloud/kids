@@ -4,6 +4,22 @@ import { Layout, useToast, useUser } from '../components/Layout'
 import { Loading, useConfirm } from '../components/ui'
 import { PageHeader } from '../components/page'
 import { BrandBadge } from '../components/BrandMark'
+import { applySkin, normalizeSkin } from '../lib/theme'
+
+const SKINS = [
+  {
+    id: 'xuan',
+    name: '宣纸',
+    desc: '奶油纸底，默认',
+    swatch: { app: '#f6f1ea', surface: '#fffdf9', line: '#cfc4b6', brand: '#9a4a28' },
+  },
+  {
+    id: 'porcelain',
+    name: '瓷白',
+    desc: '石灰底 + 真白卡',
+    swatch: { app: '#f4f1ec', surface: '#ffffff', line: '#ddd6cc', brand: '#9a4a28' },
+  },
+]
 
 const TABS = [
   { id: 'panel', label: '面板' },
@@ -18,6 +34,7 @@ export default function Settings() {
     panel_url: '',
     panel_name: '',
     monitor_url: '',
+    panel_skin: 'xuan',
     logo_url: '',
     show_rate_to_user: false,
     pool_size: 4,
@@ -36,7 +53,7 @@ export default function Settings() {
   const fileRef = useRef(null)
   const toast = useToast()
   const confirm = useConfirm()
-  const { applySession, setLogoUrl, version } = useUser()
+  const { applySession, setLogoUrl, version, panelSkin } = useUser()
   const [upd, setUpd] = useState(null)
   const [updBusy, setUpdBusy] = useState(false)
   const [updErr, setUpdErr] = useState('')
@@ -49,6 +66,7 @@ export default function Settings() {
         panel_url: data.panel_url || '',
         panel_name: data.panel_name || '',
         monitor_url: data.monitor_url || '',
+        panel_skin: normalizeSkin(data.panel_skin),
         logo_url: data.logo_url || '',
         show_rate_to_user: !!data.show_rate_to_user,
         pool_size: data.pool_size ?? 4,
@@ -64,6 +82,10 @@ export default function Settings() {
   }, [])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const savedSkinRef = useRef(panelSkin)
+  savedSkinRef.current = panelSkin
+  useEffect(() => () => applySkin(savedSkinRef.current), [])
 
   const applyLogo = (url) => {
     const next = url ? `${url.split('?')[0]}?t=${Date.now()}` : ''
@@ -96,6 +118,7 @@ export default function Settings() {
         panel_url: form.panel_url,
         panel_name: form.panel_name,
         monitor_url: form.monitor_url,
+        panel_skin: form.panel_skin,
         show_rate_to_user: form.show_rate_to_user,
         pool_size: ps,
         panel_lease_hours: leaseH,
@@ -109,10 +132,11 @@ export default function Settings() {
       await api.post('/settings', body)
       toast('设置已保存')
       const data = await api.get('/settings')
-      applySession({ panel_name: form.panel_name, monitor_url: data.monitor_url || '' })
+      applySession({ panel_name: form.panel_name, monitor_url: data.monitor_url || '', panel_skin: data.panel_skin || 'xuan' })
       setForm(f => ({
         ...f,
         monitor_url: data.monitor_url || '',
+        panel_skin: normalizeSkin(data.panel_skin),
         logo_url: data.logo_url || '',
         cf_token_configured: !!data.cf_token_configured,
         cf_token_prefix: data.cf_token_prefix || '',
@@ -315,6 +339,41 @@ export default function Settings() {
                 <div className="flex items-center gap-6 mb-[22px]">
                   <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">面板名称</label>
                   <input className="input-field max-w-[560px]" type="text" placeholder="nft" value={form.panel_name} onChange={e => set('panel_name', e.target.value)} />
+                </div>
+                <div className="flex items-start gap-6 mb-[22px]">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-2">面板外观</label>
+                  <div className="flex-1">
+                    <div className="flex flex-wrap gap-3">
+                      {SKINS.map(sk => {
+                        const on = form.panel_skin === sk.id
+                        return (
+                          <button
+                            key={sk.id}
+                            type="button"
+                            onClick={() => {
+                              set('panel_skin', sk.id)
+                              applySkin(sk.id, false)
+                            }}
+                            className="text-left rounded-2xl p-3 min-w-[168px] transition-all cursor-pointer"
+                            style={{
+                              background: 'var(--color-surface)',
+                              border: on ? '1.5px solid var(--brand-from)' : '1.5px solid var(--color-line)',
+                              boxShadow: on ? '0 0 0 3px color-mix(in srgb, var(--brand-from) 16%, transparent)' : 'none',
+                            }}
+                          >
+                            <div className="flex h-9 rounded-lg overflow-hidden border mb-2.5" style={{ borderColor: sk.swatch.line }}>
+                              <span className="flex-1" style={{ background: sk.swatch.app }} />
+                              <span className="w-[42%]" style={{ background: sk.swatch.surface }} />
+                              <span className="w-3" style={{ background: sk.swatch.brand }} />
+                            </div>
+                            <div className="text-[13.5px] font-semibold text-ink">{sk.name}</div>
+                            <div className="text-[12px] text-ink-mut mt-0.5">{sk.desc}</div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="text-[12px] text-ink-mut mt-2 m-0">全局皮肤，登录页和所有用户一起换。顶栏深色/浅色仍是个人的。点选可预览，保存后才对别人生效。</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-6">
                   <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">监控地址</label>

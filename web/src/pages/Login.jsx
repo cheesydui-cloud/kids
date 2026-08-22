@@ -39,9 +39,10 @@ export default function Login() {
       const name = (d?.panel_name || '').trim()
       setPanelName(name)
       if (d?.logo_url) setLogoUrl(d.logo_url)
+      if (d?.panel_skin) applySession({ panel_skin: d.panel_skin })
       if (name) document.title = name
     }).catch(() => {})
-  }, [])
+  }, [applySession])
 
   const submit = async (e) => {
     e.preventDefault()

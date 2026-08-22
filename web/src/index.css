@@ -84,6 +84,39 @@
   --shadow-float: 0 10px 22px -16px rgba(80, 48, 24, 0.28);
 }
 
+/* Porcelain: limestone canvas + true-white cards. Terracotta stays the only hue.
+   Personal .dark is unchanged — this skin only recasts the light tokens. */
+html[data-skin="porcelain"]:not(.dark) {
+  --color-app: #f4f1ec;
+  --color-surface: #ffffff;
+  --color-raised: #eeeae4;
+  --color-line: #ddd6cc;
+  --color-line-soft: #e8e3db;
+  --color-ink: #1a1612;
+  --color-ink-soft: #534c45;
+  --color-ink-mut: #8e857b;
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #ddd6cc;
+  --sidebar-text: #1a1612;
+  --sidebar-text-soft: #534c45;
+  --sidebar-text-mut: #8e857b;
+  --sidebar-active-bg: #f3e8e0;
+  --sidebar-active-border: #c48a6a;
+  --sidebar-active-text: #7a3f22;
+  --sidebar-hover-bg: #f4f1ec;
+  --sidebar-hover-text: #1a1612;
+  --sidebar-group-label: #8e857b;
+  --sidebar-btn-bg: transparent;
+  --sidebar-btn-border: #ddd6cc;
+  --sidebar-btn-text: #534c45;
+  --sidebar-avatar-bg: #c48a6a;
+  --sidebar-avatar-border: #9a5a38;
+  --sidebar-avatar-text: #fff8f2;
+  --brand-from: #9a4a28;
+  --brand-to: #7a3f22;
+  --shadow-float: 0 10px 22px -16px rgba(40, 32, 24, 0.20);
+}
+
 html, body {
   color: var(--color-ink);
   background-color: var(--color-app);
@@ -1180,7 +1213,7 @@ input[type="radio"] {
   height: 196px;
   border-radius: 16px;
   border: 1.5px solid var(--color-line-soft);
-  background: #fffdf9;
+  background: var(--color-surface);
   object-fit: contain;
 }
 .sub-qr-ph {

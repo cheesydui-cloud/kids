@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { NavLink, Navigate } from 'react-router-dom'
 import { api } from '../lib/api'
-import { resolvedDark, getStoredTheme, setStoredTheme } from '../lib/theme'
+import { resolvedDark, getStoredTheme, setStoredTheme, applySkin, normalizeSkin } from '../lib/theme'
 import { hasLocalProxies } from '../lib/landing'
 import { Loading } from './ui'
 import { BrandBadge } from './BrandMark'
@@ -24,6 +24,9 @@ export function UserProvider({ children }) {
   const [logoUrl, setLogoUrl] = useState('')
   const [version, setVersion] = useState('')
   const [monitorUrl, setMonitorUrl] = useState('')
+  const [panelSkin, setPanelSkin] = useState(() => {
+    try { return normalizeSkin(localStorage.getItem('nf-skin')) } catch { return 'xuan' }
+  })
   const [toasts, setToasts] = useState([])
   const idRef = useRef(0)
   const timersRef = useRef([])
@@ -36,6 +39,7 @@ export function UserProvider({ children }) {
       setLogoUrl(data?.logo_url || '')
       setVersion(data?.version || '')
       setMonitorUrl(data?.monitor_url || '')
+      if (data?.panel_skin) setPanelSkin(applySkin(data.panel_skin))
       return data
     } catch {
       setUser(null)
@@ -49,6 +53,7 @@ export function UserProvider({ children }) {
       const name = (d?.panel_name || '').trim()
       if (name) setPanelName(name)
       if (d?.logo_url) setLogoUrl(d.logo_url)
+      if (d?.panel_skin) setPanelSkin(applySkin(d.panel_skin))
     }).catch(() => {})
   }, [])
 
@@ -103,10 +108,11 @@ export function UserProvider({ children }) {
     if (data.logo_url !== undefined) setLogoUrl(data.logo_url || '')
     if (data.version !== undefined) setVersion(data.version || '')
     if (data.monitor_url !== undefined) setMonitorUrl(data.monitor_url || '')
+    if (data.panel_skin !== undefined) setPanelSkin(applySkin(data.panel_skin))
   }, [])
 
   return (
-    <UserCtx.Provider value={{ user, setUser, panelName, logoUrl, setLogoUrl, version, monitorUrl, refreshUser, applySession }}>
+    <UserCtx.Provider value={{ user, setUser, panelName, logoUrl, setLogoUrl, version, monitorUrl, panelSkin, setPanelSkin, refreshUser, applySession }}>
       <ToastCtx.Provider value={toast}>
         {children}
         {/* Toast stack */}

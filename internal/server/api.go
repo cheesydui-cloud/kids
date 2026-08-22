@@ -218,6 +218,7 @@ func (s *Server) apiLogin(w http.ResponseWriter, r *http.Request) {
 		"panel_name": brand["panel_name"],
 		"logo_url":   brand["logo_url"],
 		"version":    serverVersion(),
+		"panel_skin": s.panelSkin(),
 	}
 	if u.Role == "admin" {
 		out["monitor_url"] = s.monitorURL()
@@ -247,7 +248,7 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 			userView["has_landing_source"] = true
 		}
 	}
-	out := map[string]any{"user": userView, "panel_name": panelName, "logo_url": brand["logo_url"], "version": serverVersion()}
+	out := map[string]any{"user": userView, "panel_name": panelName, "logo_url": brand["logo_url"], "version": serverVersion(), "panel_skin": s.panelSkin()}
 	if u.Role == "admin" {
 		out["monitor_url"] = s.monitorURL()
 	}
@@ -1864,6 +1865,27 @@ func (s *Server) monitorURL() string {
 	return strings.TrimSpace(v)
 }
 
+func (s *Server) panelSkin() string {
+	v, _ := db.GetSetting(s.DB, "panel_skin")
+	skin, err := normalizePanelSkin(v)
+	if err != nil {
+		return "xuan"
+	}
+	return skin
+}
+
+// normalizePanelSkin: xuan = cream paper (default), porcelain = white card.
+func normalizePanelSkin(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "xuan", "paper", "cream":
+		return "xuan", nil
+	case "porcelain":
+		return "porcelain", nil
+	default:
+		return "", errors.New("面板外观只支持宣纸或瓷白")
+	}
+}
+
 // normalizeMonitorURL accepts a blank value (clears the sidebar link) or an
 // absolute http(s) URL. javascript:/data:/relative paths are rejected so the
 // admin sidebar never opens a non-http target.
@@ -1914,6 +1936,7 @@ func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 		"show_rate_to_user": showRate == "1", "pool_size": poolSize,
 		"panel_lease_hours":   panelLeaseHoursFromDB(s.DB),
 		"monitor_url":         s.monitorURL(),
+		"panel_skin":          s.panelSkin(),
 		"cf_token_configured": cfConfigured,
 		"cf_token_prefix":     cfPrefix,
 		"cf_zone_name":        cfZone,
@@ -1930,6 +1953,7 @@ func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 		PoolSize        *int    `json:"pool_size"`
 		PanelLeaseHours *int    `json:"panel_lease_hours"`
 		MonitorURL      *string `json:"monitor_url"`
+		PanelSkin       *string `json:"panel_skin"`
 		// Cloudflare: empty token string means "leave unchanged"; explicit clear via cf_clear_token.
 		CFAPIToken   *string `json:"cf_api_token"`
 		CFClearToken bool    `json:"cf_clear_token"`
@@ -2000,6 +2024,18 @@ func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.WriteAudit(s.DB, u.ID, "settings.monitor_url", mon, "")
+	}
+	if body.PanelSkin != nil {
+		skin, err := normalizePanelSkin(*body.PanelSkin)
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := db.SetSetting(s.DB, "panel_skin", skin); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		db.WriteAudit(s.DB, u.ID, "settings.panel_skin", skin, "")
 	}
 	if body.PoolSize != nil || body.PanelLeaseHours != nil {
 		s.Hub.BroadcastConfigUpdate(poolSizeFromDB(s.DB), panelLeaseHoursFromDB(s.DB)*3600)

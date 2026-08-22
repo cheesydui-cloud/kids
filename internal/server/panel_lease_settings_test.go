@@ -187,3 +187,107 @@ func TestSettingsMonitorURLRoundtripAndMeScope(t *testing.T) {
 		t.Fatalf("bad scheme: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestNormalizePanelSkin(t *testing.T) {
+	ok, err := normalizePanelSkin("")
+	if err != nil || ok != "xuan" {
+		t.Fatalf("blank: %q %v", ok, err)
+	}
+	ok, err = normalizePanelSkin(" cream ")
+	if err != nil || ok != "xuan" {
+		t.Fatalf("cream: %q %v", ok, err)
+	}
+	ok, err = normalizePanelSkin("porcelain")
+	if err != nil || ok != "porcelain" {
+		t.Fatalf("porcelain: %q %v", ok, err)
+	}
+	if _, err := normalizePanelSkin("snow"); err == nil {
+		t.Fatal("unknown skin must fail")
+	}
+}
+
+func TestSettingsPanelSkinRoundtripAndBranding(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+
+	req := newTestRequest("GET", "/api/branding", nil)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("branding: %d %s", rec.Code, rec.Body.String())
+	}
+	var brand map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &brand); err != nil {
+		t.Fatal(err)
+	}
+	if brand["panel_skin"] != "xuan" {
+		t.Fatalf("default branding skin=%v", brand["panel_skin"])
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"panel_url":  "http://127.0.0.1:7788",
+		"panel_skin": "porcelain",
+	})
+	req = newTestRequest("POST", "/api/settings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	stored, _ := db.GetSetting(d, "panel_skin")
+	if stored != "porcelain" {
+		t.Fatalf("stored=%q", stored)
+	}
+
+	req = newTestRequest("GET", "/api/settings", nil)
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	var settings map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["panel_skin"] != "porcelain" {
+		t.Fatalf("settings skin=%v", settings["panel_skin"])
+	}
+
+	_, userCookie := loginAsUser(t, d, 1)
+	req = newTestRequest("GET", "/api/me", nil)
+	req.AddCookie(userCookie)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	var me map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatal(err)
+	}
+	if me["panel_skin"] != "porcelain" {
+		t.Fatalf("user /me skin=%v", me["panel_skin"])
+	}
+
+	req = newTestRequest("GET", "/api/branding", nil)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	brand = map[string]any{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &brand); err != nil {
+		t.Fatal(err)
+	}
+	if brand["panel_skin"] != "porcelain" {
+		t.Fatalf("public branding skin=%v", brand["panel_skin"])
+	}
+
+	body, _ = json.Marshal(map[string]any{
+		"panel_url":  "http://127.0.0.1:7788",
+		"panel_skin": "neon",
+	})
+	req = newTestRequest("POST", "/api/settings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad skin: %d %s", rec.Code, rec.Body.String())
+	}
+}

@@ -12,6 +12,8 @@
         var t = localStorage.getItem('nf-theme')
         var dark = t === 'dark' || (t == null && window.matchMedia('(prefers-color-scheme: dark)').matches)
         if (dark) document.documentElement.classList.add('dark')
+        var s = localStorage.getItem('nf-skin')
+        document.documentElement.setAttribute('data-skin', s === 'porcelain' ? 'porcelain' : 'xuan')
       })()
     </script>
   </head>
