@@ -33,7 +33,7 @@ function SortArrow({ dir }) {
   )
 }
 
-export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, onEdit, onCopy, onRowClick, probeAllTrigger, displayRate = 1, landingExpiry, copyUsername = '' }) {
+export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, onEdit, onCopy, onToggle, onRowClick, probeAllTrigger, displayRate = 1, landingExpiry, copyUsername = '' }) {
   const isAdmin = variant === 'admin'
   const isMobile = useIsMobile()
   const [sort, setSort] = useState({ col: null, dir: null })
@@ -117,7 +117,12 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
               className={onRowClick ? 'cursor-pointer' : ''}
               onClick={onRowClick ? () => onRowClick(r) : undefined}>
               {isAdmin && <td className="font-mono text-xs text-ink-mut">#{r.id}</td>}
-              <td className="font-semibold">{r.name}</td>
+              <td className="font-semibold">
+                <span className="inline-flex items-center gap-1.5">
+                  {r.name}
+                  {r.disabled && <Badge color="amber">停用</Badge>}
+                </span>
+              </td>
               <td>
                 <span className="inline-flex items-center gap-1.5 font-mono text-ink-soft">
                   <HealthDot online={node?.online} disabled={!!node?.disabled} showLabel={false} />
@@ -221,6 +226,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
                   <MoreMenu items={[
                     onEdit && { label: '编辑', onClick: () => onEdit(r) },
                     onCopy && { label: '复制', onClick: () => onCopy(r) },
+                    onToggle && { label: r.disabled ? '启用' : '停用', onClick: () => onToggle(r) },
                     { label: '删除', onClick: () => onDelete(r), danger: true },
                   ].filter(Boolean)} />
                 </div>
@@ -242,7 +248,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
           <div key={r.id} className={`mobile-card ${onRowClick ? 'cursor-pointer' : ''}`}
             onClick={onRowClick ? () => onRowClick(r) : undefined}>
             <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-[14px]">{r.name}</span>
+              <span className="font-semibold text-[14px] inline-flex items-center gap-1.5">{r.name}{r.disabled && <Badge color="amber">停用</Badge>}</span>
               <div className="flex items-center gap-2">
                 <ProbeIconButton ruleId={r.id} probeAllTrigger={probeAllTrigger} />
                 {isAdmin && <QRCodeButton text={ruleQRText(r)} toast={toast} />}

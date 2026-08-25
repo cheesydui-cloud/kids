@@ -33,6 +33,11 @@ type subItem struct {
 	// Status is the entry-node liveness shown on the user node list:
 	// online / offline / unknown for relay, direct for ROLE_DIRECT exits.
 	Status string `json:"status,omitempty"`
+	// BlockReason is why this entry will not pass traffic even if the
+	// client still has the URI. Empty means the panel has nothing to
+	// blame besides the path itself.
+	BlockReason string `json:"block_reason,omitempty"`
+	BlockText   string `json:"block_text,omitempty"`
 }
 
 type subSkipped struct {
@@ -55,6 +60,22 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 	roles := s.nodeRoleBits()
 	used := map[string]int{}
 	online := map[int64]int{}
+	acctBlock, acctText := accountConnectBlock(u)
+	exitByHP := map[string]*db.LandingExit{}
+	exits, _ := db.PresentLandingExitsForUser(s.DB, u.ID)
+	for _, e := range exits {
+		if e != nil {
+			exitByHP[e.Host+":"+strconv.Itoa(e.Port)] = e
+		}
+	}
+	grantByNode := map[int64]*db.UserNode{}
+	if ns, gs, err := db.ListNodesForUser(s.DB, u.ID); err == nil {
+		for i := range ns {
+			if i < len(gs) {
+				grantByNode[ns[i].ID] = gs[i]
+			}
+		}
+	}
 
 	rules, _ := db.ListRulesByUser(s.DB, u.ID)
 	for _, rl := range rules {
@@ -79,38 +100,42 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 		base := buildSubDisplayName(u.Username, rl.Name, item.LandingExpiresAt, "relay")
 		name := uniquifyName(base, used)
 		st := s.ruleEntryStatus(rl.ID, online)
+		block, text := relayConnectBlock(u, rl, st, acctBlock, acctText, exitByHP, grantByNode)
 		p.Items = append(p.Items, subItem{
-			Kind:      "relay",
-			Name:      name,
-			Protocol:  item.LandingProtocol,
-			URI:       mustRenameURI(item.RelayURI, name),
-			ClashOK:   clashOK(item.RelayURI),
-			RuleID:    rl.ID,
-			RuleName:  rl.Name,
-			Landing:   item.LandingName,
-			ExpiresAt: item.LandingExpiresAt,
-			Family:    "v4",
-			Status:    st,
+			Kind:        "relay",
+			Name:        name,
+			Protocol:    item.LandingProtocol,
+			URI:         mustRenameURI(item.RelayURI, name),
+			ClashOK:     clashOK(item.RelayURI),
+			RuleID:      rl.ID,
+			RuleName:    rl.Name,
+			Landing:     item.LandingName,
+			ExpiresAt:   item.LandingExpiresAt,
+			Family:      "v4",
+			Status:      st,
+			BlockReason: block,
+			BlockText:   text,
 		})
 		if item.RelayURIV6 != "" {
 			n6 := uniquifyName(name+"-v6", used)
 			p.Items = append(p.Items, subItem{
-				Kind:      "relay",
-				Name:      n6,
-				Protocol:  item.LandingProtocol,
-				URI:       mustRenameURI(item.RelayURIV6, n6),
-				ClashOK:   clashOK(item.RelayURIV6),
-				RuleID:    rl.ID,
-				RuleName:  rl.Name,
-				Landing:   item.LandingName,
-				ExpiresAt: item.LandingExpiresAt,
-				Family:    "v6",
-				Status:    st,
+				Kind:        "relay",
+				Name:        n6,
+				Protocol:    item.LandingProtocol,
+				URI:         mustRenameURI(item.RelayURIV6, n6),
+				ClashOK:     clashOK(item.RelayURIV6),
+				RuleID:      rl.ID,
+				RuleName:    rl.Name,
+				Landing:     item.LandingName,
+				ExpiresAt:   item.LandingExpiresAt,
+				Family:      "v6",
+				Status:      st,
+				BlockReason: block,
+				BlockText:   text,
 			})
 		}
 	}
 
-	exits, _ := db.PresentLandingExitsForUser(s.DB, u.ID)
 	for _, e := range exits {
 		if e == nil || e.URI == "" {
 			continue
@@ -129,18 +154,90 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 		}
 		base := buildSubDisplayName(u.Username, display, e.ExpiresAt, "direct")
 		name := uniquifyName(base, used)
+		block, text := directConnectBlock(u, e, acctBlock, acctText)
 		p.Items = append(p.Items, subItem{
-			Kind:      "direct",
-			Name:      name,
-			Protocol:  e.Protocol,
-			URI:       mustRenameURI(uri, name),
-			ClashOK:   clashOK(uri),
-			Landing:   display,
-			ExpiresAt: e.ExpiresAt,
-			Status:    "direct",
+			Kind:        "direct",
+			Name:        name,
+			Protocol:    e.Protocol,
+			URI:         mustRenameURI(uri, name),
+			ClashOK:     clashOK(uri),
+			Landing:     display,
+			ExpiresAt:   e.ExpiresAt,
+			Status:      "direct",
+			BlockReason: block,
+			BlockText:   text,
 		})
 	}
 	return p
+}
+
+func accountConnectBlock(u *db.User) (reason, text string) {
+	if u == nil {
+		return "", ""
+	}
+	if u.Disabled {
+		why := "请联系管理员"
+		if u.DisableReason.Valid && strings.TrimSpace(u.DisableReason.String) != "" {
+			why = u.DisableReason.String
+		}
+		return "account_disabled", "账号已被禁用：" + why
+	}
+	if u.ExpiresAt.Valid && u.ExpiresAt.Int64 > 0 && u.ExpiresAt.Int64 < time.Now().Unix() {
+		return "account_expired", "账号已过期，请联系管理员续期"
+	}
+	if u.TrafficQuotaBytes > 0 && userBillableTraffic(u) >= u.TrafficQuotaBytes {
+		return "quota", "账号流量已用完，请联系管理员"
+	}
+	return "", ""
+}
+
+func landingConnectBlock(u *db.User, e *db.LandingExit) (reason, text string) {
+	if e == nil {
+		return "", ""
+	}
+	name := e.Name
+	if e.NameOverride != "" {
+		name = e.NameOverride
+	}
+	if name == "" {
+		name = e.Host
+	}
+	if e.ExpiresAt > 0 && e.ExpiresAt <= time.Now().Unix() {
+		return "landing_expired", "落地「" + name + "」已到期，请联系管理员续期"
+	}
+	rate := 1.0
+	if u != nil && u.BillingRate > 0 {
+		rate = u.BillingRate
+	}
+	if e.QuotaBytes > 0 && int64(float64(e.UsedBytes)*rate+0.5) >= e.QuotaBytes {
+		return "landing_quota", "落地「" + name + "」流量已用完"
+	}
+	return "", ""
+}
+
+func relayConnectBlock(u *db.User, rl *db.Rule, entryStatus, acctReason, acctText string, exits map[string]*db.LandingExit, grants map[int64]*db.UserNode) (reason, text string) {
+	if acctReason != "" {
+		return acctReason, acctText
+	}
+	if entryStatus == "offline" {
+		return "node_offline", "入口节点离线或已禁用"
+	}
+	if g := grants[rl.NodeID]; g != nil && g.TrafficQuotaBytes > 0 && g.TrafficUsedBytes >= g.TrafficQuotaBytes {
+		return "node_quota", "该线路流量已用完"
+	}
+	if e := exits[rl.ExitHost+":"+strconv.Itoa(rl.ExitPort)]; e != nil {
+		if r, t := landingConnectBlock(u, e); r != "" {
+			return r, t
+		}
+	}
+	return "", ""
+}
+
+func directConnectBlock(u *db.User, e *db.LandingExit, acctReason, acctText string) (reason, text string) {
+	if acctReason != "" {
+		return acctReason, acctText
+	}
+	return landingConnectBlock(u, e)
 }
 
 func (s *Server) ruleEntryStatus(ruleID int64, cache map[int64]int) string {
@@ -407,6 +504,7 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 		"mihomo_url": mihomoURL,
 		"items":      p.Items,
 		"skipped":    p.Skipped,
+		"rules":      s.userSubRules(u, p),
 		"account": map[string]any{
 			"username":                 u.Username,
 			"disabled":                 u.Disabled,
@@ -421,6 +519,43 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) userSubRules(u *db.User, p userSubProfile) []map[string]any {
+	rules, _ := db.ListRulesByUser(s.DB, u.ID)
+	if len(rules) == 0 {
+		return []map[string]any{}
+	}
+	byID := map[int64]subItem{}
+	for _, it := range p.Items {
+		if it.Kind == "relay" && it.RuleID > 0 {
+			if _, ok := byID[it.RuleID]; !ok {
+				byID[it.RuleID] = it
+			}
+		}
+	}
+	out := make([]map[string]any, 0, len(rules))
+	for _, rl := range rules {
+		row := map[string]any{
+			"id":       rl.ID,
+			"name":     rl.Name,
+			"disabled": rl.Disabled,
+		}
+		if it, ok := byID[rl.ID]; ok {
+			row["status"] = it.Status
+			row["block_reason"] = it.BlockReason
+			row["block_text"] = it.BlockText
+			row["landing"] = it.Landing
+		} else {
+			row["status"] = "skipped"
+			if rl.Disabled {
+				row["block_reason"] = "disabled"
+				row["block_text"] = "已停用，入口不再转发"
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func (s *Server) apiMyRotateSubscribe(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	token, err := db.RotateSubToken(s.DB, u.ID)
@@ -429,6 +564,7 @@ func (s *Server) apiMyRotateSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uriURL, clashURL, mihomoURL := s.subscribeURLs(r, token)
+	db.WriteAudit(s.DB, u.ID, "user.rotate_subscribe", "", "")
 	jsonOK(w, map[string]any{
 		"token":      token,
 		"uri_url":    uriURL,

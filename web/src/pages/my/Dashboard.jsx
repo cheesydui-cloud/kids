@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
-import { pct, fmtTrafficGB, fmtDate, isExpired, nullStr } from '../../lib/fmt'
+import { pct, fmtBytes, fmtTrafficGB, fmtDate, isExpired, nullStr } from '../../lib/fmt'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { Layout } from '../../components/Layout'
 import { Loading, Empty, Badge } from '../../components/ui'
@@ -50,6 +50,15 @@ export default function MyDashboard() {
           }
         : null
   )
+  const rate = user.billing_rate ?? 1
+  const displayUsed = Math.round((user.traffic_used_bytes || 0) * (rate > 0 ? rate : 1))
+  const displayQuota = user.traffic_quota_bytes || 0
+  const quotaPct = displayQuota > 0 ? Math.round((displayUsed / displayQuota) * 100) : 0
+  const quotaBanner = displayQuota > 0 && quotaPct >= 100
+    ? { tone: 'danger', text: '流量已用完，入口已停止转发。请联系管理员加量或重置。' }
+    : displayQuota > 0 && quotaPct >= 80
+      ? { tone: 'warn', text: `流量已使用 ${quotaPct}%，还剩 ${fmtBytes(Math.max(displayQuota - displayUsed, 0))}。` }
+      : null
 
   const grantByNode = {}
   nodes.forEach((n, i) => { grantByNode[n.id] = grants[i] })
@@ -90,6 +99,15 @@ export default function MyDashboard() {
               : 'bg-transparent border-sky-500/40 text-sky-800 dark:text-sky-300'
         }`}>
           {landingBanner.text}
+        </div>
+      )}
+      {quotaBanner && (
+        <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium border-[1.5px] ${
+          quotaBanner.tone === 'danger'
+            ? 'bg-transparent border-rose-500/40 text-rose-700 dark:text-rose-300'
+            : 'bg-transparent border-amber-500/45 text-amber-800 dark:text-amber-300'
+        }`}>
+          {quotaBanner.text}
         </div>
       )}
 

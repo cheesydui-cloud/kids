@@ -79,6 +79,20 @@ export default function MyRuleDetail() {
     try { await api.del(`/my/rules/${rule.id}`); toast('已删除'); navigate('/my/rules') } catch (err) { toast(err.message, 'error') }
   }
 
+  const toggleRule = async () => {
+    const nextOff = !rule.disabled
+    if (nextOff && !(await confirm({
+      title: '停用规则',
+      message: `停用「${rule.name}」后入口不再转发，配置还在。`,
+      confirmText: '停用',
+    }))) return
+    try {
+      await api.post(`/my/rules/${rule.id}/toggle`)
+      toast(nextOff ? '已停用' : '已启用')
+      load()
+    } catch (err) { toast(err.message, 'error') }
+  }
+
   return (
     <Layout>
       <div className="h-full flex flex-col">
@@ -95,7 +109,7 @@ export default function MyRuleDetail() {
         <div className="p-5">
           <div className="grid grid-cols-[90px_1fr] gap-4 items-center text-sm">
             <span className="text-ink-soft font-semibold">名称</span>
-            <span className="font-semibold">{rule.name}</span>
+            <span className="font-semibold inline-flex items-center gap-2">{rule.name}{rule.disabled && <Badge color="amber">已停用</Badge>}</span>
             <span className="text-ink-soft font-semibold">节点</span>
             <span className="font-mono">{nodeName}</span>
             <span className="text-ink-soft font-semibold">协议</span>
@@ -123,6 +137,7 @@ export default function MyRuleDetail() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <button onClick={() => setShowEdit(true)} className="btn-primary text-xs">编辑规则</button>
+        <button onClick={toggleRule} className="btn-secondary text-xs">{rule.disabled ? '启用规则' : '停用规则'}</button>
         <button onClick={deleteRule} className="btn-danger text-xs">删除规则</button>
       </div>
       </div>

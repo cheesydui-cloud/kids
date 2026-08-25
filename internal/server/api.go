@@ -1599,7 +1599,7 @@ func (s *Server) apiUpgradeNode(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	err = s.Hub.SendUpgrade(id, upgradeFor(node, art, panelBaseURL(s.DB, r), arch))
+	err = s.Hub.SendUpgrade(id, upgradeFor(node, art, s.upgradePanelURL(id, r), arch))
 	// Record the dispatch outcome so the node detail can surface a silent
 	// failure later (an acked upgrade whose version never takes).
 	status, errText := "acked", ""
@@ -1788,7 +1788,7 @@ func (s *Server) apiResyncAllNodes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	panelURL := panelBaseURL(s.DB, r)
+	fallbackURL := panelBaseURL(s.DB, r)
 	nodes, err := db.ListNodes(s.DB)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
@@ -1813,6 +1813,10 @@ func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		// Fire-and-forget: the agent downloads over HTTP. Waiting for each
 		// ACK here used to serialize N × 4 minutes and freeze the button.
+		panelURL := s.Hub.NodeOrigin(n.ID)
+		if panelURL == "" {
+			panelURL = fallbackURL
+		}
 		err = s.Hub.DispatchUpgrade(n.ID, upgradeFor(n, art, panelURL, arch))
 		status, errText := "acked", ""
 		if err != nil {
@@ -1825,6 +1829,15 @@ func (s *Server) apiUpgradeAllNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	db.WriteAudit(s.DB, u.ID, "node.upgrade_all", "", fmt.Sprintf("pushed=%d skipped=%d fail=%d", pushed, skipped, fail))
 	jsonOK(w, map[string]any{"ok": true, "upgraded": pushed, "pushed": pushed, "skipped": skipped, "failed": fail})
+}
+
+func (s *Server) upgradePanelURL(nodeID int64, r *http.Request) string {
+	if s.Hub != nil {
+		if origin := s.Hub.NodeOrigin(nodeID); origin != "" {
+			return origin
+		}
+	}
+	return panelBaseURL(s.DB, r)
 }
 
 // --- Settings ---
@@ -2703,6 +2716,21 @@ func (s *Server) apiUpdateRule(w http.ResponseWriter, r *http.Request) {
 	db.WriteAudit(s.DB, u.ID, "rule.save", strconv.FormatInt(id, 10), name)
 	s.apiDispatchFanout(affected)
 	jsonOK(w, map[string]any{"ok": true, "entry": entry, "entry_v6": entryV6})
+}
+
+func (s *Server) apiToggleRule(w http.ResponseWriter, r *http.Request) {
+	u := userFromCtx(r.Context())
+	id, err := urlParamInt64(r, "id")
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	rl, err := db.GetRule(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusNotFound, "规则不存在")
+		return
+	}
+	s.toggleRule(w, u.ID, "rule.toggle", rl)
 }
 
 func (s *Server) apiDeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -3800,6 +3828,55 @@ func (s *Server) apiMyUpdateRule(w http.ResponseWriter, r *http.Request) {
 	db.WriteAudit(s.DB, u.ID, "rule.user_save", strconv.FormatInt(id, 10), name)
 	s.apiDispatchFanout(affected)
 	jsonOK(w, map[string]any{"ok": true, "entry": entry, "entry_v6": entryV6})
+}
+
+func (s *Server) apiMyToggleRule(w http.ResponseWriter, r *http.Request) {
+	u := userFromCtx(r.Context())
+	id, err := urlParamInt64(r, "id")
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	rl, err := db.GetRule(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusNotFound, "规则不存在")
+		return
+	}
+	if !rl.OwnerID.Valid || rl.OwnerID.Int64 != u.ID {
+		jsonErr(w, http.StatusForbidden, "无权操作该规则")
+		return
+	}
+	if rl.Disabled {
+		if u.Disabled {
+			jsonErr(w, http.StatusForbidden, "用户已被禁用")
+			return
+		}
+		if u.ExpiresAt.Valid && u.ExpiresAt.Int64 > 0 && u.ExpiresAt.Int64 < time.Now().Unix() {
+			jsonErr(w, http.StatusForbidden, "用户已过期")
+			return
+		}
+	}
+	s.toggleRule(w, u.ID, "rule.user_toggle", rl)
+}
+
+func (s *Server) toggleRule(w http.ResponseWriter, actorID int64, auditAction string, rl *db.Rule) {
+	willDisable := !rl.Disabled
+	if err := db.SetRuleDisabled(s.DB, rl.ID, willDisable); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	nodes, err := db.RuleHopNodeIDs(s.DB, rl.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	label := "off"
+	if !willDisable {
+		label = "on"
+	}
+	db.WriteAudit(s.DB, actorID, auditAction, strconv.FormatInt(rl.ID, 10), label)
+	s.apiDispatchFanout(nodes)
+	jsonOK(w, map[string]any{"ok": true, "disabled": willDisable})
 }
 
 func (s *Server) apiMyDeleteRule(w http.ResponseWriter, r *http.Request) {

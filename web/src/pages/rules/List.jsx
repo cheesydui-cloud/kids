@@ -108,6 +108,19 @@ export default function RulesList() {
   const pickerUsers = users.filter(u => u.username !== 'admin')
   const rules = allRulesRaw.map(enrich)
 
+  const toggleRule = async (rule) => {
+    const nextOff = !rule.disabled
+    if (nextOff && !(await confirm({
+      title: '停用规则',
+      message: `停用「${rule.name}」后入口不再转发，配置还在。`,
+      confirmText: '停用',
+    }))) return
+    try {
+      await api.post(`/rules/${rule.id}/toggle`)
+      toast(nextOff ? '已停用' : '已启用')
+      load()
+    } catch (err) { toast(err.message, 'error') }
+  }
   const deleteRule = async (rule) => {
     if (!(await confirm({ title: '删除规则', message: `确认删除规则「${rule.name}」？`, confirmText: '删除', danger: true }))) return
     try { await api.del(`/rules/${rule.id}`); toast('已删除'); load() } catch (err) { toast(err.message, 'error') }
@@ -207,7 +220,7 @@ export default function RulesList() {
         ) : (
           <TableScroll>
             <RulesTable variant="admin" rules={filtered} nodeMap={nodeMap} blurred={blurred}
-              onDelete={deleteRule} onEdit={setEditRule} onCopy={copyRule}
+              onDelete={deleteRule} onEdit={setEditRule} onCopy={copyRule} onToggle={toggleRule}
               onRowClick={r => navigate(`/rules/${r.id}`, rulesQuery ? { state: { rulesQuery: `?${rulesQuery}` } } : undefined)} />
           </TableScroll>
         )}

@@ -3,6 +3,8 @@ package daemon
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"nft/internal/wsproto"
@@ -26,6 +28,44 @@ func TestUpgradeBinaryFromData(t *testing.T) {
 	}
 }
 
+func TestDownloadBinaryResumesAfterShortBody(t *testing.T) {
+	payload := []byte("0123456789abcdefghij")
+	sum := sha256.Sum256(payload)
+	sha := hex.EncodeToString(sum[:])
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		rng := r.Header.Get("Range")
+		if rng == "" {
+			w.Write(payload[:8])
+			return
+		}
+		if rng != "bytes=8-" {
+			http.Error(w, "bad range "+rng, 400)
+			return
+		}
+		w.Header().Set("Content-Range", "bytes 8-19/20")
+		w.WriteHeader(http.StatusPartialContent)
+		w.Write(payload[8:])
+	}))
+	defer srv.Close()
+
+	got, err := downloadBinary(wsproto.Upgrade{
+		SHA256:     sha,
+		Size:       int64(len(payload)),
+		DownloadAt: srv.URL,
+	})
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("got %q", got)
+	}
+	if hits < 2 {
+		t.Fatalf("want at least 2 GETs, got %d", hits)
+	}
+}
+
 func TestFixUpgradeDownloadURL(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"", ""},
@@ -40,4 +80,3 @@ func TestFixUpgradeDownloadURL(t *testing.T) {
 		}
 	}
 }
-

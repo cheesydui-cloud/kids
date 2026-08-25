@@ -2,17 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import { api } from '../../lib/api'
 import { copyToClipboard } from '../../lib/clipboard'
-import { fmtDate, fmtTrafficGB, isExpired, nullStr, pct } from '../../lib/fmt'
+import { fmtBytes, fmtDate, fmtTrafficGB, isExpired, nullStr, pct } from '../../lib/fmt'
 import { Layout, useToast } from '../../components/Layout'
 import { UserPortalHead } from '../../components/UserPortalHead'
-import { Badge, Loading } from '../../components/ui'
+import { Badge, Loading, useConfirm } from '../../components/ui'
 
 const LAT_CACHE_KEY = 'nf.sub.latency.v1'
 const LAT_TTL_MS = 45_000
 
 export default function MySubscribe() {
   const toast = useToast()
+  const confirm = useConfirm()
   const [data, setData] = useState(null)
+  const [ruleBusy, setRuleBusy] = useState(0)
   const [loading, setLoading] = useState(true)
   const [qr, setQr] = useState('')
   const [qrErr, setQrErr] = useState('')
@@ -46,6 +48,7 @@ export default function MySubscribe() {
 
   const items = data?.items || []
   const skipped = data?.skipped || []
+  const subRules = data?.rules || []
   const account = data?.account || {}
   const v2rayLines = useMemo(
     () => items.map((it) => it.uri).filter(Boolean).join('\n'),
@@ -122,6 +125,42 @@ export default function MySubscribe() {
     toast('已开始下载 YAML')
   }
 
+  const rotateSub = async () => {
+    if (!(await confirm({
+      title: '重置订阅链接',
+      message: '旧地址立刻失效。请把新地址重新导入小火箭 / Clash / Mihomo。',
+      confirmText: '重置',
+      danger: true,
+    }))) return
+    try {
+      const d = await api.post('/my/subscribe/rotate')
+      setData((prev) => prev ? { ...prev, ...d } : prev)
+      toast('订阅链接已重置，请重新导入客户端')
+    } catch (e) {
+      toast(e.message || '重置失败', 'error')
+    }
+  }
+
+  const toggleRule = async (rule) => {
+    if (ruleBusy) return
+    const nextOff = !rule.disabled
+    if (nextOff && !(await confirm({
+      title: '停用规则',
+      message: `停用「${rule.name}」后入口不再转发，配置还在。需要时再启用即可。`,
+      confirmText: '停用',
+    }))) return
+    setRuleBusy(rule.id)
+    try {
+      await api.post(`/my/rules/${rule.id}/toggle`)
+      toast(nextOff ? '已停用' : '已启用')
+      await load()
+    } catch (e) {
+      toast(e.message || '操作失败', 'error')
+    } finally {
+      setRuleBusy(0)
+    }
+  }
+
   if (loading) return <Layout><Loading /></Layout>
 
   const expiresAt = account.expires_at && account.expires_at > 0 ? account.expires_at : null
@@ -131,6 +170,12 @@ export default function MySubscribe() {
   const empty = items.length === 0
   const expired = !!(expiresAt && isExpired(expiresAt))
   const quotaOut = quota > 0 && used >= quota
+  const quotaPct = quota > 0 ? Math.round((used / quota) * 100) : 0
+  const quotaBanner = quotaOut
+    ? { tone: 'danger', text: '流量已用完，入口已停止转发。请联系管理员加量或重置。' }
+    : (quota > 0 && quotaPct >= 80
+      ? { tone: 'warn', text: `流量已使用 ${quotaPct}%，还剩 ${fmtBytes(Math.max(quota - used, 0))}。` }
+      : null)
   const importBlocked = !!account.disabled || expired || quotaOut
   const blockReason = account.disabled
     ? (`账号已被禁用：${nullStr(account.disable_reason) || '请联系管理员'}`)
@@ -165,6 +210,15 @@ export default function MySubscribe() {
         {account.disabled && (
           <div className="mb-4 px-4 py-3 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm font-medium">
             账号已被禁用：{nullStr(account.disable_reason) || '请联系管理员'}
+          </div>
+        )}
+        {quotaBanner && (
+          <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium border-[1.5px] ${
+            quotaBanner.tone === 'danger'
+              ? 'bg-transparent border-rose-500/40 text-rose-700 dark:text-rose-300'
+              : 'bg-transparent border-amber-500/45 text-amber-800 dark:text-amber-300'
+          }`}>
+            {quotaBanner.text}
           </div>
         )}
 
@@ -264,6 +318,13 @@ export default function MySubscribe() {
           </article>
         </section>
 
+        <div className="mt-4 mb-1">
+          <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" onClick={rotateSub}>
+            重置订阅链接
+          </button>
+          <p className="mt-1.5 text-[12px] text-ink-mut">链接泄漏或换设备时用。旧地址立刻失效，客户端需重新导入。</p>
+        </div>
+
         <section className="sub-nodes">
           <div className="sub-nodes-head">
             <h2>节点清单</h2>
@@ -297,6 +358,47 @@ export default function MySubscribe() {
             </div>
           )}
         </section>
+
+        {subRules.length > 0 && (
+          <section className="sub-nodes">
+            <div className="sub-nodes-head">
+              <h2>我的规则</h2>
+            </div>
+            <div className="flex flex-col gap-2">
+              {subRules.map((rule) => (
+                <div key={rule.id} className="flex items-start justify-between gap-3 px-3 py-2.5 rounded-xl border-[1.5px] border-line bg-surface">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-[14px]">{rule.name}</span>
+                      {rule.disabled
+                        ? <Badge color="amber">已停用</Badge>
+                        : rule.block_reason
+                          ? <Badge color="red">连不上</Badge>
+                          : rule.status === 'online'
+                            ? <Badge color="green">在线</Badge>
+                            : rule.status === 'offline'
+                              ? <Badge color="gray">离线</Badge>
+                              : null}
+                    </div>
+                    <p className="mt-1 text-[12px] text-ink-soft">
+                      {rule.disabled
+                        ? '已停用，入口不再转发。配置还在，启用即可恢复。'
+                        : (rule.block_text || (rule.status === 'offline' ? '入口节点离线或已禁用' : (rule.landing ? `落地 ${rule.landing}` : '运行中')))}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary h-[32px] px-3 text-[12px] shrink-0"
+                    disabled={ruleBusy === rule.id}
+                    onClick={() => toggleRule(rule)}
+                  >
+                    {ruleBusy === rule.id ? '…' : (rule.disabled ? '启用' : '停用')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="sub-import">
           <h2>一键导入客户端</h2>
@@ -397,9 +499,12 @@ function NodeCard({ item, probe }) {
           <i />
           {st.label}
         </div>
-        <div className="sub-latency">{latencyLabel(probe)}</div>
+        <div className="sub-latency">{item.block_reason ? '' : latencyLabel(probe)}</div>
       </div>
       <h3>{item.name}</h3>
+      {item.block_text && (
+        <p className="mt-1.5 text-[12px] text-ink-soft leading-snug">{item.block_text}</p>
+      )}
     </article>
   )
 }
@@ -412,9 +517,16 @@ function latencyLabel(probe) {
 }
 
 function statusView(item) {
+  if (item.block_reason === 'quota' || item.block_reason === 'landing_quota' || item.block_reason === 'node_quota') {
+    return { label: '流量用尽', tone: 'off' }
+  }
+  if (item.block_reason === 'account_expired' || item.block_reason === 'landing_expired') {
+    return { label: '已到期', tone: 'off' }
+  }
+  if (item.block_reason === 'account_disabled') return { label: '已禁用', tone: 'off' }
+  if (item.block_reason === 'node_offline' || item.status === 'offline') return { label: '离线', tone: 'off' }
   if (item.status === 'online') return { label: '在线', tone: 'on' }
-  if (item.status === 'offline') return { label: '离线', tone: 'off' }
-  if (item.status === 'direct') return { label: '直连', tone: 'direct' }
+  if (item.status === 'direct') return { label: item.block_reason ? '不可用' : '直连', tone: item.block_reason ? 'off' : 'direct' }
   return { label: '未知', tone: 'unk' }
 }
 

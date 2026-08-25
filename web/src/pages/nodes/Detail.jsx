@@ -383,7 +383,7 @@ export default function NodeDetail() {
                   {up.status === 'ok' && <><Badge color="green">升级成功</Badge> <span className="ml-1 text-ink-mut">{up.version} · {fmtTime(up.at)}</span></>}
                   {up.status === 'error' && <><Badge color="red">升级失败</Badge> <span className="ml-1 text-ink-mut break-all">{up.error}</span></>}
                   {up.status === 'pending' && <><Badge color="blue">升级中</Badge> <span className="ml-1 text-ink-mut">已推送 {up.version} · {fmtTime(up.at)}</span></>}
-                  {up.status === 'stuck' && <><Badge color="amber">可能未生效</Badge> <span className="ml-1 text-ink-mut">已确认接收 {up.version}（{fmtTime(up.at)}），当前仍为 {displayAgentVersion(node, latest_agent_version, latest_agent_sha)}，可能重启失败</span></>}
+                  {up.status === 'stuck' && <><Badge color="amber">可能未生效</Badge> <span className="ml-1 text-ink-mut">已推送 {up.version}（{fmtTime(up.at)}），当前仍为 {displayAgentVersion(node, latest_agent_version, latest_agent_sha)}。国内机可 SSH 执行 nft-upgrade，或再点一次推送升级</span></>}
                 </InfoRow>
               )}
             </div>

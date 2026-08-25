@@ -72,6 +72,7 @@ func NewHub(d *sql.DB) *Hub {
 type agentConn struct {
 	nodeID  int64
 	arch    string
+	origin  string
 	ws      *websocket.Conn
 	writeCh chan []byte
 	closed  chan struct{}
@@ -112,6 +113,20 @@ func (h *Hub) NodeArch(nodeID int64) string {
 		return ""
 	}
 	return ac.arch
+}
+
+// NodeOrigin is scheme://host the agent used to reach this panel (after
+// X-Forwarded-*). Empty when the node is offline. Upgrade downloads should
+// use this instead of settings.panel_url so a domestic node that connected
+// via a CN domain is not sent an overseas IP it cannot pull 8MB from.
+func (h *Hub) NodeOrigin(nodeID int64) string {
+	h.mu.RLock()
+	ac, ok := h.conns[nodeID]
+	h.mu.RUnlock()
+	if !ok || ac == nil {
+		return ""
+	}
+	return ac.origin
 }
 
 // ServeWS handles the /v1/agents WS endpoint. Upgrades the request,
@@ -156,6 +171,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	ac := &agentConn{
 		nodeID:  node.ID,
 		arch:    hello.Arch,
+		origin:  requestOrigin(r),
 		ws:      ws,
 		writeCh: make(chan []byte, 16),
 		closed:  make(chan struct{}),

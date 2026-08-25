@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -468,5 +469,151 @@ func TestSubscribeRejectsMissingToken(t *testing.T) {
 	s.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("code = %d", rec.Code)
+	}
+}
+
+func TestSubscribeQuotaExplainsWhyEntryIsDead(t *testing.T) {
+	d := openDB(t)
+	uid, cookie, n := seedSubUser(t, d)
+	if _, err := d.Exec(`UPDATE users SET traffic_quota_bytes=100, traffic_used_bytes=100 WHERE id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec(`UPDATE nodes SET online=1, last_seen=? WHERE id=?`, time.Now().Unix(), n.ID); err != nil {
+		t.Fatal(err)
+	}
+	s := newServer(t, d)
+	req := newTestRequest("GET", "/api/my/subscribe", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subscribe: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Items []struct {
+			Kind        string `json:"kind"`
+			BlockReason string `json:"block_reason"`
+			BlockText   string `json:"block_text"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	var relay bool
+	for _, it := range body.Items {
+		if it.Kind != "relay" {
+			continue
+		}
+		relay = true
+		if it.BlockReason != "quota" {
+			t.Fatalf("relay block=%q text=%q", it.BlockReason, it.BlockText)
+		}
+		if !strings.Contains(it.BlockText, "流量") {
+			t.Fatalf("quota text = %q", it.BlockText)
+		}
+	}
+	if !relay {
+		t.Fatal("no relay item")
+	}
+}
+
+func TestUserToggleRuleDropsFromPushAndSubscribe(t *testing.T) {
+	d := openDB(t)
+	uid, cookie, n := seedSubUser(t, d)
+	rules, err := db.ListRulesByUser(d, uid)
+	if err != nil || len(rules) == 0 {
+		t.Fatalf("rules: %v %d", err, len(rules))
+	}
+	var landingRule *db.Rule
+	for _, rl := range rules {
+		if rl.Name == "线路A" {
+			landingRule = rl
+			break
+		}
+	}
+	if landingRule == nil {
+		t.Fatal("missing 线路A")
+	}
+	s := newServer(t, d)
+
+	tog := newTestRequest("POST", fmt.Sprintf("/api/my/rules/%d/toggle", landingRule.ID), nil)
+	tog.AddCookie(cookie)
+	trec := httptest.NewRecorder()
+	s.Router().ServeHTTP(trec, tog)
+	if trec.Code != http.StatusOK {
+		t.Fatalf("toggle: %d %s", trec.Code, trec.Body.String())
+	}
+	got, err := db.GetRule(d, landingRule.ID)
+	if err != nil || !got.Disabled {
+		t.Fatalf("disabled=%v err=%v", got != nil && got.Disabled, err)
+	}
+	hops, err := db.ActiveRuleHopsForPush(d, n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hops {
+		if h.RuleID == landingRule.ID {
+			t.Fatalf("disabled rule still pushed: %+v", h)
+		}
+	}
+
+	req := newTestRequest("GET", "/api/my/subscribe", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	var body struct {
+		Skipped []struct {
+			Reason string `json:"reason"`
+			Detail string `json:"detail"`
+		} `json:"skipped"`
+		Rules []struct {
+			ID       int64  `json:"id"`
+			Disabled bool   `json:"disabled"`
+			Block    string `json:"block_reason"`
+		} `json:"rules"`
+		Items []struct {
+			RuleID int64 `json:"rule_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	var skipped bool
+	for _, sk := range body.Skipped {
+		if sk.Reason == "disabled" && sk.Detail == "线路A" {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Fatalf("disabled rule not skipped: %+v", body.Skipped)
+	}
+	for _, it := range body.Items {
+		if it.RuleID == landingRule.ID {
+			t.Fatal("disabled rule still in items")
+		}
+	}
+	var listed bool
+	for _, r := range body.Rules {
+		if r.ID == landingRule.ID {
+			listed = true
+			if !r.Disabled || r.Block != "disabled" {
+				t.Fatalf("rules row = %+v", r)
+			}
+		}
+	}
+	if !listed {
+		t.Fatal("disabled rule missing from rules")
+	}
+
+	tog2 := newTestRequest("POST", fmt.Sprintf("/api/my/rules/%d/toggle", landingRule.ID), nil)
+	tog2.AddCookie(cookie)
+	trec2 := httptest.NewRecorder()
+	s.Router().ServeHTTP(trec2, tog2)
+	if trec2.Code != http.StatusOK {
+		t.Fatalf("re-enable: %d %s", trec2.Code, trec2.Body.String())
+	}
+	got, _ = db.GetRule(d, landingRule.ID)
+	if got.Disabled {
+		t.Fatal("rule still disabled after second toggle")
 	}
 }

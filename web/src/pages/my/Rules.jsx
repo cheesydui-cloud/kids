@@ -85,6 +85,19 @@ export default function MyRules() {
     if (!(await confirm({ title: '删除规则', message: `确认删除规则「${rule.name}」？`, confirmText: '删除', danger: true }))) return
     try { await api.del(`/my/rules/${rule.id}`); toast('已删除'); load() } catch (err) { toast(err.message, 'error') }
   }
+  const toggleRule = async (rule) => {
+    const nextOff = !rule.disabled
+    if (nextOff && !(await confirm({
+      title: '停用规则',
+      message: `停用「${rule.name}」后入口不再转发，配置还在。`,
+      confirmText: '停用',
+    }))) return
+    try {
+      await api.post(`/my/rules/${rule.id}/toggle`)
+      toast(nextOff ? '已停用' : '已启用')
+      load()
+    } catch (err) { toast(err.message, 'error') }
+  }
   const openCreate = () => { setCreateInitial(null); setCreateOpen(true) }
   const copyRule = async (rule) => {
     const text = formatRuleCopyText(rule, {
@@ -133,7 +146,7 @@ export default function MyRules() {
         ) : (
           <TableScroll>
             <RulesTable variant="my" rules={filtered} nodeMap={node_by_id} blurred={blurred}
-              onDelete={deleteRule} onCopy={copyRule} onRowClick={r => navigate(`/my/rules/${r.id}`)}
+              onDelete={deleteRule} onCopy={copyRule} onToggle={toggleRule} onRowClick={r => navigate(`/my/rules/${r.id}`)}
               probeAllTrigger={probeAllTrigger} displayRate={user?.billing_rate ?? 1} landingExpiry={landingExpiry}
               copyUsername={user?.username || ''} />
           </TableScroll>

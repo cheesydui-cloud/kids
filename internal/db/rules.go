@@ -436,12 +436,29 @@ func ListRuleHopsByChain(d DBTX, ruleID int64) ([]*RuleHop, error) {
 	return ListRuleHops(d, ruleID)
 }
 
+// RuleHopNodeIDs returns the distinct physical node IDs a rule currently occupies.
+func RuleHopNodeIDs(d DBTX, id int64) ([]int64, error) {
+	return queryInt64s(d, `SELECT DISTINCT node_id FROM rule_hops WHERE rule_id=?`, id)
+}
+
+// SetRuleDisabled flips rules.disabled. ActiveRuleHopsForPush already omits
+// disabled=1, so the next dispatch drops (or restores) the hops without
+// deleting the rule.
+func SetRuleDisabled(d DBTX, id int64, disabled bool) error {
+	v := 0
+	if disabled {
+		v = 1
+	}
+	_, err := d.Exec(`UPDATE rules SET disabled=? WHERE id=?`, v, id)
+	return err
+}
+
 // DeleteRule removes a rule and returns the node IDs whose kernel state must be
 // re-dispatched (i.e. the nodes its hops lived on). The ON DELETE CASCADE on
 // rule_hops clears the hop rows; we collect nodes first so the caller can
 // re-push them after the rules are gone.
 func DeleteRule(d *sql.DB, id int64) ([]int64, error) {
-	nodes, err := queryInt64s(d, `SELECT DISTINCT node_id FROM rule_hops WHERE rule_id=?`, id)
+	nodes, err := RuleHopNodeIDs(d, id)
 	if err != nil {
 		return nil, err
 	}

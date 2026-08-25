@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -11,9 +12,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime/debug"
-	"strconv"
-	"strings"
+		"runtime/debug"
+		"strings"
 	"sync"
 	"time"
 
@@ -279,11 +279,11 @@ func (s *Server) serveBinary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.Itoa(len(art.Data)))
 	w.Header().Set("X-SHA256", art.SHA)
 	w.Header().Set("X-Agent-Version", art.Version)
 	w.Header().Set("X-Agent-Arch", normalizeAgentArch(arch))
-	w.Write(art.Data)
+	w.Header().Set("Accept-Ranges", "bytes")
+	http.ServeContent(w, r, "nft-agent", time.Time{}, bytes.NewReader(art.Data))
 }
 
 func (s *Server) serveInstallAgent(w http.ResponseWriter, r *http.Request) {
@@ -322,9 +322,9 @@ func requestOrigin(r *http.Request) string {
 	return scheme + "://" + host
 }
 
-// upgradeAckTimeout covers download + replace + ack on slow links. The agent
-// HTTP download itself allows up to ~3 minutes; add headroom for replace.
-const upgradeAckTimeout = 4 * time.Minute
+	// upgradeAckTimeout covers download + replace + ack on slow links. The agent
+	// HTTP download retries/resumes for up to ~8 minutes.
+const upgradeAckTimeout = 8 * time.Minute
 
 func (h *Hub) SendUpgrade(nodeID int64, u wsproto.Upgrade) error {
 	h.mu.RLock()
@@ -361,11 +361,10 @@ func (h *Hub) SendUpgrade(nodeID int64, u wsproto.Upgrade) error {
 	case <-time.After(upgradeAckTimeout):
 		return fmt.Errorf("升级应答超时")
 	case <-ac.closed:
-		// Frame was already queued. Disconnect usually means the agent is
-		// downloading / replacing / restarting (or the NAT dropped a quiet
-		// link). Treat as dispatched: deriveUpgradeStatus will confirm via
-		// version/SHA after reconnect instead of failing the push outright.
-		return nil
+		// Do not treat a drop as success. Domestic reverse links often die
+		// mid-download; recording "acked" then shows 「已确认接收」while the
+		// process is still the old binary.
+		return fmt.Errorf("连接在升级期间断开")
 	}
 }
 

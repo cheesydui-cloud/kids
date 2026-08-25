@@ -73,23 +73,23 @@ func TestServeInstallAgentBakesPanelURL(t *testing.T) {
 	if strings.Contains(body, "__KIDS_PANEL_URL__") {
 		t.Fatal("placeholder left in served script")
 	}
-		if !strings.Contains(body, "KIDS_PANEL_URL_BAKED='http://31.40.214.186:7788'") {
-			t.Fatalf("baked assignment missing: %s", body[:min(400, len(body))])
-		}
-		// Regression: ReplaceAll used to rewrite the "still unset?" checks into
-		// [[ $PANEL_URL != http://panel ]], which rejected a correct URL.
-		if strings.Contains(body, `" != "http://31.40.214.186:7788"`) ||
-			strings.Contains(body, `" == "http://31.40.214.186:7788"`) {
-			t.Fatal("baked URL leaked into comparisons; valid panel-url would be rejected")
-		}
+	if !strings.Contains(body, "KIDS_PANEL_URL_BAKED='http://31.40.214.186:7788'") {
+		t.Fatalf("baked assignment missing: %s", body[:min(400, len(body))])
 	}
+	// Regression: ReplaceAll used to rewrite the "still unset?" checks into
+	// [[ $PANEL_URL != http://panel ]], which rejected a correct URL.
+	if strings.Contains(body, `" != "http://31.40.214.186:7788"`) ||
+		strings.Contains(body, `" == "http://31.40.214.186:7788"`) {
+		t.Fatal("baked URL leaked into comparisons; valid panel-url would be rejected")
+	}
+}
 
-	func TestInstallScriptPlaceholderOnce(t *testing.T) {
-		n := strings.Count(installscript.AgentInstall, "__KIDS_PANEL_URL__")
-		if n != 1 {
-			t.Fatalf("bake token must appear exactly once (assignment only), got %d", n)
-		}
+func TestInstallScriptPlaceholderOnce(t *testing.T) {
+	n := strings.Count(installscript.AgentInstall, "__KIDS_PANEL_URL__")
+	if n != 1 {
+		t.Fatalf("bake token must appear exactly once (assignment only), got %d", n)
 	}
+}
 
 func TestNormalizeAgentArch(t *testing.T) {
 	cases := map[string]string{
@@ -104,6 +104,34 @@ func TestNormalizeAgentArch(t *testing.T) {
 		if got := normalizeAgentArch(in); got != want {
 			t.Errorf("normalizeAgentArch(%q)=%q want %q", in, got, want)
 		}
+	}
+}
+
+func TestServeBinarySupportsRange(t *testing.T) {
+	s := &Server{}
+	agentArtMu.Lock()
+		agentArtCache = &agentArtifact{Version: serverVersion(), SHA: "abc", Data: []byte("0123456789")}
+	agentArtByArch["amd64"] = agentArtCache
+	agentArtMu.Unlock()
+	t.Cleanup(func() {
+		agentArtMu.Lock()
+		agentArtCache = nil
+		agentArtByArch = map[string]*agentArtifact{}
+		agentArtMu.Unlock()
+	})
+
+	req := httptest.NewRequest("GET", "/v1/binary?arch=amd64", nil)
+	req.Header.Set("Range", "bytes=3-6")
+	rec := httptest.NewRecorder()
+	s.serveBinary(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "3456" {
+		t.Fatalf("range body=%q", rec.Body.String())
+	}
+	if rec.Header().Get("X-SHA256") != "abc" {
+		t.Fatalf("missing sha header")
 	}
 }
 

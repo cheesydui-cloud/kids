@@ -94,45 +94,75 @@ func fixUpgradeDownloadURL(raw string) string {
 }
 
 func downloadBinary(u wsproto.Upgrade) ([]byte, error) {
-	// Slow reverse / domestic links routinely need >2 minutes for ~13MB; keep
-	// well under the panel's upgradeAckTimeout so a successful download can still
-	// be acked before the panel gives up waiting.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	// Domestic reverse links often stall mid-file. Resume with Range and retry
+	// instead of one 3-minute all-or-nothing GET that dies with the control WS.
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 
 	url := fixUpgradeDownloadURL(u.DownloadAt)
-	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
+	client := &http.Client{Timeout: 90 * time.Second}
+	want := u.Size
+	if want < 1 {
+		want = 64 << 20
 	}
-	req.Header.Set("User-Agent", "nft-agent-upgrade")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", url, err)
+	var buf []byte
+	var lastErr error
+	for attempt := 1; attempt <= 8; attempt++ {
+		if ctx.Err() != nil {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, ctx.Err()
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "nft-agent-upgrade")
+		if len(buf) > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", len(buf)))
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("GET %s: %w", url, err)
+			log.Printf("upgrade: download attempt %d failed: %v", attempt, lastErr)
+			time.Sleep(time.Duration(attempt) * time.Second)
+			continue
+		}
+		chunk, readErr := io.ReadAll(io.LimitReader(resp.Body, want+1024-int64(len(buf))))
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			buf = chunk
+		} else if resp.StatusCode == http.StatusPartialContent && len(buf) > 0 {
+			buf = append(buf, chunk...)
+		} else {
+			lastErr = fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
+			log.Printf("upgrade: download attempt %d: %v", attempt, lastErr)
+			time.Sleep(time.Duration(attempt) * time.Second)
+			continue
+		}
+		if readErr != nil || (u.Size > 0 && int64(len(buf)) < u.Size) {
+			if readErr != nil {
+				lastErr = fmt.Errorf("read body: %w", readErr)
+			} else {
+				lastErr = fmt.Errorf("GET %s: short body %d < %d", url, len(buf), u.Size)
+			}
+			log.Printf("upgrade: download attempt %d short (%d bytes): %v", attempt, len(buf), lastErr)
+			time.Sleep(time.Duration(attempt) * time.Second)
+			continue
+		}
+		log.Printf("upgrade: downloaded %d bytes from %s", len(buf), url)
+		h := sha256.Sum256(buf)
+		got := hex.EncodeToString(h[:])
+		if got != u.SHA256 {
+			return nil, fmt.Errorf("sha256 mismatch: got %s, want %s", got, u.SHA256)
+		}
+		return buf, nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
+	if lastErr == nil {
+		lastErr = fmt.Errorf("GET %s: exhausted retries", url)
 	}
-
-	limit := u.Size + 1024
-	if limit < 1 {
-		// Size missing from older panels: still bound the read.
-		limit = 64 << 20
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-	log.Printf("upgrade: downloaded %d bytes from %s", len(data), url)
-
-	h := sha256.Sum256(data)
-	got := hex.EncodeToString(h[:])
-	if got != u.SHA256 {
-		return nil, fmt.Errorf("sha256 mismatch: got %s, want %s", got, u.SHA256)
-	}
-	return data, nil
+	return nil, lastErr
 }
 
 func atomicReplace(path string, data []byte) error {
@@ -175,23 +205,33 @@ func restartSelf() {
 		log.Printf("upgrade: systemd-run restart failed: %v: %s — trying direct restart", err, out)
 		exec.Command("systemctl", "restart", unit).Start()
 	}
+	// Binary is already replaced. Exit so systemd Restart=always relaunches
+	// even if we guessed the unit name wrong (nft vs nft-daemon vs nft-agent).
+	time.Sleep(2 * time.Second)
+	os.Exit(0)
 }
 
 func detectUnit() string {
 	pid := os.Getpid()
-	out, err := exec.Command("systemctl", "--pid", fmt.Sprintf("%d", pid), "--no-pager", "-l", "--plain", "--output=short").CombinedOutput()
+	out, err := exec.Command("systemctl", "status", fmt.Sprintf("%d", pid), "--no-pager", "-l").CombinedOutput()
 	if err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "nft") && strings.HasSuffix(line, ".service") {
-				return strings.Fields(line)[0]
+			if strings.Contains(line, ".service") {
+				fields := strings.Fields(line)
+				for _, f := range fields {
+					f = strings.TrimSuffix(f, ":")
+					if strings.HasPrefix(f, "nft") && strings.HasSuffix(f, ".service") {
+						return strings.TrimSuffix(f, ".service")
+					}
+				}
 			}
 		}
 	}
-	for _, name := range []string{"nft-daemon", "nft"} {
+	for _, name := range []string{"nft-daemon", "nft-agent", "nft"} {
 		if out, err := exec.Command("systemctl", "is-active", name+".service").CombinedOutput(); err == nil && strings.TrimSpace(string(out)) == "active" {
 			return name
 		}
 	}
-	return "nft"
+	return "nft-daemon"
 }

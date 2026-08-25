@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { fmtBytes } from '../../lib/fmt'
 import { Layout, useToast, useBlur } from '../../components/Layout'
-import { Loading, Empty, ProtoBadge, ModeBadge, SensText, useConfirm, ExitKindBadge } from '../../components/ui'
+import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, useConfirm, ExitKindBadge } from '../../components/ui'
 import { TableBox, TopbarTitle } from '../../components/page'
 import { copyToClipboard } from '../../lib/clipboard'
 import { formatRelayCopyText } from '../../lib/relayCopy'
@@ -45,6 +45,20 @@ export default function RulesDetail() {
   const deleteRule = async () => {
     if (!(await confirm({ title: '删除规则', message: `确认删除规则「${rule.name}」？`, confirmText: '删除', danger: true }))) return
     try { await api.del(`/rules/${rule.id}`); toast('已删除'); navigate(backTo) } catch (err) { toast(err.message, 'error') }
+  }
+
+  const toggleRule = async () => {
+    const nextOff = !rule.disabled
+    if (nextOff && !(await confirm({
+      title: '停用规则',
+      message: `停用「${rule.name}」后入口不再转发，配置还在。`,
+      confirmText: '停用',
+    }))) return
+    try {
+      await api.post(`/rules/${rule.id}/toggle`)
+      toast(nextOff ? '已停用' : '已启用')
+      load()
+    } catch (err) { toast(err.message, 'error') }
   }
 
   return (
@@ -102,7 +116,7 @@ export default function RulesDetail() {
           ) : <span className="text-ink-mut text-sm">尚未分配入口</span>}
           <div className="grid grid-cols-[90px_1fr] gap-4 items-center mt-5 text-sm">
             <span className="text-ink-soft font-semibold">名称</span>
-            <span className="font-semibold">{rule.name}</span>
+            <span className="font-semibold inline-flex items-center gap-2">{rule.name}{rule.disabled && <Badge color="amber">已停用</Badge>}</span>
             {rule.owner_id?.Valid && <><span className="text-ink-soft font-semibold">用户</span>
             <span className="font-semibold">
               <Link to={`/users/${rule.owner_id.Int64}`} className="link-accent hover:underline">{rule.owner_name}</Link>
@@ -167,6 +181,7 @@ export default function RulesDetail() {
       {/* Actions */}
       <div className="flex items-center gap-3 flex-wrap mt-5">
         <button onClick={() => setShowEdit(true)} className="btn-primary text-xs">编辑规则</button>
+        <button onClick={toggleRule} className="btn-secondary text-xs">{rule.disabled ? '启用规则' : '停用规则'}</button>
         <button onClick={deleteRule} className="btn-danger text-xs">删除规则</button>
         <Link to={backTo} className="link-accent text-[13px] hover:underline inline-flex items-center gap-1">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
