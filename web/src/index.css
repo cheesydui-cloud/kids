@@ -1098,6 +1098,28 @@ input[type="radio"] {
   line-height: 1.2;
   color: var(--color-ink);
 }
+.sub-reset-link {
+  margin: 0;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-ink-mut);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sub-reset-link:hover {
+  color: var(--brand-from);
+}
+.sub-card-hint {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-ink-mut);
+}
 .sub-hero-meta { display: flex; gap: 10px; flex-wrap: wrap; }
 .sub-chip {
   position: relative;
@@ -1424,6 +1446,8 @@ input[type="radio"] {
     margin-bottom: 14px;
   }
   .sub-title { font-size: 18px; }
+  .sub-title-row { flex-wrap: wrap; row-gap: 4px; }
+  .sub-reset-link { margin-left: 46px; }
   .sub-hero-meta {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -14,7 +14,7 @@ const annColorMeta = {
   green: { badge: 'green', label: '成功', bar: 'border-l-emerald-500' },
 }
 
-export function UserPortalHead({ title = '我的订阅' }) {
+export function UserPortalHead({ title = '我的订阅', extra = null }) {
   const { logoUrl } = useUser()
   const [annOpen, setAnnOpen] = useState(false)
   const [items, setItems] = useState([])
@@ -65,6 +65,7 @@ export function UserPortalHead({ title = '我的订阅' }) {
         <div className="sub-title-row">
           <BrandBadge src={logoUrl} size={36} markClassName="w-[20px] h-[20px]" />
           <h1 className="sub-title">{title}</h1>
+          {extra}
         </div>
         <div className="sub-hero-meta">
 	          <button type="button" className="sub-chip" onClick={() => setAnnOpen(true)}>

@@ -205,7 +205,19 @@ export default function MySubscribe() {
   return (
     <Layout>
       <div className="sub-page">
-        <UserPortalHead title="我的订阅" />
+        <UserPortalHead
+          title="我的订阅"
+          extra={(
+            <button
+              type="button"
+              className="sub-reset-link"
+              onClick={rotateSub}
+              title="链接泄漏或换设备时用。旧地址立刻失效。"
+            >
+              重置订阅链接
+            </button>
+          )}
+        />
 
         {account.disabled && (
           <div className="mb-4 px-4 py-3 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm font-medium">
@@ -300,6 +312,7 @@ export default function MySubscribe() {
               <h3>Clash Verge</h3>
             </div>
             <FieldRow label="订阅地址" value={data?.clash_url} disabled={importBlocked} onCopy={() => copy(data?.clash_url, 'clash', '已复制 Clash 订阅')} copied={copied === 'clash'} />
+            <p className="sub-card-hint">复制地址后在 Clash Verge 订阅里添加，或用下方一键导入。</p>
           </article>
 
           <article className="sub-card">
@@ -307,23 +320,12 @@ export default function MySubscribe() {
               <span className="sub-idx">04</span>
               <h3>Mihomo</h3>
             </div>
-            <FieldRow label="拉取地址" value={data?.mihomo_url} disabled={importBlocked} onCopy={() => copy(data?.mihomo_url, 'mihomo', '已复制 Mihomo 订阅')} copied={copied === 'mihomo'} />
+            <FieldRow label="订阅地址" value={data?.mihomo_url} disabled={importBlocked} onCopy={() => copy(data?.mihomo_url, 'mihomo', '已复制 Mihomo 订阅')} copied={copied === 'mihomo'} />
             <div className="flex flex-wrap gap-2 mt-3">
               <button type="button" className="btn-secondary" disabled={empty || importBlocked} onClick={downloadYaml}>下载 YAML</button>
-              <button type="button" className="btn-secondary" disabled={!data?.mihomo_url || importBlocked}
-                onClick={() => copy(data?.mihomo_url, 'mihomo2', '已复制拉取地址')}>
-                {copied === 'mihomo2' ? '已复制' : '复制拉取地址'}
-              </button>
             </div>
           </article>
         </section>
-
-        <div className="mt-4 mb-1">
-          <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" onClick={rotateSub}>
-            重置订阅链接
-          </button>
-          <p className="mt-1.5 text-[12px] text-ink-mut">链接泄漏或换设备时用。旧地址立刻失效，客户端需重新导入。</p>
-        </div>
 
         <section className="sub-nodes">
           <div className="sub-nodes-head">
