@@ -19,6 +19,12 @@ const SKINS = [
     desc: '石灰底 + 真白卡',
     swatch: { app: '#f4f1ec', surface: '#ffffff', line: '#ddd6cc', brand: '#9a4a28' },
   },
+  {
+    id: 'pixel',
+    name: '点阵',
+    desc: '硬边釉面，无模糊',
+    swatch: { app: '#f3eee6', surface: '#fffaf3', line: '#c4b49f', brand: '#9a4a28' },
+  },
 ]
 
 const TABS = [

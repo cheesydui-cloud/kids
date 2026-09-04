@@ -2,15 +2,17 @@
 // persisted in localStorage overrides it. A null stored value means "follow
 // system", in which case we also react to live OS changes.
 //
-// Panel skin (xuan / porcelain) is a global admin setting. We cache the last
-// known value so the first paint after reload matches before /branding returns.
+// Panel skin (xuan / porcelain / pixel) is a global admin setting. We cache
+// the last known value so the first paint after reload matches before /branding.
 
 const KEY = 'nf-theme'
 const SKIN_KEY = 'nf-skin'
 const mq = () => window.matchMedia('(prefers-color-scheme: dark)')
 
 export function normalizeSkin(raw) {
-  return raw === 'porcelain' ? 'porcelain' : 'xuan'
+  if (raw === 'porcelain') return 'porcelain'
+  if (raw === 'pixel') return 'pixel'
+  return 'xuan'
 }
 
 export function getCachedSkin() {

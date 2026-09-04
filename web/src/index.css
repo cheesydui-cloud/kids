@@ -117,6 +117,145 @@ html[data-skin="porcelain"]:not(.dark) {
   --shadow-float: 0 10px 22px -16px rgba(40, 32, 24, 0.20);
 }
 
+/* Pixel glaze: same cream paper, hard corners, hard offset shadow, no blur. */
+html[data-skin="pixel"] {
+  --color-app: #f3eee6;
+  --color-surface: #fffaf3;
+  --color-raised: #efe6da;
+  --color-line: #c4b49f;
+  --color-line-soft: #ddd0c0;
+  --color-ink: #1b1612;
+  --color-ink-soft: #5a5047;
+  --color-ink-mut: #97897c;
+  --sidebar-bg: #fffaf3;
+  --sidebar-border: #c4b49f;
+  --sidebar-text: #1b1612;
+  --sidebar-text-soft: #5a5047;
+  --sidebar-text-mut: #97897c;
+  --sidebar-active-bg: #efe0d4;
+  --sidebar-active-border: #9a4a28;
+  --sidebar-active-text: #7a3f22;
+  --sidebar-hover-bg: #efe6da;
+  --sidebar-hover-text: #1b1612;
+  --sidebar-group-label: #97897c;
+  --sidebar-btn-bg: transparent;
+  --sidebar-btn-border: #c4b49f;
+  --sidebar-btn-text: #5a5047;
+  --sidebar-avatar-bg: #c48a6a;
+  --sidebar-avatar-border: #9a5a38;
+  --sidebar-avatar-text: #fff8f2;
+  --brand-from: #9a4a28;
+  --brand-to: #7a3f22;
+  --shadow-card: 3px 3px 0 #c4b49f;
+  --shadow-float: 2px 2px 0 #9a4a28;
+  --pixel-radius: 2px;
+}
+html[data-skin="pixel"].dark {
+  --color-app: #14110e;
+  --color-surface: #1c1814;
+  --color-raised: #26201b;
+  --color-line: #5a4e42;
+  --color-line-soft: #3a322b;
+  --color-ink: #f6efe6;
+  --color-ink-soft: #c4b6a8;
+  --color-ink-mut: #8a7d70;
+  --sidebar-bg: #1a1612;
+  --sidebar-border: #5a4e42;
+  --sidebar-text: #f6efe6;
+  --sidebar-text-soft: #c4b6a8;
+  --sidebar-text-mut: #8a7d70;
+  --sidebar-active-bg: #3a2a22;
+  --sidebar-active-border: #c48a6a;
+  --sidebar-active-text: #f3d6c4;
+  --sidebar-hover-bg: rgba(255, 244, 232, 0.06);
+  --sidebar-hover-text: #f6efe6;
+  --sidebar-group-label: #8a7d70;
+  --sidebar-btn-bg: transparent;
+  --sidebar-btn-border: #5a4e42;
+  --sidebar-btn-text: #c4b6a8;
+  --sidebar-avatar-bg: #3a2a22;
+  --sidebar-avatar-border: #c48a6a;
+  --sidebar-avatar-text: #f3d6c4;
+  --brand-from: #d08a62;
+  --brand-to: #b56a42;
+  --shadow-card: 3px 3px 0 #3a322b;
+  --shadow-float: 2px 2px 0 #d08a62;
+}
+html[data-skin="pixel"] .card,
+html[data-skin="pixel"] .soft-panel,
+html[data-skin="pixel"] .login-card,
+html[data-skin="pixel"] .sub-card,
+html[data-skin="pixel"] .sub-account,
+html[data-skin="pixel"] .sub-empty,
+html[data-skin="pixel"] .sub-node-card,
+html[data-skin="pixel"] .sub-import,
+html[data-skin="pixel"] .mobile-card,
+html[data-skin="pixel"] .identity-bar-inner,
+html[data-skin="pixel"] .animate-modal-in {
+  border-radius: var(--pixel-radius);
+  box-shadow: var(--shadow-card);
+}
+html[data-skin="pixel"] .input-field,
+html[data-skin="pixel"] .search-field,
+html[data-skin="pixel"] .btn-primary,
+html[data-skin="pixel"] .btn-secondary,
+html[data-skin="pixel"] .btn-danger,
+html[data-skin="pixel"] .btn-danger-sm,
+html[data-skin="pixel"] .icon-btn,
+html[data-skin="pixel"] .icon-btn-danger,
+html[data-skin="pixel"] .login-submit,
+html[data-skin="pixel"] .sub-chip,
+html[data-skin="pixel"] .sub-field-box,
+html[data-skin="pixel"] .sub-idx,
+html[data-skin="pixel"] .sub-qr,
+html[data-skin="pixel"] .tag-tcp,
+html[data-skin="pixel"] .tag-udp,
+html[data-skin="pixel"] .tag-tcpudp,
+html[data-skin="pixel"] .tag-kernel,
+html[data-skin="pixel"] .tag-user,
+html[data-skin="pixel"] .seg-label .seg-span {
+  border-radius: var(--pixel-radius);
+}
+html[data-skin="pixel"] .topbar-toggles,
+html[data-skin="pixel"] .topbar-toggle,
+html[data-skin="pixel"] .sb-link,
+html[data-skin="pixel"] .sb-link-active,
+html[data-skin="pixel"] .sb-avatar,
+html[data-skin="pixel"] .sb-btn,
+html[data-skin="pixel"] .identity-avatar {
+  border-radius: var(--pixel-radius);
+}
+html[data-skin="pixel"] .sb-link-active::before {
+  border-radius: 0;
+}
+html[data-skin="pixel"] .input-field:focus,
+html[data-skin="pixel"] .search-field:focus {
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--brand-from) 55%, var(--color-line));
+}
+html[data-skin="pixel"] .btn-primary:hover,
+html[data-skin="pixel"] .btn-secondary:hover,
+html[data-skin="pixel"] .btn-danger:hover,
+html[data-skin="pixel"] .btn-danger-sm:hover,
+html[data-skin="pixel"] .icon-btn:hover,
+html[data-skin="pixel"] .icon-btn-danger:hover,
+html[data-skin="pixel"] .login-submit:hover,
+html[data-skin="pixel"] .sub-chip:hover,
+html[data-skin="pixel"] .sub-card:hover,
+html[data-skin="pixel"] .sub-node-card:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--brand-from);
+}
+html[data-skin="pixel"] .login-shell::before,
+html[data-skin="pixel"] .login-shell::after {
+  display: none;
+}
+html[data-skin="pixel"] .login-card {
+  box-shadow: 6px 6px 0 var(--color-line);
+}
+html[data-skin="pixel"].dark .login-card {
+  box-shadow: 6px 6px 0 #3a322b;
+}
+
 html, body {
   color: var(--color-ink);
   background-color: var(--color-app);
@@ -126,6 +265,15 @@ html, body {
   background-image: none;
   background-attachment: fixed;
   min-height: 100%;
+}
+
+html[data-skin="pixel"],
+html[data-skin="pixel"] body {
+  background-color: var(--color-app);
+  background-image:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--color-line) 22%, transparent) 1px, transparent 1.35px);
+  background-size: 8px 8px;
+  background-attachment: fixed;
 }
 
 /* Selection + scrollbar polish */
@@ -1064,7 +1212,11 @@ input[type="radio"] {
   .icon-btn-danger:hover,
   .topbar-toggle:hover,
   .sb-btn:hover,
-  .stat-card:hover {
+  .stat-card:hover,
+  html[data-skin="pixel"] .btn-primary:hover,
+  html[data-skin="pixel"] .btn-secondary:hover,
+  html[data-skin="pixel"] .btn-danger:hover,
+  html[data-skin="pixel"] .sub-card:hover {
     transform: none;
   }
 }
