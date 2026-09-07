@@ -32,6 +32,7 @@ const TABS = [
   { id: 'update', label: '更新' },
   { id: 'forward', label: '转发' },
   { id: 'cloudflare', label: 'Cloudflare' },
+  { id: 'migrate', label: '迁移' },
 ]
 
 export default function Settings() {
@@ -64,6 +65,9 @@ export default function Settings() {
   const [updBusy, setUpdBusy] = useState(false)
   const [updErr, setUpdErr] = useState('')
   const pollRef = useRef(null)
+  const migrateFileRef = useRef(null)
+  const [migrateBusy, setMigrateBusy] = useState(false)
+  const [migrateConfirmText, setMigrateConfirmText] = useState('')
 
   useEffect(() => {
     api.get('/settings').then(data => {
@@ -271,6 +275,96 @@ export default function Settings() {
     } finally { setUpdBusy(false) }
   }
 
+  const exportMigrate = async () => {
+    setMigrateBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/settings/migrate', { credentials: 'same-origin' })
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent('nf-unauthorized'))
+        throw new Error('登录已过期，请重新登录')
+      }
+      if (!res.ok) {
+        let msg = `导出失败（${res.status}）`
+        const ct = res.headers.get('content-type') || ''
+        if (ct.includes('application/json')) {
+          try {
+            const data = await res.json()
+            if (data?.error) msg = data.error
+          } catch { /* ignore */ }
+        }
+        throw new Error(msg)
+      }
+      const blob = await res.blob()
+      const dispo = res.headers.get('content-disposition') || ''
+      let name = 'kids-migrate.tgz'
+      const m = /filename="?([^"]+)"?/i.exec(dispo)
+      if (m) name = m[1]
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast('搬家包已下载，按机密文件保存')
+    } catch (err) {
+      setError(err.message)
+      toast(err.message, 'error')
+    } finally {
+      setMigrateBusy(false)
+    }
+  }
+
+  const importMigrate = async (file) => {
+    if (!file) return
+    if (migrateConfirmText.trim() !== '覆盖本机数据') {
+      toast('请先在输入框里打「覆盖本机数据」', 'error')
+      return
+    }
+    if (!(await confirm({
+      title: '覆盖本机全部数据',
+      message: '导入后本机现有用户、规则、流量、订阅口令都会被这份搬家包替换，无法撤销。面板会重启约 10 秒。',
+      confirmText: '确认导入',
+      danger: true,
+    }))) {
+      if (migrateFileRef.current) migrateFileRef.current.value = ''
+      return
+    }
+    setMigrateBusy(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('confirm', '覆盖本机数据')
+      const res = await fetch('/api/settings/migrate', { method: 'POST', body: fd, credentials: 'same-origin' })
+      const ct = res.headers.get('content-type') || ''
+      let data = null
+      if (ct.includes('application/json')) {
+        try { data = await res.json() } catch { data = null }
+      }
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent('nf-unauthorized'))
+        throw new Error('登录已过期，请重新登录')
+      }
+      if (!res.ok) throw new Error((data && data.error) || `导入失败（${res.status}）`)
+      toast(data?.message || '正在重启面板…', 'info')
+      setTimeout(() => { window.location.reload() }, 8000)
+    } catch (err) {
+      if (isTransientDown(err.message)) {
+        toast('面板正在重启，请稍候刷新', 'info')
+        setTimeout(() => { window.location.reload() }, 8000)
+      } else {
+        setError(err.message)
+        toast(err.message, 'error')
+      }
+    } finally {
+      setMigrateBusy(false)
+      if (migrateFileRef.current) migrateFileRef.current.value = ''
+    }
+  }
+
   const clearLogo = async () => {
     setLogoBusy(true)
     setError('')
@@ -310,7 +404,17 @@ export default function Settings() {
               onUpgrade={startUpgrade}
             />
           )}
-          <form onSubmit={submit} className={tab === 'update' ? 'hidden' : ''}>
+          {tab === 'migrate' && (
+            <MigratePanel
+              busy={migrateBusy}
+              confirmText={migrateConfirmText}
+              setConfirmText={setMigrateConfirmText}
+              fileRef={migrateFileRef}
+              onExport={exportMigrate}
+              onImport={importMigrate}
+            />
+          )}
+          <form onSubmit={submit} className={(tab === 'update' || tab === 'migrate') ? 'hidden' : ''}>
             {tab === 'panel' && (
               <>
                 <div className="flex items-start gap-6 mb-[22px]">
@@ -467,6 +571,58 @@ export default function Settings() {
         </div>
       </div>
     </Layout>
+  )
+}
+
+function MigratePanel({ busy, confirmText, setConfirmText, fileRef, onExport, onImport }) {
+  return (
+    <div className="space-y-8">
+      <div>
+        <h3 className="text-[15px] font-semibold text-ink m-0 mb-1.5">导出全部数据</h3>
+        <p className="text-[13px] text-ink-mut m-0 mb-4 leading-relaxed">
+          打一份完整搬家包：用户、节点、规则、流量、订阅口令、落地库、公告、文档、Logo、设置。节点机器不用动。包里有密钥，按机密文件保存。
+        </p>
+        <button type="button" className="btn-secondary px-4" disabled={busy} onClick={onExport}>
+          {busy ? '处理中…' : '导出全部数据'}
+        </button>
+      </div>
+      <div className="border-t border-line-soft pt-8">
+        <h3 className="text-[15px] font-semibold text-ink m-0 mb-1.5">导入并覆盖本机</h3>
+        <p className="text-[13px] text-ink-mut m-0 mb-4 leading-relaxed">
+          新面板先空装，再把搬家包导进来。会清空本机现有数据，不能和现有账号合并。导入后面板重启；节点 token 不变，域名没换就会自己连回来。
+        </p>
+        <p className="text-[13px] text-ink-soft m-0 mb-2">在下面打「覆盖本机数据」后再选文件。</p>
+        <input
+          className="input-field w-full max-w-[360px] mb-3"
+          type="text"
+          autoComplete="off"
+          placeholder="覆盖本机数据"
+          value={confirmText}
+          onChange={e => setConfirmText(e.target.value)}
+          disabled={busy}
+        />
+        <div>
+          <button
+            type="button"
+            className="btn-danger px-4"
+            disabled={busy || confirmText.trim() !== '覆盖本机数据'}
+            onClick={() => fileRef.current?.click()}
+          >
+            {busy ? '导入中…' : '选择搬家包并导入'}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".tgz,.tar.gz,application/gzip"
+            className="hidden"
+            onChange={e => onImport(e.target.files?.[0])}
+          />
+        </div>
+        <p className="text-[12px] text-ink-mut mt-3 m-0">
+          网站打不开时，SSH 执行 <span className="font-mono">nft-server export -o /root/kids-migrate.tgz</span> 和 <span className="font-mono">nft-server import 包.tgz</span>。
+        </p>
+      </div>
+    </div>
   )
 }
 

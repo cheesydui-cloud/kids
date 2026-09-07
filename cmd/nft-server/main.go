@@ -11,8 +11,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,6 +28,14 @@ func main() {
 	// systemd units (ExecStart=… server --addr) keep working through an upgrade.
 	if len(args) > 0 && args[0] == "server" {
 		args = args[1:]
+	}
+	if len(args) > 0 {
+		switch args[0] {
+		case "export":
+			os.Exit(runExport(args[1:]))
+		case "import":
+			os.Exit(runImport(args[1:]))
+		}
 	}
 	os.Exit(runServer(args))
 }
@@ -51,6 +61,9 @@ func runServer(args []string) int {
 		return runResetAdmin(dbPath, resetAdminUser, resetAdminPw)
 	}
 
+	if err := db.ApplyStagedMigrate(dbPath); err != nil {
+		log.Fatalf("apply staged migrate: %v", err)
+	}
 	d, err := db.Open(dbPath)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
@@ -107,6 +120,74 @@ func runResetAdmin(dbPath, username, newPw string) int {
 	fmt.Println(msg)
 	return 0
 }
+
+func runExport(args []string) int {
+	var dbPath, out string
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	fs.StringVar(&dbPath, "db", "/var/lib/nft/panel.db", "SQLite database path")
+	fs.StringVar(&out, "o", "", "output .tgz path")
+	fs.Parse(args)
+	if out == "" {
+		out = "kids-migrate-" + time.Now().Format("20060102-150405") + ".tgz"
+	}
+	d, err := db.Open(dbPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "打开数据库:", err)
+		return 1
+	}
+	defer d.Close()
+	dataDir := db.DataDirFromDBPath(dbPath)
+	brandDir := filepath.Join(dataDir, "brand")
+	docsDir := filepath.Join(dataDir, "docs-assets")
+	man, err := server.ExportPanelToFile(d, brandDir, docsDir, out, "")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "导出失败:", err)
+		return 1
+	}
+	fmt.Printf("已导出 %s（用户 %d / 节点 %d / 规则 %d）\n", out, man.Users, man.Nodes, man.Rules)
+	fmt.Println("文件含订阅口令和设置密钥，按机密保存。")
+	return 0
+}
+
+func runImport(args []string) int {
+	var dbPath string
+	var noRestart bool
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	fs.StringVar(&dbPath, "db", "/var/lib/nft/panel.db", "SQLite database path")
+	fs.BoolVar(&noRestart, "no-restart", false, "only stage; do not restart nft-server")
+	fs.Parse(args)
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "用法: nft-server import [-db /var/lib/nft/panel.db] <搬家包.tgz>")
+		return 2
+	}
+	dataDir := db.DataDirFromDBPath(dbPath)
+	if dataDir == "" {
+		fmt.Fprintln(os.Stderr, "无法从数据库路径推断数据目录")
+		return 1
+	}
+	man, err := server.ImportPanelFromFile(fs.Arg(0), dataDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "导入失败:", err)
+		return 1
+	}
+	fmt.Printf("已校验并暂存（用户 %d / 节点 %d / 规则 %d）\n", man.Users, man.Nodes, man.Rules)
+	if noRestart {
+		fmt.Println("下次启动面板时会覆盖本机数据。")
+		return 0
+	}
+	fmt.Println("正在重启面板以套用数据…")
+	cmd := execCommand("systemctl", "restart", "nft-server.service")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintln(os.Stderr, "自动重启失败:", strings.TrimSpace(string(out)), err)
+		fmt.Fprintln(os.Stderr, "请手动执行: systemctl restart nft-server")
+		return 1
+	}
+	fmt.Println("已重启。约 10 秒后用原账号登录新面板。")
+	return 0
+}
+
+// execCommand is os/exec.Command; tests do not import this file.
+var execCommand = exec.Command
 
 func bootstrap(d *sql.DB, pw string) error {
 	n, err := db.CountUsers(d)
