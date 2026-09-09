@@ -46,6 +46,9 @@ func runServer(args []string) int {
 		resetAdminPw, resetAdminUser string
 		backupInterval               time.Duration
 		backupKeep                   int
+		auditRetentionDays           int
+		hourlyTrafficRetentionDays   int
+		dailyTrafficRetentionDays    int
 	)
 	fs := flag.NewFlagSet("server", flag.ExitOnError)
 	fs.StringVar(&addr, "addr", ":7788", "panel HTTP address")
@@ -55,6 +58,9 @@ func runServer(args []string) int {
 	fs.StringVar(&resetAdminUser, "reset-admin-username", "admin", "admin username for reset")
 	fs.DurationVar(&backupInterval, "backup-interval", 24*time.Hour, "local DB backup interval (0 disables)")
 	fs.IntVar(&backupKeep, "backup-keep", 14, "number of local DB backups to retain")
+	fs.IntVar(&auditRetentionDays, "audit-retention-days", 180, "audit log retention in days (0 disables cleanup)")
+	fs.IntVar(&hourlyTrafficRetentionDays, "traffic-hourly-retention-days", 30, "hourly traffic retention in days (0 disables cleanup)")
+	fs.IntVar(&dailyTrafficRetentionDays, "traffic-daily-retention-days", 730, "daily traffic retention in days (0 disables cleanup)")
 	fs.Parse(args)
 
 	if resetAdminPw != "" {
@@ -74,6 +80,10 @@ func runServer(args []string) int {
 	}
 	stopBackups := db.StartBackups(d, dbPath, backupInterval, backupKeep)
 	defer stopBackups()
+	stopRetention := db.StartHistoryCleanup(d, db.RetentionPolicy{
+		AuditDays: auditRetentionDays, HourlyTrafficDays: hourlyTrafficRetentionDays, DailyTrafficDays: dailyTrafficRetentionDays,
+	})
+	defer stopRetention()
 
 	// Doc images live next to the SQLite file so backups/migrations of the
 	// data directory keep text and assets together.

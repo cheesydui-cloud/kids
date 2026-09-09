@@ -142,6 +142,11 @@ func (s *Server) buildRuleListItem(r *db.Rule, ownerName string) ruleListItem {
 	return ruleListItem{Rule: r, OwnerName: ownerName, Entry: v.Entry, EntryV6: v.EntryV6, Exit: v.Exit, EntryNodeID: v.EntryNodeID, EntryMode: v.EntryMode, ExitMode: v.ExitMode}
 }
 
+// buildRuleListItemFromHops is the batch-friendly counterpart of
+// buildRuleListItem. List endpoints should load rule_hops once for the whole
+// response; keeping this helper separate also makes it harder to accidentally
+// reintroduce a per-rule query.
+
 func buildRuleListItemFromHops(r *db.Rule, ownerName string, hops []*db.RuleHop, nodes map[int64]*db.Node) ruleListItem {
 	v := buildRuleViewFromHops(r, hops, nodes)
 	return ruleListItem{Rule: r, OwnerName: ownerName, Entry: v.Entry, EntryV6: v.EntryV6, Exit: v.Exit, EntryNodeID: v.EntryNodeID, EntryMode: v.EntryMode, ExitMode: v.ExitMode}

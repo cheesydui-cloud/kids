@@ -303,28 +303,68 @@ func (s *Server) apiChangeUsername(w http.ResponseWriter, r *http.Request) {
 // --- Dashboard ---
 
 func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
-	nodes, _ := db.ListNodes(s.DB)
+	nodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点统计失败: "+err.Error())
+		return
+	}
 	s.reconcileNodeOnline(nodes)
 	db.ResolveCompositeOnline(s.DB, nodes)
-	nodeTraffic, _ := db.NodeTrafficSums(s.DB)
+	nodeTraffic, err := db.NodeTrafficSums(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点流量失败: "+err.Error())
+		return
+	}
 	// The dashboard only shows aggregates over rules/users, so compute them
 	// server-side instead of shipping the full rules and users arrays (plus a
 	// node_by_id map the UI never read) on every load.
-	ruleCount, _ := db.CountAllRules(s.DB)
-	ruleCountByNode, _ := db.RuleCountByNode(s.DB)
-	totalBytes, _ := db.TotalBillableUserTrafficBytes(s.DB)
+	ruleCount, err := db.CountAllRules(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则统计失败: "+err.Error())
+		return
+	}
+	ruleCountByNode, err := db.RuleCountByNode(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则分布失败: "+err.Error())
+		return
+	}
+	totalBytes, err := db.TotalBillableUserTrafficBytes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取流量统计失败: "+err.Error())
+		return
+	}
 	// today/month raw are last-hop actual usage (no rate). Do not use
 	// node-day totals: those stack every hop on a path.
-	todayRawBytes, _ := db.TodayUserRawTrafficBytes(s.DB)
-	monthRawBytes, _ := db.MonthUserRawTrafficBytes(s.DB)
-	hourly, _ := db.Last24hRawTraffic(s.DB)
+	todayRawBytes, err := db.TodayUserRawTrafficBytes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取今日流量失败: "+err.Error())
+		return
+	}
+	monthRawBytes, err := db.MonthUserRawTrafficBytes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取本月流量失败: "+err.Error())
+		return
+	}
+	hourly, err := db.Last24hRawTraffic(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取小时流量失败: "+err.Error())
+		return
+	}
 	if hourly == nil {
 		hourly = []db.HourlyTrafficPoint{}
 	}
-	userCount, _ := db.CountUsers(s.DB)
+	userCount, err := db.CountUsers(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户统计失败: "+err.Error())
+		return
+	}
 	// Landing exits due within 7 days (and already expired present rows) for
 	// the admin expiry calendar on the ops overview.
-	landingSoon, _ := db.ListLandingExitsExpiringWithin(s.DB, 7*24*3600)
+	landingSoon, err := db.ListLandingExitsExpiringWithin(s.DB, 7*24*3600)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取到期提醒失败: "+err.Error())
+		return
+	}
 	if landingSoon == nil {
 		landingSoon = []db.LandingExitSoonItem{}
 	}
@@ -355,11 +395,16 @@ func (s *Server) apiListNodes(w http.ResponseWriter, r *http.Request) {
 	panelURL, _ := db.GetSetting(s.DB, "panel_url")
 	panelName, _ := db.GetSetting(s.DB, "panel_name")
 	showRate, _ := db.GetSetting(s.DB, "show_rate_to_user")
-	nodeTraffic, _ := db.NodeTrafficSums(s.DB)
-	nodeRawTraffic, _ := db.NodeRawTraffic(s.DB)
-	// A load error leaves these maps nil, which JSON-encodes as null and would
-	// bypass the frontend's destructuring defaults (they only cover undefined);
-	// an empty map degrades the column to zeros instead of crashing the page.
+	nodeTraffic, err := db.NodeTrafficSums(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点流量失败: "+err.Error())
+		return
+	}
+	nodeRawTraffic, err := db.NodeRawTraffic(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点原始流量失败: "+err.Error())
+		return
+	}
 	if nodeTraffic == nil {
 		nodeTraffic = map[int64]int64{}
 	}
@@ -2476,9 +2521,20 @@ func (s *Server) apiGetRule(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "规则不存在")
 		return
 	}
-	db.FillRuleTraffic(s.DB, []*db.Rule{rl})
-	hops, _ := db.ListRuleHops(s.DB, id)
-	nodes, _ := db.ListNodes(s.DB)
+	if err := db.FillRuleTraffic(s.DB, []*db.Rule{rl}); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则流量失败: "+err.Error())
+		return
+	}
+	hops, err := db.ListRuleHops(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则路径失败: "+err.Error())
+		return
+	}
+	nodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
+		return
+	}
 	db.ResolveCompositeRelayStack(s.DB, nodes)
 	nodeByID := buildMap(nodes, func(n *db.Node) int64 { return n.ID })
 	ownerName := ""
@@ -2487,13 +2543,17 @@ func (s *Server) apiGetRule(w http.ResponseWriter, r *http.Request) {
 	if rl.OwnerID.Valid {
 		if u, e := db.GetUserByID(s.DB, rl.OwnerID.Int64); e == nil {
 			ownerName = u.Username
-			idx = s.landingIndexFromDB(rl.OwnerID.Int64)
+			idx, err = s.landingIndexFromDBChecked(rl.OwnerID.Int64)
+			if err != nil {
+				jsonErr(w, http.StatusInternalServerError, "读取落地节点失败: "+err.Error())
+				return
+			}
 			if u.BillingRate > 0 {
 				billingRate = u.BillingRate
 			}
 		}
 	}
-	item := s.buildRuleListItem(rl, ownerName)
+	item := buildRuleListItemFromHops(rl, ownerName, hops, nodeByID)
 	item.classifyExit(idx, true)
 	if n := nodeByID[rl.NodeID]; n != nil {
 		item.RateMultiplier = n.RateMultiplier
@@ -2932,10 +2992,35 @@ func (s *Server) apiGetUser(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "用户不存在")
 		return
 	}
-	grantedNodes, grants, _ := db.ListNodesForUser(s.DB, id)
-	allNodes, _ := db.ListNodes(s.DB)
-	rules, _ := db.ListRulesByUser(s.DB, id)
-	db.FillRuleTraffic(s.DB, rules)
+	grantedNodes, grants, err := db.ListNodesForUser(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户授权失败: "+err.Error())
+		return
+	}
+	allNodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
+		return
+	}
+	rules, err := db.ListRulesByUser(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户规则失败: "+err.Error())
+		return
+	}
+	if err := db.FillRuleTraffic(s.DB, rules); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则流量失败: "+err.Error())
+		return
+	}
+	ruleIDs := make([]int64, len(rules))
+	for i, rl := range rules {
+		ruleIDs[i] = rl.ID
+	}
+	hopsByRule, err := db.ListRuleHopsByRuleIDs(s.DB, ruleIDs)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则路径失败: "+err.Error())
+		return
+	}
+	nodeByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
 	// The landing_nodes preview doubles as a sync point: any successful
 	// resolution keeps the materialized set fresh without waiting for the
 	// background pass.
@@ -2947,7 +3032,11 @@ func (s *Server) apiGetUser(w http.ResponseWriter, r *http.Request) {
 	// and repo-imported nodes. This is the authoritative materialized view.
 	// Without this, repo-imported nodes (source='repo') disappear on page
 	// refresh because resolveLandingExits only sees subscription/URI sources.
-	dbIndex := s.landingIndexFromDB(id)
+	dbIndex, indexErr := s.landingIndexFromDBChecked(id)
+	if indexErr != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取落地节点失败: "+indexErr.Error())
+		return
+	}
 	if dbIndex != nil {
 		landingPreview = make([]landing.Node, 0, len(dbIndex))
 		for _, n := range dbIndex {
@@ -2961,14 +3050,22 @@ func (s *Server) apiGetUser(w http.ResponseWriter, r *http.Request) {
 	idx := dbIndex
 	ruleViews := make([]ruleListItem, 0, len(rules))
 	for _, rl := range rules {
-		item := s.buildRuleListItem(rl, target.Username)
+		item := buildRuleListItemFromHops(rl, target.Username, hopsByRule[rl.ID], nodeByID)
 		item.classifyExit(idx, true)
 		ruleViews = append(ruleViews, item)
 	}
 	// Day buckets use Asia/Shanghai calendar days (北京时间 0–23:59).
 	// Billable view is raw × billing_rate on the client.
-	todayRaw, _ := db.TodayUserTrafficBytes(s.DB, id)
-	yesterdayRaw, _ := db.YesterdayUserTrafficBytes(s.DB, id)
+	todayRaw, err := db.TodayUserTrafficBytes(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取今日流量失败: "+err.Error())
+		return
+	}
+	yesterdayRaw, err := db.YesterdayUserTrafficBytes(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取昨日流量失败: "+err.Error())
+		return
+	}
 	jsonOK(w, map[string]any{
 		"user": apiUserFullView(target), "nodes": grantedNodes,
 		"grants": grants, "all_nodes": allNodes,
@@ -3465,9 +3562,21 @@ func (s *Server) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiMyDashboard(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	grantedNodes, grants, _ := db.ListNodesForUser(s.DB, u.ID)
-	rules, _ := db.ListRulesByUser(s.DB, u.ID)
-	nodes, _ := db.ListNodes(s.DB)
+	grantedNodes, grants, err := db.ListNodesForUser(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点授权失败: "+err.Error())
+		return
+	}
+	rules, err := db.ListRulesByUser(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户规则失败: "+err.Error())
+		return
+	}
+	nodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
+		return
+	}
 	// A composite's online state is derived from its children, which may not be
 	// in the user's granted set — resolve over the full node list, then project
 	// the result onto the granted nodes so the dashboard shows accurate status.
@@ -3516,14 +3625,29 @@ func (s *Server) apiMyDashboard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiMyListRules(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	rules, _ := db.ListRulesByUser(s.DB, u.ID)
-	db.FillRuleTraffic(s.DB, rules)
+	rules, err := db.ListRulesByUser(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户规则失败: "+err.Error())
+		return
+	}
+	if err := db.FillRuleTraffic(s.DB, rules); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则流量失败: "+err.Error())
+		return
+	}
 	idx := s.landingIndexFromDB(u.ID)
-	grantedNodes, _, _ := db.ListNodesForUser(s.DB, u.ID)
+	grantedNodes, _, err := db.ListNodesForUser(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点授权失败: "+err.Error())
+		return
+	}
 	// A user is granted the composite itself, not its hop children, so the
 	// relay-stack resolver needs the full node list to see the child hosts;
 	// copy the derived fields back onto the (narrower) granted set.
-	allNodes, _ := db.ListNodes(s.DB)
+	allNodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
+		return
+	}
 	db.ResolveCompositeRelayStack(s.DB, allNodes)
 	stackByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
 	for _, n := range grantedNodes {
@@ -3544,8 +3668,17 @@ func (s *Server) apiMyListRules(w http.ResponseWriter, r *http.Request) {
 		br = 1
 	}
 	views := make([]ruleListItem, 0, len(rules))
+	ruleIDs := make([]int64, len(rules))
+	for i, rl := range rules {
+		ruleIDs[i] = rl.ID
+	}
+	hopsByRule, err := db.ListRuleHopsByRuleIDs(s.DB, ruleIDs)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则路径失败: "+err.Error())
+		return
+	}
 	for _, rl := range rules {
-		item := s.buildRuleListItem(rl, "")
+		item := buildRuleListItemFromHops(rl, "", hopsByRule[rl.ID], allByID)
 		item.classifyExit(idx, true)
 		if n := grantedByID[rl.NodeID]; n != nil {
 			item.RateMultiplier = n.RateMultiplier
@@ -3587,12 +3720,28 @@ func (s *Server) apiMyGetRule(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "规则不存在")
 		return
 	}
-	db.FillRuleTraffic(s.DB, []*db.Rule{rl})
-	grantedNodes, _, _ := db.ListNodesForUser(s.DB, u.ID)
+	if err := db.FillRuleTraffic(s.DB, []*db.Rule{rl}); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则流量失败: "+err.Error())
+		return
+	}
+	hops, err := db.ListRuleHops(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取规则路径失败: "+err.Error())
+		return
+	}
+	grantedNodes, _, err := db.ListNodesForUser(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点授权失败: "+err.Error())
+		return
+	}
 	// A user is granted the composite itself, not its hop children, so the
 	// relay-stack resolver needs the full node list to see the child hosts;
 	// copy the derived fields back onto the (narrower) granted set.
-	allNodes, _ := db.ListNodes(s.DB)
+	allNodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
+		return
+	}
 	db.ResolveCompositeRelayStack(s.DB, allNodes)
 	stackByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
 	for _, n := range grantedNodes {
@@ -3605,8 +3754,12 @@ func (s *Server) apiMyGetRule(w http.ResponseWriter, r *http.Request) {
 	db.ResolveCompositeHops(s.DB, grantedNodes)
 	allByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
 	grantedByID := buildMap(grantedNodes, func(n *db.Node) int64 { return n.ID })
-	idx := s.landingIndexFromDB(u.ID)
-	item := s.buildRuleListItem(rl, "")
+	idx, err := s.landingIndexFromDBChecked(u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取落地节点失败: "+err.Error())
+		return
+	}
+	item := buildRuleListItemFromHops(rl, "", hops, allByID)
 	item.classifyExit(idx, true)
 	if n := grantedByID[rl.NodeID]; n != nil {
 		item.RateMultiplier = n.RateMultiplier
@@ -3620,7 +3773,11 @@ func (s *Server) apiMyGetRule(w http.ResponseWriter, r *http.Request) {
 	views := []ruleListItem{item}
 	s.fillRuleChains(views, allByID)
 	item = views[0]
-	showRate, _ := db.GetSetting(s.DB, "show_rate_to_user")
+	showRate, err := db.GetSetting(s.DB, "show_rate_to_user")
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户设置失败: "+err.Error())
+		return
+	}
 	jsonOK(w, map[string]any{
 		"rule": item, "nodes": grantedNodes, "node_by_id": grantedByID,
 		"show_rate": showRate == "1",

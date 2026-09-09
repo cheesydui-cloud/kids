@@ -22,6 +22,29 @@ func Backup(d *sql.DB, destPath string) error {
 	if _, err := d.Exec("VACUUM INTO '" + esc + "'"); err != nil {
 		return fmt.Errorf("vacuum into %s: %w", destPath, err)
 	}
+	if err := ValidateBackup(destPath); err != nil {
+		_ = os.Remove(destPath)
+		return fmt.Errorf("validate backup %s: %w", destPath, err)
+	}
+	return nil
+}
+
+// ValidateBackup opens a snapshot read-only and runs SQLite's integrity_check.
+// It is intentionally separate so export/import callers can validate an
+// archive snapshot without modifying the live database.
+func ValidateBackup(path string) error {
+	d, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=query_only(1)")
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	var result string
+	if err := d.QueryRow(`PRAGMA integrity_check`).Scan(&result); err != nil {
+		return err
+	}
+	if result != "ok" {
+		return fmt.Errorf("integrity_check: %s", result)
+	}
 	return nil
 }
 

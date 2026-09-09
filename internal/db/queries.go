@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -1050,9 +1051,16 @@ func ResetUserTraffic(d *sql.DB, id int64) error {
 
 // Audit
 
-func WriteAudit(d *sql.DB, userID int64, action, target, payload string) {
-	_, _ = d.Exec(`INSERT INTO audit_logs(user_id, action, target, payload, at) VALUES (?,?,?,?,?)`,
+func WriteAudit(d *sql.DB, userID int64, action, target, payload string) error {
+	_, err := d.Exec(`INSERT INTO audit_logs(user_id, action, target, payload, at) VALUES (?,?,?,?,?)`,
 		userID, action, target, payload, now())
+	if err != nil {
+		// Audit failure must be visible to operators even though audit logging is
+		// intentionally best-effort for the business operation that already
+		// committed. Returning the error also lets stricter callers surface it.
+		log.Printf("audit: write action=%s target=%s: %v", action, target, err)
+	}
+	return err
 }
 
 // NodeIDsByNames resolves a slice of node names to their database IDs. Names

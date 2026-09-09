@@ -89,6 +89,19 @@ func (s *Server) collectUserSub(u *db.User) (userSubProfile, error) {
 	if err != nil {
 		return p, fmt.Errorf("读取规则失败: %w", err)
 	}
+	ruleIDs := make([]int64, len(rules))
+	for i, rl := range rules {
+		ruleIDs[i] = rl.ID
+	}
+	hopsByRule, err := db.ListRuleHopsByRuleIDs(s.DB, ruleIDs)
+	if err != nil {
+		return p, fmt.Errorf("读取规则路径失败: %w", err)
+	}
+	allNodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		return p, fmt.Errorf("读取节点失败: %w", err)
+	}
+	nodeByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
 	for _, rl := range rules {
 		if rl.Disabled {
 			p.Skipped = append(p.Skipped, subSkipped{
@@ -96,7 +109,7 @@ func (s *Server) collectUserSub(u *db.User) (userSubProfile, error) {
 			})
 			continue
 		}
-		item := s.buildRuleListItem(rl, u.Username)
+		item := buildRuleListItemFromHops(rl, u.Username, hopsByRule[rl.ID], nodeByID)
 		item.classifyExit(idx, true)
 		if item.ExitKind != "landing" || item.RelayURI == "" {
 			reason := "custom"

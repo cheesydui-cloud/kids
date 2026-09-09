@@ -1,25 +1,25 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Component } from 'react'
+import { Component, lazy, Suspense } from 'react'
 import { UserProvider, useUser, BlurProvider, CopyFmtProvider } from './components/Layout'
 import { Loading, ConfirmProvider } from './components/ui'
 
 import Login from './pages/Login'
-import Settings from './pages/Settings'
-import Dashboard from './pages/Dashboard'
-import ChangePassword from './pages/ChangePassword'
-
-import NodeList from './pages/nodes/List'
-import NodeDetail from './pages/nodes/Detail'
-import RulesList from './pages/rules/List'
-import RulesDetail from './pages/rules/Detail'
-import UserList from './pages/users/List'
-import UserDetail from './pages/users/Detail'
-import Announcements from './pages/Announcements'
-import NodeRepo from './pages/NodeRepo'
-import Docs from './pages/Docs'
-
-import MySubscribe from './pages/my/Subscribe'
-import Proxies from './pages/Proxies'
+// Keep the login shell small. Admin-only screens are loaded only when their
+// route is visited, which materially reduces first paint on the user portal.
+const Settings = lazy(() => import('./pages/Settings'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const ChangePassword = lazy(() => import('./pages/ChangePassword'))
+const NodeList = lazy(() => import('./pages/nodes/List'))
+const NodeDetail = lazy(() => import('./pages/nodes/Detail'))
+const RulesList = lazy(() => import('./pages/rules/List'))
+const RulesDetail = lazy(() => import('./pages/rules/Detail'))
+const UserList = lazy(() => import('./pages/users/List'))
+const UserDetail = lazy(() => import('./pages/users/Detail'))
+const Announcements = lazy(() => import('./pages/Announcements'))
+const NodeRepo = lazy(() => import('./pages/NodeRepo'))
+const Docs = lazy(() => import('./pages/Docs'))
+const MySubscribe = lazy(() => import('./pages/my/Subscribe'))
+const Proxies = lazy(() => import('./pages/Proxies'))
 
 // ErrorBoundary: catches render errors in any child component and shows a
 // friendly fallback instead of letting the whole page go white.
@@ -127,6 +127,7 @@ export default function App() {
         <BlurProvider>
         <CopyFmtProvider>
         <ErrorBoundary>
+        <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/login" element={<Login />} />
 
@@ -157,6 +158,7 @@ export default function App() {
 
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
         </ErrorBoundary>
         </CopyFmtProvider>
         </BlurProvider>
