@@ -51,33 +51,44 @@ type userSubProfile struct {
 	Skipped []subSkipped
 }
 
-func (s *Server) collectUserSub(u *db.User) userSubProfile {
+func (s *Server) collectUserSub(u *db.User) (userSubProfile, error) {
 	var p userSubProfile
 	if u == nil {
-		return p
+		return p, nil
 	}
-	idx := s.landingIndexFromDB(u.ID)
+	idx, err := s.landingIndexFromDBChecked(u.ID)
+	if err != nil {
+		return p, fmt.Errorf("读取落地节点失败: %w", err)
+	}
 	roles := s.nodeRoleBits()
 	used := map[string]int{}
 	online := map[int64]int{}
 	acctBlock, acctText := accountConnectBlock(u)
 	exitByHP := map[string]*db.LandingExit{}
-	exits, _ := db.PresentLandingExitsForUser(s.DB, u.ID)
+	exits, err := db.PresentLandingExitsForUser(s.DB, u.ID)
+	if err != nil {
+		return p, fmt.Errorf("读取落地节点失败: %w", err)
+	}
 	for _, e := range exits {
 		if e != nil {
 			exitByHP[e.Host+":"+strconv.Itoa(e.Port)] = e
 		}
 	}
 	grantByNode := map[int64]*db.UserNode{}
-	if ns, gs, err := db.ListNodesForUser(s.DB, u.ID); err == nil {
-		for i := range ns {
-			if i < len(gs) {
-				grantByNode[ns[i].ID] = gs[i]
-			}
+	ns, gs, err := db.ListNodesForUser(s.DB, u.ID)
+	if err != nil {
+		return p, fmt.Errorf("读取节点授权失败: %w", err)
+	}
+	for i := range ns {
+		if i < len(gs) {
+			grantByNode[ns[i].ID] = gs[i]
 		}
 	}
 
-	rules, _ := db.ListRulesByUser(s.DB, u.ID)
+	rules, err := db.ListRulesByUser(s.DB, u.ID)
+	if err != nil {
+		return p, fmt.Errorf("读取规则失败: %w", err)
+	}
 	for _, rl := range rules {
 		if rl.Disabled {
 			p.Skipped = append(p.Skipped, subSkipped{
@@ -168,7 +179,7 @@ func (s *Server) collectUserSub(u *db.User) userSubProfile {
 			BlockText:   text,
 		})
 	}
-	return p
+	return p, nil
 }
 
 func accountConnectBlock(u *db.User) (reason, text string) {
@@ -419,7 +430,11 @@ func (s *Server) writeSubscriptionUserinfo(w http.ResponseWriter, u *db.User) {
 
 func (s *Server) apiPublicSub(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	p := s.collectUserSub(u)
+	p, err := s.collectUserSub(u)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	flag := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("flag")))
 	if flag == "clash" || flag == "meta" || flag == "mihomo" || strings.HasSuffix(r.URL.Path, ".yaml") {
 		s.writeClashBody(w, u, p, r.URL.Query().Get("download") == "1")
@@ -437,7 +452,11 @@ func (s *Server) apiPublicSub(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiPublicClash(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	p := s.collectUserSub(u)
+	p, err := s.collectUserSub(u)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	s.writeClashBody(w, u, p, r.URL.Query().Get("download") == "1" || strings.Contains(r.URL.Path, "mihomo"))
 }
 
@@ -487,7 +506,11 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "无法生成订阅口令")
 		return
 	}
-	p := s.collectUserSub(u)
+	p, err := s.collectUserSub(u)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	uriURL, clashURL, mihomoURL := s.subscribeURLs(r, token)
 	var expires any
 	if u.ExpiresAt.Valid && u.ExpiresAt.Int64 != 0 {
@@ -613,7 +636,11 @@ func (s *Server) apiMySubscribeLatency(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	p := s.collectUserSub(u)
+	p, err := s.collectUserSub(u)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	exitOf := map[int64]int64{}
 	need := map[int64]struct{}{}
 	for _, it := range p.Items {

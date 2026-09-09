@@ -10,15 +10,21 @@ const REMEMBER_KEY = 'nf-remember-login'
 function loadRemembered() {
   try {
     const raw = localStorage.getItem(REMEMBER_KEY)
-    if (!raw) return { username: '', password: '', remember: false }
+    if (!raw) return { username: '', remember: false }
     const d = JSON.parse(raw)
+    const username = typeof d.username === 'string' ? d.username : ''
+    // Migrate the old format, which persisted the password in localStorage.
+    // Keeping only the username preserves the convenience without exposing a
+    // reusable credential to every script with origin storage access.
+    if (username) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username }))
+    else localStorage.removeItem(REMEMBER_KEY)
     return {
-      username: typeof d.username === 'string' ? d.username : '',
-      password: typeof d.password === 'string' ? d.password : '',
-      remember: true,
+      username,
+      remember: !!username,
     }
   } catch {
-    return { username: '', password: '', remember: false }
+    try { localStorage.removeItem(REMEMBER_KEY) } catch {}
+    return { username: '', remember: false }
   }
 }
 
@@ -55,7 +61,7 @@ export default function Login() {
       try { await refreshUser() } catch { /* session already applied */ }
       try {
         if (remember) {
-          localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username, password }))
+          localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username }))
         } else {
           localStorage.removeItem(REMEMBER_KEY)
         }
@@ -100,7 +106,7 @@ export default function Login() {
           </button>
           <label className="inline-flex items-center self-start gap-2 text-[13px] font-semibold text-ink-soft cursor-pointer select-none">
             <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-            记住账号密码
+            记住账号
           </label>
         </form>
       </div>

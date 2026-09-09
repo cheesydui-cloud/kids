@@ -42,7 +42,9 @@ export function UserProvider({ children }) {
       if (data?.panel_skin) setPanelSkin(applySkin(data.panel_skin))
       return data
     } catch {
-      setUser(null)
+      // api.request broadcasts nf-unauthorized for an explicit 401. Network,
+      // 5xx, and gateway failures must not turn a temporary outage into a
+      // false logout or unmount the current page.
       return null
     }
   }, [])

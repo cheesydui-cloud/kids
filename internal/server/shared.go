@@ -41,6 +41,16 @@ type ruleView struct {
 
 func (s *Server) buildRuleView(r *db.Rule) ruleView {
 	hops, _ := db.ListRuleHops(s.DB, r.ID)
+	nodes := map[int64]*db.Node{}
+	if len(hops) > 0 && r.EntryListenPort > 0 {
+		if n, err := db.GetNode(s.DB, hops[0].NodeID); err == nil {
+			nodes[n.ID] = n
+		}
+	}
+	return buildRuleViewFromHops(r, hops, nodes)
+}
+
+func buildRuleViewFromHops(r *db.Rule, hops []*db.RuleHop, nodes map[int64]*db.Node) ruleView {
 	exit := net.JoinHostPort(r.ExitHost, strconv.Itoa(r.ExitPort))
 	entry, entryV6 := "—", ""
 	var entryNodeID int64
@@ -51,7 +61,9 @@ func (s *Server) buildRuleView(r *db.Rule) ruleView {
 	}
 	if len(hops) > 0 && r.EntryListenPort > 0 {
 		entryNodeID = hops[0].NodeID
-		if n, err := db.GetNode(s.DB, hops[0].NodeID); err == nil && n.RelayHost != "" {
+		var n *db.Node
+		n = nodes[hops[0].NodeID]
+		if n != nil && n.RelayHost != "" {
 			// EntryAddresses returns "" for a family whose relay address the
 			// node no longer carries; keep the "—" placeholder instead of
 			// rendering an empty host.
@@ -130,6 +142,11 @@ func (s *Server) buildRuleListItem(r *db.Rule, ownerName string) ruleListItem {
 	return ruleListItem{Rule: r, OwnerName: ownerName, Entry: v.Entry, EntryV6: v.EntryV6, Exit: v.Exit, EntryNodeID: v.EntryNodeID, EntryMode: v.EntryMode, ExitMode: v.ExitMode}
 }
 
+func buildRuleListItemFromHops(r *db.Rule, ownerName string, hops []*db.RuleHop, nodes map[int64]*db.Node) ruleListItem {
+	v := buildRuleViewFromHops(r, hops, nodes)
+	return ruleListItem{Rule: r, OwnerName: ownerName, Entry: v.Entry, EntryV6: v.EntryV6, Exit: v.Exit, EntryNodeID: v.EntryNodeID, EntryMode: v.EntryMode, ExitMode: v.ExitMode}
+}
+
 // fillRuleChains attaches the flattened physical chain to each item, resolving
 // every hop's node id to its display name/type via nodesByID. A hop whose node
 // can't be resolved is dropped rather than shown as a bare id. nodesByID should
@@ -171,21 +188,21 @@ func (it *ruleListItem) classifyExit(idx map[string]landing.Node, withURI bool) 
 		it.LandingProtocol = node.Protocol
 		it.LandingURI = node.URI
 		it.LandingExpiresAt = node.ExpiresAt
-			if withURI && entryOK {
-				if u, err := landing.RewriteEndpoint(node.URI, relayHost, relayPort); err == nil {
-					it.RelayURI = u
+		if withURI && entryOK {
+			if u, err := landing.RewriteEndpoint(node.URI, relayHost, relayPort); err == nil {
+				it.RelayURI = u
+			}
+		}
+		// A domain entry is already the client-facing name. Do not also
+		// emit a raw IPv6 twin — copy/subscribe would dump two links for
+		// one rule. Dual-stack IP entries still get both.
+		if withURI && it.EntryV6 != "" && net.ParseIP(relayHost) != nil {
+			if h6, p6, ok6 := splitEntry(it.EntryV6); ok6 {
+				if u, err := landing.RewriteEndpoint(node.URI, h6, p6); err == nil {
+					it.RelayURIV6 = u
 				}
 			}
-			// A domain entry is already the client-facing name. Do not also
-			// emit a raw IPv6 twin — copy/subscribe would dump two links for
-			// one rule. Dual-stack IP entries still get both.
-			if withURI && it.EntryV6 != "" && net.ParseIP(relayHost) != nil {
-				if h6, p6, ok6 := splitEntry(it.EntryV6); ok6 {
-					if u, err := landing.RewriteEndpoint(node.URI, h6, p6); err == nil {
-						it.RelayURIV6 = u
-					}
-				}
-			}
+		}
 	}
 }
 

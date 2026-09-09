@@ -401,7 +401,11 @@ func (s *Server) dispatchToNode(nodeID int64) error {
 		_ = db.MarkNodeDispatchError(s.DB, nodeID, err.Error())
 		return err
 	}
-	rules := buildRules(s.DB, ruleHops)
+	rules, err := buildRulesChecked(s.DB, ruleHops)
+	if err != nil {
+		_ = db.MarkNodeDispatchError(s.DB, nodeID, err.Error())
+		return err
+	}
 	rev := computeRev(rules)
 	warning, err := s.Dispatcher.Dispatch(nodeID, rules, rev)
 	if err != nil {
@@ -501,13 +505,18 @@ func (s *Server) redispatchNodes(nodeIDs []int64) {
 // values. Lookup tables are preloaded in bulk so the conversion is
 // O(ruleHops) with no per-row queries.
 func buildRules(d *sql.DB, ruleHops []*db.RuleHop) []nft.Rule {
-	ruleMap, _ := db.RulesByID(d)
-	if ruleMap == nil {
-		ruleMap = map[int64]*db.Rule{}
+	rules, _ := buildRulesChecked(d, ruleHops)
+	return rules
+}
+
+func buildRulesChecked(d *sql.DB, ruleHops []*db.RuleHop) ([]nft.Rule, error) {
+	ruleMap, err := db.RulesByID(d)
+	if err != nil {
+		return nil, fmt.Errorf("读取规则失败: %w", err)
 	}
-	users, _ := db.UsersByID(d)
-	if users == nil {
-		users = map[int64]*db.User{}
+	users, err := db.UsersByID(d)
+	if err != nil {
+		return nil, fmt.Errorf("读取用户失败: %w", err)
 	}
 
 	ruleIDSet := map[int64]bool{}
@@ -518,9 +527,9 @@ func buildRules(d *sql.DB, ruleHops []*db.RuleHop) []nft.Rule {
 	for id := range ruleIDSet {
 		ruleIDs = append(ruleIDs, id)
 	}
-	hopCounts, _ := db.RuleHopCounts(d, ruleIDs)
-	if hopCounts == nil {
-		hopCounts = map[int64]int{}
+	hopCounts, err := db.RuleHopCounts(d, ruleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("读取规则跳数失败: %w", err)
 	}
 
 	rules := make([]nft.Rule, 0, len(ruleHops))
@@ -549,7 +558,7 @@ func buildRules(d *sql.DB, ruleHops []*db.RuleHop) []nft.Rule {
 		}
 		rules = append(rules, rule)
 	}
-	return rules
+	return rules, nil
 }
 
 // computeRev returns a stable hash of the ruleset so a reconnecting

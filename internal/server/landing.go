@@ -119,9 +119,14 @@ func (s *Server) redispatchUserExit(userID int64, host string, port int) {
 // exclusion, so the badge can never disagree with billing. No subscription
 // fetch happens on this path.
 func (s *Server) landingIndexFromDB(userID int64) map[string]landing.Node {
+	m, _ := s.landingIndexFromDBChecked(userID)
+	return m
+}
+
+func (s *Server) landingIndexFromDBChecked(userID int64) (map[string]landing.Node, error) {
 	exits, err := db.PresentLandingExitsForUser(s.DB, userID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	m := make(map[string]landing.Node, len(exits))
 	for _, e := range exits {
@@ -147,7 +152,7 @@ func (s *Server) landingIndexFromDB(userID int64) map[string]landing.Node {
 			ExpiresAt: e.ExpiresAt,
 		}
 	}
-	return m
+	return m, nil
 }
 
 // hasDynamicSource reports whether the user has a subscription URL (a refresh

@@ -432,7 +432,7 @@ func SetSetting(d *sql.DB, key, value string) error {
 // so an operator can copy it, and the panel already holds full control over its
 // nodes (it pushes their binaries), so the token is not the weakest link. An
 // empty secret means "generate one" — every agent node needs a credential.
-func CreateNode(d *sql.DB, name, address, secret string) (*Node, error) {
+func CreateNode(d DBTX, name, address, secret string) (*Node, error) {
 	plaintext := secret
 	if plaintext == "" {
 		plaintext = RandToken(32)
@@ -466,7 +466,7 @@ func ResetNodeSecret(d *sql.DB, id int64) (string, error) {
 // columns in this exact order — keep all three in lockstep when adding a column.
 const nodeCols = `id,name,node_type,owner_id,address,secret,relay_host,relay_host_v6,online,agent_version,agent_sha,last_seen,last_apply_at,last_error,last_warning,disabled,local_migrated_at,port_range,created_at,last_upgrade_at,last_upgrade_version,last_upgrade_status,last_upgrade_error,sort_order,rate_multiplier,unidirectional,relay_host_declared,relay_host_v6_declared,roles,no_direct_exit,backend_ip,cf_sync,cf_zone_id,cf_record_name,cf_last_sync_at,cf_last_error,cf_last_ip`
 
-func GetNode(d *sql.DB, id int64) (*Node, error) {
+func GetNode(d DBTX, id int64) (*Node, error) {
 	row := d.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id)
 	return scanNode(row)
 }
@@ -765,12 +765,12 @@ func UpdateNodeRelayHostV6(d *sql.DB, id int64, relayHostV6 string) error {
 	return err
 }
 
-func UpdateNodeRateMultiplier(d *sql.DB, id int64, mult float64) error {
+func UpdateNodeRateMultiplier(d DBTX, id int64, mult float64) error {
 	_, err := d.Exec(`UPDATE nodes SET rate_multiplier=? WHERE id=?`, mult, id)
 	return err
 }
 
-func UpdateNodeUnidirectional(d *sql.DB, id int64, uni bool) error {
+func UpdateNodeUnidirectional(d DBTX, id int64, uni bool) error {
 	v := 0
 	if uni {
 		v = 1
@@ -795,7 +795,7 @@ func UpdateNodeNoDirectExit(d *sql.DB, id int64, v bool) error {
 
 // UpdateNodePortRange sets a node's port_range spec. An empty string resets to
 // the default range. Callers must validate with ValidatePortRange first.
-func UpdateNodePortRange(d *sql.DB, id int64, portRange string) error {
+func UpdateNodePortRange(d DBTX, id int64, portRange string) error {
 	if portRange == "" {
 		portRange = DefaultPortRange
 	}
@@ -854,6 +854,37 @@ func scanRule(r rowScanner) (*Rule, error) {
 }
 
 const ruleHopCols = `id,rule_id,position,node_id,proto,listen_port,target_host,target_port,mode,comment,last_bytes,last_bytes_up,last_bytes_down,total_bytes,billed_bytes,via_node_id`
+
+// ListRuleHopsByRuleIDs loads all requested rule hops in one ordered query.
+// List endpoints use this instead of issuing a pair of queries per rule.
+func ListRuleHopsByRuleIDs(d DBTX, ruleIDs []int64) (map[int64][]*RuleHop, error) {
+	out := make(map[int64][]*RuleHop, len(ruleIDs))
+	if len(ruleIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(ruleIDs))
+	args := make([]any, len(ruleIDs))
+	for i, id := range ruleIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	rows, err := d.Query(`SELECT `+ruleHopCols+` FROM rule_hops WHERE rule_id IN (`+strings.Join(placeholders, ",")+") ORDER BY rule_id, position", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		h, err := scanRuleHop(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[h.RuleID] = append(out[h.RuleID], h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func scanRuleHop(r rowScanner) (*RuleHop, error) {
 	h := &RuleHop{}

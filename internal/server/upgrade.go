@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-		"runtime/debug"
-		"strings"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -236,10 +238,13 @@ func panelBaseURL(d *sql.DB, r *http.Request) string {
 	if r == nil || r.Host == "" {
 		return ""
 	}
+	if !validOriginHost(strings.TrimSpace(r.Host)) {
+		return ""
+	}
 	// Prefer the scheme the browser actually used (common for IP:port panels
 	// without TLS). Honor reverse-proxy X-Forwarded-Proto when present.
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil || (trustedProxyRequest(r) && strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")) {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host
@@ -306,24 +311,70 @@ func requestOrigin(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
+	trusted := trustedProxyRequest(r)
 	host := strings.TrimSpace(r.Host)
-	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
-		if h := strings.TrimSpace(strings.Split(fwd, ",")[0]); h != "" {
-			host = h
+	if trusted {
+		if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+			if h := strings.TrimSpace(strings.Split(fwd, ",")[0]); h != "" {
+				host = h
+			}
 		}
 	}
-	if host == "" {
+	if !validOriginHost(host) {
 		return ""
 	}
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil || (trusted && strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")) {
 		scheme = "https"
 	}
 	return scheme + "://" + host
 }
 
-	// upgradeAckTimeout covers download + replace + ack on slow links. The agent
-	// HTTP download retries/resumes for up to ~8 minutes.
+func trustedProxyRequest(r *http.Request) bool {
+	if r == nil || r.RemoteAddr == "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && isTrustedProxy(ip)
+}
+
+// validOriginHost keeps the value safe for both HTTP URLs and the shell
+// installer template. Host headers can contain a port and bracketed IPv6, but
+// never shell punctuation, whitespace, a path, or a control character.
+func validOriginHost(host string) bool {
+	if host == "" || strings.ContainsAny(host, "'\"`$\\;&|/ \t\r\n") {
+		return false
+	}
+	h, p, err := net.SplitHostPort(host)
+	if err == nil {
+		if h == "" {
+			return false
+		}
+		port, perr := strconv.Atoi(p)
+		if perr != nil || port < 1 || port > 65535 {
+			return false
+		}
+		if net.ParseIP(strings.Trim(h, "[]")) != nil {
+			return true
+		}
+		host = h
+	} else if strings.Count(host, ":") > 0 {
+		return false
+	}
+	for _, c := range host {
+		if !(c == '.' || c == '-' || c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			return false
+		}
+	}
+	return host != ""
+}
+
+// upgradeAckTimeout covers download + replace + ack on slow links. The agent
+// HTTP download retries/resumes for up to ~8 minutes.
 const upgradeAckTimeout = 8 * time.Minute
 
 func (h *Hub) SendUpgrade(nodeID int64, u wsproto.Upgrade) error {

@@ -232,7 +232,13 @@ func (h *Hub) reconcileOnConnect(nodeID int64, lastAppliedRev string) {
 		go h.Redispatch([]int64{nodeID})
 		return
 	}
-	if lastAppliedRev != "" && computeRev(buildRules(h.DB, ruleHops)) == lastAppliedRev {
+	rules, err := buildRulesChecked(h.DB, ruleHops)
+	if err != nil {
+		// Can't compute the target rev — force a resync rather than risk drift.
+		go h.Redispatch([]int64{nodeID})
+		return
+	}
+	if lastAppliedRev != "" && computeRev(rules) == lastAppliedRev {
 		return
 	}
 	go h.Redispatch([]int64{nodeID})

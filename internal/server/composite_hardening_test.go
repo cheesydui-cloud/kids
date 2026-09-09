@@ -192,6 +192,52 @@ func TestCompositeCannotNestComposite(t *testing.T) {
 	}
 }
 
+func TestCompositeCreateRejectsDuplicateChildrenAndInvalidMode(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+	a, _ := db.CreateNode(d, "a", "", "")
+	b, _ := db.CreateNode(d, "b", "", "")
+
+	post := func(hops []map[string]any) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]any{"name": "bad", "node_type": "composite", "hops": hops})
+		req := newTestRequest("POST", "/api/nodes", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(admin)
+		rec := httptest.NewRecorder()
+		s.Router().ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := post([]map[string]any{{"node_id": a.ID, "mode": "kernel"}, {"node_id": a.ID, "mode": "userspace"}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate composite child: want 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post([]map[string]any{{"node_id": a.ID, "mode": "bogus"}, {"node_id": b.ID, "mode": "kernel"}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid composite mode: want 400, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateNodeInvalidPortDoesNotLeaveRow(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+	body, _ := json.Marshal(map[string]any{"name": "bad-port", "port_range": "not-a-range"})
+	req := newTestRequest("POST", "/api/nodes", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(admin)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid port range: want 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	var count int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM nodes WHERE name=?`, "bad-port").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("invalid node create left %d database rows", count)
+	}
+}
+
 // 6: 组合探测要覆盖每个子节点，而不是只测末跳→目标；中间子节点离线时整体结果不能
 // 报 OK（数据面子链路无端口不可独立探测，故以每个子节点的存活折入结果）。
 func TestCompositeProbeReportsEveryChild(t *testing.T) {

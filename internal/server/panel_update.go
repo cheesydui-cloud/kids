@@ -353,17 +353,10 @@ func startPanelUpgradeDetached(target, current string) error {
 
 	useLocal := looksLikeInstallerFn(nftUpgradePath)
 	if !useLocal {
-		raw := githubURL("https://raw.githubusercontent.com/" + agentRepo + "/main/install.sh")
-		body, err := httpGetUA(raw, 30*time.Second, 1<<20)
-		if err != nil {
-			return fmt.Errorf("下载官方安装脚本失败: %w", err)
-		}
-		if !strings.HasPrefix(strings.TrimSpace(string(body)), "#!") || !strings.Contains(string(body), "do_update") {
-			return fmt.Errorf("下载的 install.sh 内容异常，拒绝执行")
-		}
-		if err := os.WriteFile(installSH, body, 0o755); err != nil {
-			return err
-		}
+		// Do not execute a mutable GitHub branch as root. The installer is
+		// installed locally together with the panel and its update command is
+		// the only trusted upgrade entry point.
+		return fmt.Errorf("本机升级器不存在或内容未通过校验: %s", nftUpgradePath)
 	}
 
 	upgradeLine := "bash " + shellQuote(installSH) + " update --release " + shellQuote(target)

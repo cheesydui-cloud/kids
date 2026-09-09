@@ -389,18 +389,16 @@ func (s *Server) apiListNodes(w http.ResponseWriter, r *http.Request) {
 // created without an explicit value.
 const defaultGrantMaxForwards = 10
 
-// grantInitialUsers grants the given users access to a freshly created node
-// with the same defaults the per-user grant endpoint applies (max_forwards
-// fallback, quota inherited from the global user quota). Grant failures do
-// not fail node creation; the grants can be re-applied from the user pages.
-func (s *Server) grantInitialUsers(actorID, nodeID int64, userIDs []int64) {
+// grantInitialUsers grants the given users access to a freshly created node.
+// It deliberately accepts DBTX so node creation can make the node, composite
+// hops, and grants one atomic database change.
+func (s *Server) grantInitialUsers(d db.DBTX, nodeID int64, userIDs []int64) error {
 	for _, uid := range userIDs {
-		if err := db.GrantNode(s.DB, uid, nodeID, defaultGrantMaxForwards, 0); err != nil {
-			log.Printf("grant user %d on new node %d: %v", uid, nodeID, err)
-			continue
+		if err := db.GrantNode(d, uid, nodeID, defaultGrantMaxForwards, 0); err != nil {
+			return fmt.Errorf("授权用户 %d 失败: %w", uid, err)
 		}
-		db.WriteAudit(s.DB, actorID, "user.grant_node", strconv.FormatInt(uid, 10), strconv.FormatInt(nodeID, 10))
 	}
+	return nil
 }
 
 func (s *Server) apiCreateNode(w http.ResponseWriter, r *http.Request) {
@@ -435,6 +433,10 @@ func (s *Server) apiCreateNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	nodeType := strings.TrimSpace(body.NodeType)
+	if nodeType != "" && nodeType != "composite" {
+		jsonErr(w, http.StatusBadRequest, "node_type 必须为空或 composite")
+		return
+	}
 	if nodeType == "composite" {
 		// Create a composite node with hops
 		if len(body.Hops) < 2 {
@@ -449,25 +451,39 @@ func (s *Server) apiCreateNode(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		n, err := db.CreateNode(s.DB, body.Name, "", "")
+		if body.RateMultiplier < 0 {
+			jsonErr(w, http.StatusBadRequest, "rate_multiplier 不能为负数")
+			return
+		}
+		tx, err := s.DB.Begin()
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer tx.Rollback()
+		n, err := db.CreateNode(tx, body.Name, "", "")
 		if err != nil {
 			jsonErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		// Set node_type to composite
-		if _, err := s.DB.Exec(`UPDATE nodes SET node_type='composite' WHERE id=?`, n.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE nodes SET node_type='composite' WHERE id=?`, n.ID); err != nil {
 			jsonErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		nodeHops := make([]db.NodeHop, len(body.Hops))
 		for i, h := range body.Hops {
-			mode := h.Mode
+			mode := strings.ToLower(strings.TrimSpace(h.Mode))
 			if mode == "" {
 				mode = "userspace"
 			}
+			if mode != "kernel" && mode != "userspace" {
+				jsonErr(w, http.StatusBadRequest, "转发模式必须为 kernel 或 userspace")
+				return
+			}
 			nodeHops[i] = db.NodeHop{NodeID: n.ID, Position: i, HopNodeID: h.NodeID, Mode: mode, TrafficMultiplier: 0}
 		}
-		if err := db.CreateNodeHops(s.DB, n.ID, nodeHops); err != nil {
+		if err := db.CreateNodeHops(tx, n.ID, nodeHops); err != nil {
 			jsonErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -476,18 +492,51 @@ func (s *Server) apiCreateNode(w http.ResponseWriter, r *http.Request) {
 		// configuring a node as free (0) is done afterward via the dedicated
 		// rate-multiplier endpoint, which alone treats 0 as the free marker.
 		if body.RateMultiplier > 0 && body.RateMultiplier != 1.0 {
-			_ = db.UpdateNodeRateMultiplier(s.DB, n.ID, body.RateMultiplier)
+			if err := db.UpdateNodeRateMultiplier(tx, n.ID, body.RateMultiplier); err != nil {
+				jsonErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
-		n, _ = db.GetNode(s.DB, n.ID)
+		if err := s.grantInitialUsers(tx, n.ID, body.UserIDs); err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		n, err = db.GetNode(s.DB, n.ID)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		db.WriteAudit(s.DB, u.ID, "node.create_composite", strconv.FormatInt(n.ID, 10), body.Name)
-		s.grantInitialUsers(u.ID, n.ID, body.UserIDs)
+		for _, uid := range body.UserIDs {
+			db.WriteAudit(s.DB, u.ID, "user.grant_node", strconv.FormatInt(uid, 10), strconv.FormatInt(n.ID, 10))
+		}
 		// Composite nodes have no agent credential, so no secret to reveal.
 		jsonOK(w, map[string]any{"node": n})
 		return
 	}
 
 	// Default: create a remote node
-	n, err := db.CreateNode(s.DB, body.Name, "", strings.TrimSpace(body.Secret))
+	if body.PortRange != "" {
+		if err := db.ValidatePortRange(strings.TrimSpace(body.PortRange)); err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if body.RateMultiplier < 0 {
+		jsonErr(w, http.StatusBadRequest, "rate_multiplier 不能为负数")
+		return
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	n, err := db.CreateNode(tx, body.Name, "", strings.TrimSpace(body.Secret))
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -498,26 +547,42 @@ func (s *Server) apiCreateNode(w http.ResponseWriter, r *http.Request) {
 	// Absent field and explicit 0 are indistinguishable on create, so 0 keeps
 	// the default 1.0; free (0) is set later via the dedicated endpoint.
 	if body.RateMultiplier > 0 && body.RateMultiplier != 1.0 {
-		_ = db.UpdateNodeRateMultiplier(s.DB, n.ID, body.RateMultiplier)
-	}
-	if body.Unidirectional {
-		_ = db.UpdateNodeUnidirectional(s.DB, n.ID, true)
-	}
-	if body.PortRange != "" {
-		if err := db.ValidatePortRange(body.PortRange); err != nil {
-			jsonErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := db.UpdateNodePortRange(s.DB, n.ID, body.PortRange); err != nil {
+		if err := db.UpdateNodeRateMultiplier(tx, n.ID, body.RateMultiplier); err != nil {
 			jsonErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
+	if body.Unidirectional {
+		if err := db.UpdateNodeUnidirectional(tx, n.ID, true); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if body.PortRange != "" {
+		if err := db.UpdateNodePortRange(tx, n.ID, strings.TrimSpace(body.PortRange)); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if err := s.grantInitialUsers(tx, n.ID, body.UserIDs); err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if body.RateMultiplier > 0 || body.PortRange != "" || body.Unidirectional {
-		n, _ = db.GetNode(s.DB, n.ID)
+		n, err = db.GetNode(s.DB, n.ID)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	db.WriteAudit(s.DB, u.ID, "node.create", strconv.FormatInt(n.ID, 10), body.Name)
-	s.grantInitialUsers(u.ID, n.ID, body.UserIDs)
+	for _, uid := range body.UserIDs {
+		db.WriteAudit(s.DB, u.ID, "user.grant_node", strconv.FormatInt(uid, 10), strconv.FormatInt(n.ID, 10))
+	}
 	_ = s.apiDispatch(n.ID)
 	// Return the plaintext secret so the operator can copy the install command.
 	jsonOK(w, map[string]any{"node": n, "secret": plaintextSecret})
@@ -2159,6 +2224,7 @@ func (s *Server) apiSetNodeRoles(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiListRules(w http.ResponseWriter, r *http.Request) {
 	var rules []*db.Rule
+	var err error
 	if raw := r.URL.Query().Get("owner_ids"); raw != "" {
 		var ids []int64
 		for _, part := range strings.Split(raw, ",") {
@@ -2166,15 +2232,34 @@ func (s *Server) apiListRules(w http.ResponseWriter, r *http.Request) {
 				ids = append(ids, id)
 			}
 		}
-		rules, _ = db.ListRulesByOwnerIDs(s.DB, ids)
+		rules, err = db.ListRulesByOwnerIDs(s.DB, ids)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	} else {
-		rules, _ = db.ListAllRules(s.DB)
+		rules, err = db.ListAllRules(s.DB)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
-	db.FillRuleTraffic(s.DB, rules)
-	nodes, _ := db.ListNodes(s.DB)
+	if err := db.FillRuleTraffic(s.DB, rules); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	nodes, err := db.ListNodes(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	db.ResolveCompositeAll(s.DB, nodes)
 	nodeByID := buildMap(nodes, func(n *db.Node) int64 { return n.ID })
-	allUsers, _ := db.ListUsers(s.DB)
+	allUsers, err := db.ListUsers(s.DB)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	byID := make(map[int64]*db.User, len(allUsers))
 	userList := make([]map[string]any, 0, len(allUsers))
 	for _, u := range allUsers {
@@ -2194,6 +2279,15 @@ func (s *Server) apiListRules(w http.ResponseWriter, r *http.Request) {
 		idxByOwner[ownerID] = idx
 		return idx
 	}
+	ruleIDs := make([]int64, len(rules))
+	for i, rl := range rules {
+		ruleIDs[i] = rl.ID
+	}
+	hopsByRule, err := db.ListRuleHopsByRuleIDs(s.DB, ruleIDs)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	views := make([]ruleListItem, 0, len(rules))
 	for _, rl := range rules {
 		oname := ""
@@ -2204,7 +2298,7 @@ func (s *Server) apiListRules(w http.ResponseWriter, r *http.Request) {
 			}
 			idx = ownerIndex(rl.OwnerID.Int64)
 		}
-		item := s.buildRuleListItem(rl, oname)
+		item := buildRuleListItemFromHops(rl, oname, hopsByRule[rl.ID], nodeByID)
 		item.classifyExit(idx, true)
 		if n := nodeByID[rl.NodeID]; n != nil {
 			item.RateMultiplier = n.RateMultiplier
@@ -2457,7 +2551,12 @@ func (s *Server) expandSegment(nodeID int64) ([]db.HopInput, bool, error) {
 // where no agent exists to serve it. The composite editors already offer only
 // single nodes — this is the authoritative server-side guard for direct API use.
 func (s *Server) validateCompositeChildren(childIDs []int64) error {
+	seen := make(map[int64]struct{}, len(childIDs))
 	for _, cid := range childIDs {
+		if _, ok := seen[cid]; ok {
+			return fmt.Errorf("组合节点不能重复包含同一子节点")
+		}
+		seen[cid] = struct{}{}
 		n, err := db.GetNode(s.DB, cid)
 		if err != nil {
 			return fmt.Errorf("子节点 %d 不存在", cid)
@@ -2859,7 +2958,7 @@ func (s *Server) apiGetUser(w http.ResponseWriter, r *http.Request) {
 	}
 	// Build list items with relay_uri so the admin can copy the user's proxy link
 	// without relying on the admin browser's local landing URIs.
-	idx := s.landingIndexFromDB(id)
+	idx := dbIndex
 	ruleViews := make([]ruleListItem, 0, len(rules))
 	for _, rl := range rules {
 		item := s.buildRuleListItem(rl, target.Username)

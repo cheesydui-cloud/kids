@@ -63,7 +63,7 @@ func DeleteNodeHops(d DBTX, nodeID int64) error {
 
 // GrantNode grants a user access to a node with a max_forwards limit. If the
 // grant already exists, only max_forwards is updated (idempotent).
-func GrantNode(d *sql.DB, userID, nodeID int64, maxForwards int, trafficQuotaBytes int64) error {
+func GrantNode(d DBTX, userID, nodeID int64, maxForwards int, trafficQuotaBytes int64) error {
 	_, err := d.Exec(`INSERT INTO user_nodes(user_id, node_id, max_forwards, traffic_quota_bytes, granted_at) VALUES (?,?,?,?,?)
 		ON CONFLICT(user_id, node_id) DO UPDATE SET max_forwards=excluded.max_forwards, traffic_quota_bytes=excluded.traffic_quota_bytes`,
 		userID, nodeID, maxForwards, trafficQuotaBytes, now())
