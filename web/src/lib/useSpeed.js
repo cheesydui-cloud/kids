@@ -129,9 +129,15 @@ function ensureShared() {
   return shared
 }
 
-export function useSpeed() {
+// Node-level live rates. Pass { enabled: false } to skip the subscription
+// entirely — the node table only needs the aggregate map while it is actively
+// sorting by speed; per-row display uses useNodeSpeedValue below.
+export function useSpeed({ enabled = true } = {}) {
   const [speeds, setSpeeds] = useState({})
-  useEffect(() => ensureShared().subscribe(({ speeds: s }) => setSpeeds(s)), [])
+  useEffect(() => {
+    if (!enabled) return undefined
+    return ensureShared().subscribe(({ speeds: s }) => setSpeeds(s))
+  }, [enabled])
   return speeds
 }
 
@@ -178,6 +184,27 @@ export function useRuleSpeedValue(ruleId, { enabled = true } = {}) {
       setVal({ up, down })
     })
   }, [ruleId, enabled])
+  return val
+}
+
+// Subscribe to a single node's live rate. One of these per row keeps the node
+// table from reconciling every row once per second on a busy panel.
+export function useNodeSpeedValue(nodeId, { enabled = true } = {}) {
+  const [val, setVal] = useState(undefined)
+  useEffect(() => {
+    if (!enabled || !nodeId) return undefined
+    let prevUp
+    let prevDown
+    return ensureShared().subscribe(({ speeds }) => {
+      const s = speeds[nodeId]
+      const up = s?.up || 0
+      const down = s?.down || 0
+      if (up === prevUp && down === prevDown) return
+      prevUp = up
+      prevDown = down
+      setVal({ up, down })
+    })
+  }, [nodeId, enabled])
   return val
 }
 

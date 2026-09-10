@@ -380,3 +380,150 @@ func SetNodeRepoFoldersBatch(d *sql.DB, ids []int64, folderID int64) error {
 	_, err := d.Exec(`UPDATE node_repo SET group_id=?, group_name=? WHERE id IN (`+strings.Join(ph, ",")+`)`, args...)
 	return err
 }
+
+// --- line-monitoring node folders ---
+
+func ListNodeFolders(d *sql.DB) ([]*Folder, error) {
+	rows, err := d.Query(`SELECT id, name, sort_order, created_at FROM node_folders ORDER BY sort_order, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Folder
+	for rows.Next() {
+		f, err := scanFolder(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, f := range out {
+		_ = d.QueryRow(`SELECT COUNT(*) FROM nodes WHERE group_id=?`, f.ID).Scan(&f.Count)
+	}
+	return out, nil
+}
+
+func UngroupedNodeCount(d *sql.DB) (int, error) {
+	return count(d, `SELECT COUNT(*) FROM nodes WHERE group_id=0`)
+}
+
+func CreateNodeFolder(d *sql.DB, name string) (*Folder, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("文件夹名称不能为空")
+	}
+	var maxOrd int
+	_ = d.QueryRow(`SELECT COALESCE(MAX(sort_order),0) FROM node_folders`).Scan(&maxOrd)
+	res, err := d.Exec(`INSERT INTO node_folders (name, sort_order, created_at) VALUES (?,?,?)`, name, maxOrd+1, now())
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, fmt.Errorf("文件夹「%s」已存在", name)
+		}
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &Folder{ID: id, Name: name, SortOrder: maxOrd + 1, CreatedAt: now()}, nil
+}
+
+func EnsureNodeFolder(d *sql.DB, name string) (*Folder, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("文件夹名称不能为空")
+	}
+	f, err := GetNodeFolderByName(d, name)
+	if err == nil {
+		return f, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+	return CreateNodeFolder(d, name)
+}
+
+func GetNodeFolder(d *sql.DB, id int64) (*Folder, error) {
+	row := d.QueryRow(`SELECT id, name, sort_order, created_at FROM node_folders WHERE id=?`, id)
+	return scanFolder(row)
+}
+
+func GetNodeFolderByName(d *sql.DB, name string) (*Folder, error) {
+	row := d.QueryRow(`SELECT id, name, sort_order, created_at FROM node_folders WHERE name=?`, strings.TrimSpace(name))
+	return scanFolder(row)
+}
+
+func RenameNodeFolder(d *sql.DB, id int64, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("文件夹名称不能为空")
+	}
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`UPDATE node_folders SET name=? WHERE id=?`, name, id); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return fmt.Errorf("文件夹「%s」已存在", name)
+		}
+		return err
+	}
+	// Keep the denormalized label in sync for list display.
+	if _, err := tx.Exec(`UPDATE nodes SET group_name=? WHERE group_id=?`, name, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteNodeFolder removes the folder and moves its nodes back to ungrouped.
+func DeleteNodeFolder(d *sql.DB, id int64) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`UPDATE nodes SET group_id=0, group_name='' WHERE group_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM node_folders WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func SetNodeFolder(d *sql.DB, nodeID, folderID int64) error {
+	name := ""
+	if folderID > 0 {
+		f, err := GetNodeFolder(d, folderID)
+		if err != nil {
+			return fmt.Errorf("文件夹不存在")
+		}
+		name = f.Name
+	}
+	_, err := d.Exec(`UPDATE nodes SET group_id=?, group_name=? WHERE id=?`, folderID, name, nodeID)
+	return err
+}
+
+func SetNodesFolderBatch(d *sql.DB, ids []int64, folderID int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	name := ""
+	if folderID > 0 {
+		f, err := GetNodeFolder(d, folderID)
+		if err != nil {
+			return fmt.Errorf("文件夹不存在")
+		}
+		name = f.Name
+	}
+	ph := make([]string, len(ids))
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, folderID, name)
+	for i, id := range ids {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	_, err := d.Exec(`UPDATE nodes SET group_id=?, group_name=? WHERE id IN (`+strings.Join(ph, ",")+`)`, args...)
+	return err
+}

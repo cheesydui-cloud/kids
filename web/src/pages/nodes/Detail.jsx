@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtTime, fmtBytes, nullStr } from '../../lib/fmt'
+import { fmtTime, fmtBytes, nullStr, fmtDateInput, unixFromDateInput } from '../../lib/fmt'
 import { Layout, useToast, useBlur } from '../../components/Layout'
-import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText, Spinner } from '../../components/ui'
+import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText, Spinner, DateInput } from '../../components/ui'
 import { TableBox, TopbarTitle } from '../../components/page'
 import { copyToClipboard } from '../../lib/clipboard'
 
@@ -53,6 +53,13 @@ export default function NodeDetail() {
   const [changeIPOpen, setChangeIPOpen] = useState(false)
   const [changeIPVal, setChangeIPVal] = useState('')
   const [cfBusy, setCfBusy] = useState(false)
+  // Admin-only operations metadata (folder / remark / renewal date / cost).
+  const [folders, setFolders] = useState([])
+  const [groupID, setGroupID] = useState('')
+  const [remark, setRemark] = useState('')
+  const [nodeExpires, setNodeExpires] = useState('')
+  const [nodeCost, setNodeCost] = useState('')
+  const [opsBusy, setOpsBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
   // revealedSecret holds the one-time plaintext token returned by a reset; it
   // is never persisted server-side and is cleared when the reveal modal closes.
@@ -72,6 +79,10 @@ export default function NodeDetail() {
     setBackendIP(d.node?.backend_ip || '')
     setCfRecordName(d.node?.cf_record_name || '')
     setCfZoneID(d.node?.cf_zone_id || '')
+    setGroupID(d.node?.group_id ? String(d.node.group_id) : '')
+    setRemark(d.node?.remark || '')
+    setNodeExpires(d.node?.expires_at ? fmtDateInput(d.node.expires_at) : '')
+    setNodeCost(d.node?.monthly_cost_cents ? (d.node.monthly_cost_cents / 100).toFixed(2) : '')
   }
   const load = () => {
     setLoading(true)
@@ -83,6 +94,28 @@ export default function NodeDetail() {
   // path keeps them mounted and just refreshes the data underneath.
   const reloadSilent = () => api.get(`/nodes/${id}`).then(applyData).catch(console.error)
   useEffect(load, [id])
+  useEffect(() => { api.get('/nodes/folders').then(d => setFolders(d?.folders || [])).catch(() => {}) }, [])
+
+  const saveOps = async (e) => {
+    e.preventDefault()
+    setOpsBusy(true)
+    try {
+      const yuan = Number(nodeCost || 0)
+      const cents = Number.isFinite(yuan) ? Math.max(0, Math.round(yuan * 100)) : 0
+      await api.post(`/nodes/${id}/ops`, {
+        group_id: groupID ? Number(groupID) : 0,
+        remark,
+        expires_at: unixFromDateInput(nodeExpires),
+        monthly_cost_cents: cents,
+      })
+      toast('运维信息已保存')
+      load()
+    } catch (err) {
+      toast(err.message || '保存失败', 'error')
+    } finally {
+      setOpsBusy(false)
+    }
+  }
 
   useEffect(() => () => {
     if (upgradePollRef.current) { clearInterval(upgradePollRef.current); upgradePollRef.current = null }
@@ -544,6 +577,34 @@ export default function NodeDetail() {
             <CompositeHopsCard nodeId={id} hops={nodeHops} singleNodes={data.single_nodes || []} onDone={load} />
           </div>
         )}
+
+        {/* ===== 运维信息（分组 / 备注 / 到期 / 成本，仅管理员） ===== */}
+        <section className={`${card} px-[26px] py-[22px] mb-[18px]`}>
+          <div className="flex items-baseline gap-2.5 mb-4">
+            <h2 className="m-0 text-[15px] font-bold">运维信息</h2>
+            <span className="text-[12.5px] text-ink-mut">分组、备注、到期与成本，仅管理员可见</span>
+          </div>
+          <form onSubmit={saveOps} className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 items-end">
+            <ConfigField label="分组">
+              <Select value={groupID} onChange={setGroupID} placeholder="未分组"
+                options={[{ value: '', label: '未分组' }, ...folders.map(f => ({ value: String(f.id), label: f.name }))]} />
+            </ConfigField>
+            <ConfigField label="到期时间">
+              <DateInput value={nodeExpires} onChange={setNodeExpires} placeholder="留空表示不记到期" className="w-full" />
+            </ConfigField>
+            <ConfigField label="月成本（元）">
+              <input className="input-field w-full" type="number" min="0" step="0.01"
+                value={nodeCost} onChange={e => setNodeCost(e.target.value)} placeholder="如 35" />
+            </ConfigField>
+            <ConfigField label="备注">
+              <input className="input-field w-full" value={remark}
+                onChange={e => setRemark(e.target.value)} placeholder="机房 / 用途 / 付款方式…" />
+            </ConfigField>
+            <div className="md:col-span-2">
+              <button type="submit" disabled={opsBusy} className="btn-primary px-5">{opsBusy ? '保存中…' : '保存运维信息'}</button>
+            </div>
+          </form>
+        </section>
 
         {/* ===== 经过该节点的规则 ===== */}
         <section className={`${card} px-[26px] pt-[22px] pb-2`}>

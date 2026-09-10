@@ -92,6 +92,15 @@ type Node struct {
 	// it can be picked as a rule's entry, NodeRoleVia means it can be attached
 	// behind an upstream node as a middle-layer segment. A node may hold both.
 	Roles int64 `json:"roles"`
+
+	// Admin-only operations metadata (folder / remark / renewal date / cost).
+	// json:"-" keeps it out of tenant-facing responses; the admin node list and
+	// detail endpoints re-add it through server.adminNodeView.
+	GroupID          int64  `json:"-"`
+	GroupName        string `json:"-"`
+	Remark           string `json:"-"`
+	ExpiresAt        int64  `json:"-"`
+	MonthlyCostCents int64  `json:"-"`
 	// EntryRelayHost/EntryRelayHostV6/ExitRelayHostV6 are not real columns —
 	// ResolveCompositeRelayStack fills them in-memory for composite nodes only
 	// (entry = first hop's own relay fields, exit = last hop's v6 relay field).
@@ -465,7 +474,7 @@ func ResetNodeSecret(d *sql.DB, id int64) (string, error) {
 
 // NOTE: scanNode and the inline scan in grants.go (ListNodesForUser) read these
 // columns in this exact order — keep all three in lockstep when adding a column.
-const nodeCols = `id,name,node_type,owner_id,address,secret,relay_host,relay_host_v6,online,agent_version,agent_sha,last_seen,last_apply_at,last_error,last_warning,disabled,local_migrated_at,port_range,created_at,last_upgrade_at,last_upgrade_version,last_upgrade_status,last_upgrade_error,sort_order,rate_multiplier,unidirectional,relay_host_declared,relay_host_v6_declared,roles,no_direct_exit,backend_ip,cf_sync,cf_zone_id,cf_record_name,cf_last_sync_at,cf_last_error,cf_last_ip`
+const nodeCols = `id,name,node_type,owner_id,address,secret,relay_host,relay_host_v6,online,agent_version,agent_sha,last_seen,last_apply_at,last_error,last_warning,disabled,local_migrated_at,port_range,created_at,last_upgrade_at,last_upgrade_version,last_upgrade_status,last_upgrade_error,sort_order,rate_multiplier,unidirectional,relay_host_declared,relay_host_v6_declared,roles,no_direct_exit,backend_ip,cf_sync,cf_zone_id,cf_record_name,cf_last_sync_at,cf_last_error,cf_last_ip,group_id,group_name,remark,expires_at,monthly_cost_cents`
 
 func GetNode(d DBTX, id int64) (*Node, error) {
 	row := d.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id)
@@ -491,6 +500,7 @@ func scanNode(r rowScanner) (*Node, error) {
 		&relayHostDeclared, &relayHostV6Declared, &n.Roles, &noDirectExit,
 		&n.BackendIP, &cfSync, &n.CFZoneID, &n.CFRecordName,
 		&n.CFLastSyncAt, &n.CFLastError, &n.CFLastIP,
+		&n.GroupID, &n.GroupName, &n.Remark, &n.ExpiresAt, &n.MonthlyCostCents,
 	); err != nil {
 		return nil, err
 	}

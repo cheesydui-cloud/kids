@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtTime, fmtBytes, nullStr } from '../../lib/fmt'
-import { useSpeed, fmtSpeed } from '../../lib/useSpeed'
+import { fmtTime, fmtBytes, fmtDate, nullStr, expiryBadge } from '../../lib/fmt'
+import { useSpeed, useNodeSpeedValue, fmtSpeed } from '../../lib/useSpeed'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { Layout, useToast } from '../../components/Layout'
 import { Loading, Empty, Badge, Modal, Confirm, NodeStackBadge, NodeBillingBadges, useConfirm, Select, CopyText, activateProps } from '../../components/ui'
 import { PageHeader, Panel, PanelToolbar, SearchInput, ToolbarButton, ToolbarActions, TableScroll } from '../../components/page'
+import FolderBar from '../../components/FolderBar'
 
 export default function NodeList() {
   const [data, setData] = useState(null)
@@ -18,12 +19,18 @@ export default function NodeList() {
   const [search, setSearch] = useState(() => sessionStorage.getItem('nodes.search') || '')
   const [tab, setTab] = useState(() => localStorage.getItem('nodes.tab') || 'single')
   const [dragIndex, setDragIndex] = useState(null)
-  const speeds = useSpeed()
+  const [folders, setFolders] = useState([])
+  const [ungrouped, setUngrouped] = useState(0)
+  const [folderFilter, setFolderFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const isMobile = useIsMobile()
   const toast = useToast()
   const confirm = useConfirm()
   const navigate = useNavigate()
   const [sort, setSort] = useState({ col: null, dir: null })
+  // The aggregate map is only needed while sorting by speed; the visible cells
+  // subscribe per node so the table does not re-render every second.
+  const speeds = useSpeed({ enabled: sort.col === 'speed' })
   const [speedSnap, setSpeedSnap] = useState(null)
   const [pinMode, setPinMode] = useState(null)
   const pinRef = useRef(null)
@@ -39,6 +46,12 @@ export default function NodeList() {
     api.get('/nodes').then(setData).catch(err => setError(err?.message || '加载失败')).finally(() => setLoading(false))
   }
   useEffect(load, [])
+
+  const loadFolders = () => api.get('/nodes/folders').then(d => {
+    setFolders(d?.folders || [])
+    setUngrouped(d?.ungrouped || 0)
+  }).catch(() => {})
+  useEffect(loadFolders, [])
 
   const resyncAll = async () => {
     if (!(await confirm({ title: '同步所有节点', message: '向所有节点重新推送转发规则？', confirmText: '同步' }))) return
@@ -93,7 +106,25 @@ export default function NodeList() {
   const compositeNodes = nodes.filter(n => n.node_type === 'composite')
   const tabNodes = tab === 'composite' ? compositeNodes : singleNodes
   const q = search.trim().toLowerCase()
-  const filtered0 = !q ? tabNodes : tabNodes.filter(n => (n.name || '').toLowerCase().includes(q))
+  const matchSearch = (n) => {
+    if (!q) return true
+    const hay = [n.name, n.relay_host, n.relay_host_v6, n.address, n.group_name, n.remark, `#${n.id}`]
+      .filter(Boolean).join(' ').toLowerCase()
+    return hay.includes(q)
+  }
+  const matchFolder = (n) => {
+    if (folderFilter === '') return true
+    if (folderFilter === '0') return !n.group_id
+    return String(n.group_id) === String(folderFilter)
+  }
+  const matchStatus = (n) => {
+    if (statusFilter === 'all') return true
+    const h = nodeHealth(n)
+    if (statusFilter === 'attention') return h !== 'ok'
+    return h === statusFilter
+  }
+  const filtered0 = tabNodes.filter(n => matchSearch(n) && matchFolder(n) && matchStatus(n))
+  const attentionCount = tabNodes.filter(n => nodeHealth(n) !== 'ok').length
 
   // 「原始流量」列只在单点 tab 渲染：带着它的排序切去组合 tab，排序仍生效却
   // 无处显示、无法取消，还会静默禁用拖拽调序——切走时清掉这个不可见排序。
@@ -101,11 +132,19 @@ export default function NodeList() {
     setTab(key)
     if (key === 'composite') setSort(s => s.col === 'rawtraffic' ? { col: null, dir: null } : s)
   }
+  // Sorting by speed needs the whole map, which only subscribes while that
+  // sort is active; seed the stable snapshot once the first frame arrives.
+  useEffect(() => {
+    if (sort.col !== 'speed' || speedSnap) return
+    if (Object.keys(speeds).length > 0) setSpeedSnap({ ...speeds })
+  }, [sort.col, speeds, speedSnap])
+
   const cycleSort = (col) => {
     setSort(s => {
-      if (col === 'speed') setSpeedSnap({ ...speeds })
+      if (col === 'speed') setSpeedSnap(null)
       if (s.col !== col) return { col, dir: 'desc' }
       if (s.dir === 'desc') return { col, dir: 'asc' }
+      if (col === 'speed') setSpeedSnap(null)
       return { col: null, dir: null }
     })
   }
@@ -125,7 +164,7 @@ export default function NodeList() {
   })
   // 任何过滤/排序生效时都不能拖拽调序：saveOrder 以可见列表为全量重建顺序，
   // 子集视图下会把被过滤掉的节点从顺序里丢掉。
-  const draggable = !sort.col && !q
+  const draggable = !sort.col && !q && !folderFilter && statusFilter === 'all'
   const saveOrder = async (visibleList) => {
     const otherIds = (tab === 'composite' ? singleNodes : compositeNodes).map(n => n.id)
     const tabIds = visibleList.map(n => n.id)
@@ -186,7 +225,29 @@ export default function NodeList() {
       {/* Node list */}
       <Panel fill>
         <PanelToolbar>
-          <SearchInput value={search} onChange={setSearch} placeholder="搜索节点名称…" />
+          <FolderBar
+            folders={folders}
+            ungrouped={ungrouped}
+            total={nodes.length}
+            filter={folderFilter}
+            onFilter={setFolderFilter}
+            onCreate={async (name) => { await api.post('/nodes/folders', { name }); await loadFolders() }}
+            onRename={async (id, name) => { await api.patch(`/nodes/folders/${id}`, { name }); await loadFolders(); load() }}
+            onDelete={async (id) => { await api.del(`/nodes/folders/${id}`); await loadFolders(); load() }}
+          />
+          <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、IP、中继、备注…" />
+          <Select value={statusFilter} onChange={setStatusFilter}
+            className="w-[136px] max-w-full shrink-0"
+            options={[
+              { value: 'all', label: `全部状态 ${tabNodes.length}` },
+              { value: 'attention', label: `需处理 ${attentionCount}` },
+              { value: 'error', label: '错误' },
+              { value: 'warning', label: '警告' },
+              { value: 'offline', label: '离线' },
+              { value: 'pending', label: '待同步' },
+              { value: 'disabled', label: '已禁用' },
+              { value: 'ok', label: '正常' },
+            ]} />
           <ToolbarActions>
             <span className="hidden md:inline-flex items-center gap-2 flex-wrap">
               <ToolbarButton onClick={resyncAll} secondary>同步所有</ToolbarButton>
@@ -204,6 +265,12 @@ export default function NodeList() {
               }`}>{label} {n}</button>
           ))}
         </div>
+        {attentionCount > 0 && statusFilter !== 'attention' && (
+          <button type="button" onClick={() => setStatusFilter('attention')}
+            className="w-full text-left px-5 py-2.5 border-b border-line-soft bg-amber-500/5 text-[12.5px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 transition-colors">
+            ⚠ {attentionCount} 个节点需要处理（错误 / 警告 / 离线 / 待同步），点这里只看这些
+          </button>
+        )}
         <TableScroll>
         {nodes.length === 0 ? (
           <Empty title="尚未注册任何节点" desc="点击右上角「添加节点」创建。" />
@@ -216,7 +283,7 @@ export default function NodeList() {
           {!isMobile && <div ref={listRef} className="relative">
           <table className="tbl">
             <thead><tr>
-              <th className="w-14">ID</th><th>名称</th><th>IP 栈</th><th>版本</th><th>最近同步</th><th>状态</th>
+              <th className="w-14">ID</th><th>名称</th><th>IP 栈</th><th>版本</th><th>最近同步</th><th>状态</th><th>到期 / 成本</th>
               <th aria-sort={sort.col === 'traffic' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 title="按授权记账的当期用量：单向计费节点只计上行，随用户流量周期重置清零">
                 <button type="button" onClick={() => cycleSort('traffic')} className="th-sort-btn">
@@ -255,8 +322,12 @@ export default function NodeList() {
                       <span className={`w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.18)]' : 'bg-gray-400 shadow-[0_0_0_3px_rgba(154,163,176,0.16)]'}`} />
                       {n.name}
                       {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
+                      {n.group_name && <Badge color="blue" title="分组">{n.group_name}</Badge>}
                       <NodeBillingBadges node={n} />
                     </span>
+                    {n.remark && (
+                      <div className="text-[11.5px] text-ink-mut mt-0.5 max-w-[220px] truncate" title={n.remark}>{n.remark}</div>
+                    )}
                   </td>
                   <td>
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -270,18 +341,11 @@ export default function NodeList() {
                     {fmtTime(n.last_apply_at?.Valid ? n.last_apply_at.Int64 : null)}
                   </td>
                   <td><NodeStatus node={n} /></td>
-                  <td className="font-mono text-xs text-ink-mut">{fmtBytes(node_traffic[n.id] || 0)}</td>
+                  <td><NodeOpsCell node={n} /></td>
+                  <td className="font-mono text-xs text-ink-mut">{billedTrafficCell(n, node_traffic, node_raw_traffic)}</td>
                   {tab !== 'composite' && <td className="font-mono text-xs text-ink-mut">{fmtBytes(node_raw_traffic[n.id] || 0)}</td>}
                   <td className="font-mono text-xs whitespace-nowrap min-w-[170px]">
-                    {speeds[n.id] ? (
-                      <>
-                        <span className="text-emerald-600">↑{fmtSpeed(speeds[n.id].up)}</span>
-                        {' '}
-                        <span className="text-emerald-600">↓{fmtSpeed(speeds[n.id].down)}</span>
-                      </>
-                    ) : (
-                      <span className="text-ink-mut">--</span>
-                    )}
+                    <NodeSpeedCell nodeId={n.id} />
                   </td>
                   <td className="text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                     <div className="flex gap-2 justify-end">
@@ -320,21 +384,21 @@ export default function NodeList() {
                     <span className={`w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'bg-green-500' : 'bg-gray-400'}`} />
                     {n.name}
                     {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
+                    {n.group_name && <Badge color="blue">{n.group_name}</Badge>}
                     <NodeBillingBadges node={n} />
                   </span>
                   <NodeStatus node={n} />
                 </div>
+                {n.remark && <div className="text-[11.5px] text-ink-mut mb-1 truncate" title={n.remark}>{n.remark}</div>}
+                <div className="text-[11.5px] text-ink-mut mb-1"><NodeOpsCell node={n} /></div>
                 <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
                   <span className="font-mono text-ink-mut">{fmtBytes(node_traffic[n.id] || 0)}</span>
                   {n.node_type !== 'composite' && <>
                     <span className="text-ink-mut">·</span>
                     <span className="font-mono text-ink-mut">原始 {fmtBytes(node_raw_traffic[n.id] || 0)}</span>
                   </>}
-                  {speeds[n.id] && <>
-                    <span className="text-ink-mut">·</span>
-                    <span className="font-mono text-emerald-600">↑{fmtSpeed(speeds[n.id].up)}</span>
-                    <span className="font-mono text-emerald-600">↓{fmtSpeed(speeds[n.id].down)}</span>
-                  </>}
+                  <span className="text-ink-mut">·</span>
+                  <NodeSpeedCell nodeId={n.id} />
                 </div>
               </Link>
             ))}
@@ -471,26 +535,75 @@ function AddNodeModal({ open, onClose, onDone }) {
   )
 }
 
-function NodeStatus({ node }) {
-  if (node.disabled) return <Badge color="amber">禁用</Badge>
+// nodeHealth is the single source of truth for the status badge, the
+// 「需处理」filter and the attention banner, so they can never disagree.
+// Priority: disabled > error > warning > offline > pending > ok.
+function nodeHealth(node) {
+  if (node.disabled) return 'disabled'
   // A composite node has no agent of its own to sync; its health is the
   // aggregate of its child hops, so show online/offline rather than a sync
   // state that would always read as "pending" or surface a spurious error.
-  if (node.node_type === 'composite') {
-    return node.online === 1 ? <Badge color="green">在线</Badge> : <Badge color="gray">离线</Badge>
-  }
-  // Error/warning outrank connectivity: they explain why the node needs
-  // attention, so they stay visible while offline instead of being hidden
-  // behind a silent "离线" — matches the detail page header's priority
-  // (disabled > error > warning > online > offline).
-  const lastErr = nullStr(node.last_error)
-  if (lastErr) return <Badge color="red" title={lastErr}>错误</Badge>
-  if (node.last_warning) return <Badge color="amber" title={node.last_warning}>警告</Badge>
+  if (node.node_type === 'composite') return node.online === 1 ? 'ok' : 'offline'
+  if (nullStr(node.last_error)) return 'error'
+  if (node.last_warning) return 'warning'
   // A disconnected agent is offline regardless of when it last synced; a stale
   // "已同步" on an offline node misrepresents its real state.
-  if (node.online !== 1) return <Badge color="gray">离线</Badge>
-  if (node.last_apply_at?.Valid) return <Badge color="green">已同步</Badge>
-  return <Badge color="amber">待同步</Badge>
+  if (node.online !== 1) return 'offline'
+  if (node.last_apply_at?.Valid) return 'ok'
+  return 'pending'
+}
+
+function NodeStatus({ node }) {
+  const h = nodeHealth(node)
+  if (h === 'disabled') return <Badge color="amber">禁用</Badge>
+  if (h === 'error') return <Badge color="red" title={nullStr(node.last_error)}>错误</Badge>
+  if (h === 'warning') return <Badge color="amber" title={node.last_warning}>警告</Badge>
+  if (h === 'offline') return <Badge color="gray">离线</Badge>
+  if (h === 'pending') return <Badge color="amber">待同步</Badge>
+  return node.node_type === 'composite' ? <Badge color="green">在线</Badge> : <Badge color="green">已同步</Badge>
+}
+
+// Live rate for one row: only this cell re-renders when the number moves.
+function NodeSpeedCell({ nodeId }) {
+  const sp = useNodeSpeedValue(nodeId)
+  if (!sp) return <span className="text-ink-mut">--</span>
+  return (
+    <>
+      <span className="text-emerald-600">↑{fmtSpeed(sp.up)}</span>
+      {' '}
+      <span className="text-emerald-600">↓{fmtSpeed(sp.down)}</span>
+    </>
+  )
+}
+
+// Billed traffic for a node that only serves as a composite member reads 0
+// while its raw counter is climbing; show a dash so it is not mistaken for an
+// idle machine.
+function billedTrafficCell(node, nodeTraffic, nodeRawTraffic) {
+  const billed = nodeTraffic[node.id] || 0
+  const raw = nodeRawTraffic[node.id] || 0
+  if (billed === 0 && raw > 0) {
+    return <span title="该节点只作为组合链路成员，计费流量记在组合节点上；这里显示原始流量">—</span>
+  }
+  return fmtBytes(billed)
+}
+
+// Renewal date + monthly cost, admin-only metadata.
+function NodeOpsCell({ node }) {
+  const badge = node.expires_at > 0 ? expiryBadge(node.expires_at) : null
+  const cost = node.monthly_cost_cents > 0 ? `¥${(node.monthly_cost_cents / 100).toFixed(2)}/月` : ''
+  if (!badge && !cost) return <span className="text-ink-mut text-xs">—</span>
+  return (
+    <span className="inline-flex items-center gap-1.5 flex-wrap">
+      {node.expires_at > 0 && (
+        <span className="text-xs text-ink-soft" title={fmtDate(node.expires_at)}>
+          {fmtDate(node.expires_at).slice(0, 10)}
+        </span>
+      )}
+      {badge && <Badge color={badge.color}>{badge.label}</Badge>}
+      {cost && <span className="text-[11.5px] text-ink-mut">{cost}</span>}
+    </span>
+  )
 }
 
 function CompositeNodeModal({ open, onClose, nodes, onDone }) {

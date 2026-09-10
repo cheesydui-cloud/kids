@@ -420,8 +420,12 @@ func (s *Server) apiListNodes(w http.ResponseWriter, r *http.Request) {
 	for _, n := range nodes {
 		normalizeAgentVersion(n, lv, latestAgentSHA)
 	}
+	views := make([]adminNodeView, len(nodes))
+	for i, n := range nodes {
+		views[i] = nodeAdminView(n)
+	}
 	jsonOK(w, map[string]any{
-		"nodes": nodes, "panel_url": panelURL, "panel_name": panelName,
+		"nodes": views, "panel_url": panelURL, "panel_name": panelName,
 		"node_traffic":         nodeTraffic,
 		"node_raw_traffic":     nodeRawTraffic,
 		"latest_agent_version": lv,
@@ -630,7 +634,7 @@ func (s *Server) apiCreateNode(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.apiDispatch(n.ID)
 	// Return the plaintext secret so the operator can copy the install command.
-	jsonOK(w, map[string]any{"node": n, "secret": plaintextSecret})
+	jsonOK(w, map[string]any{"node": nodeAdminView(n), "secret": plaintextSecret})
 }
 
 // nodeWithSecret re-exposes a node's secret on the admin node-detail response
@@ -641,7 +645,7 @@ func (s *Server) apiCreateNode(w http.ResponseWriter, r *http.Request) {
 // value is a non-recoverable hash (SecretHashed true) — the UI then prompts a
 // reset instead of showing an unusable value.
 type nodeWithSecret struct {
-	*db.Node
+	adminNodeView
 	Secret       string `json:"secret"`
 	SecretLegacy bool   `json:"secret_legacy"`
 }
@@ -735,7 +739,7 @@ func (s *Server) apiGetNode(w http.ResponseWriter, r *http.Request) {
 		shownSecret = ""
 	}
 	resp := map[string]any{
-		"node": nodeWithSecret{Node: n, Secret: shownSecret, SecretLegacy: secretHashed == 1}, "rule_hops": views, "panel_url": panelURL,
+		"node": nodeWithSecret{adminNodeView: nodeAdminView(n), Secret: shownSecret, SecretLegacy: secretHashed == 1}, "rule_hops": views, "panel_url": panelURL,
 		"panel_url_configured": panelURL != "",
 		"latest_agent_version": lv,
 		"latest_agent_sha":     latestAgentSHA,
