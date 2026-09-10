@@ -19,6 +19,7 @@ export default function RulesDetail() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [bindings, setBindings] = useState([])
   const toast = useToast()
   const blurred = useBlur()
@@ -26,13 +27,22 @@ export default function RulesDetail() {
 
   const load = () => {
     setLoading(true)
-    api.get(`/rules/${id}`).then(setData).catch(console.error).finally(() => setLoading(false))
+    setLoadError('')
+    api.get(`/rules/${id}`).then(setData).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
     api.get('/node-bindings').then(d => setBindings(d?.bindings || [])).catch(console.error)
   }
   useEffect(load, [id])
 
   if (loading) return <Layout><Loading /></Layout>
-  if (!data) return <Layout><Empty title="规则不存在" /></Layout>
+  if (!data) {
+    return (
+      <Layout>
+        <Empty title={loadError ? '加载失败' : '规则不存在'} desc={loadError}>
+          <button onClick={load} className="btn-secondary text-xs mt-3">重试</button>
+        </Empty>
+      </Layout>
+    )
+  }
 
   const { rule, hops = [], nodes = [], node_by_id = {} } = data
   const node = node_by_id[rule.node_id]

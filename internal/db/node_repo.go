@@ -214,6 +214,24 @@ func DeleteNodeRepoEntry(d *sql.DB, id int64) error {
 	return err
 }
 
+// DeleteNodeRepoEntries removes several repository entries in a single
+// statement and returns how many rows were deleted.
+func DeleteNodeRepoEntries(d *sql.DB, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	ph := strings.Repeat("?,", len(ids)-1) + "?"
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	res, err := d.Exec(`DELETE FROM node_repo WHERE id IN (`+ph+`)`, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // SetNodeRepoBackendIP updates only the current IPv4. Other fields stay put.
 func SetNodeRepoBackendIP(d *sql.DB, id int64, ip string) error {
 	_, err := d.Exec(`UPDATE node_repo SET backend_ip=? WHERE id=?`, strings.TrimSpace(ip), id)

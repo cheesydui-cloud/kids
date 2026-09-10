@@ -3,9 +3,10 @@ import { NavLink } from 'react-router-dom'
 import { api } from '../lib/api'
 import { fmtDate } from '../lib/fmt'
 import { BrandBadge } from './BrandMark'
-import { Badge, Modal } from './ui'
+import { Badge, Modal, activateProps } from './ui'
 import { useUser } from './Layout'
 import { clearLoginAnnouncementSession } from './LoginAnnouncementModal'
+import { getStoredTheme, resolvedDark, setStoredTheme } from '../lib/theme'
 
 const annColorMeta = {
   red: { badge: 'red', label: '紧急', bar: 'border-l-rose-500' },
@@ -17,6 +18,20 @@ const annColorMeta = {
 export function UserPortalHead({ title = '我的订阅', extra = null }) {
   const { logoUrl } = useUser()
   const [annOpen, setAnnOpen] = useState(false)
+  // Regular users get the same light/dark control as the admin topbar. While no
+  // explicit choice is stored we keep following the OS preference.
+  const [dark, setDark] = useState(() => resolvedDark(getStoredTheme()))
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const sync = () => { if (getStoredTheme() == null) setDark(resolvedDark(null)) }
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  const toggleTheme = () => {
+    const next = dark ? 'light' : 'dark'
+    setStoredTheme(next)
+    setDark(next === 'dark')
+  }
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const readKey = 'announcements.read'
@@ -24,10 +39,30 @@ export function UserPortalHead({ title = '我的订阅', extra = null }) {
     try { return new Set(JSON.parse(localStorage.getItem(readKey) || '[]')) } catch { return new Set() }
   })
 
+	  // Server read receipts win over the local cache: merge them in so the
+	  // unread badge follows the account across browsers and devices.
+	  const applyReadIDs = (remote) => {
+	    if (!Array.isArray(remote) || remote.length === 0) return
+	    setReadIds((prev) => {
+	      const next = new Set(prev)
+	      let changed = false
+	      for (const id of remote) {
+	        if (!next.has(id)) { next.add(id); changed = true }
+	      }
+	      if (!changed) return prev
+	      try { localStorage.setItem(readKey, JSON.stringify([...next])) } catch { /* ignore quota */ }
+	      return next
+	    })
+	  }
+
 	  useEffect(() => {
 	    let cancelled = false
 	    api.get('/my/announcements')
-	      .then((d) => { if (!cancelled) setItems(d?.announcements || []) })
+	      .then((d) => {
+	        if (cancelled) return
+	        setItems(d?.announcements || [])
+	        applyReadIDs(d?.read_ids)
+	      })
 	      .catch(() => { if (!cancelled) setItems([]) })
 	    return () => { cancelled = true }
 	  }, [])
@@ -36,7 +71,7 @@ export function UserPortalHead({ title = '我的订阅', extra = null }) {
 	    if (!annOpen) return
 	    setLoading(true)
 	    api.get('/my/announcements')
-	      .then((d) => setItems(d?.announcements || []))
+	      .then((d) => { setItems(d?.announcements || []); applyReadIDs(d?.read_ids) })
 	      .catch(() => setItems([]))
 	      .finally(() => setLoading(false))
 	  }, [annOpen])
@@ -48,9 +83,11 @@ export function UserPortalHead({ title = '我的订阅', extra = null }) {
       if (prev.has(id)) return prev
       const next = new Set(prev)
       next.add(id)
-      localStorage.setItem(readKey, JSON.stringify([...next]))
+      try { localStorage.setItem(readKey, JSON.stringify([...next])) } catch { /* ignore quota */ }
       return next
     })
+    // Local badge updates instantly; the server copy makes it stick elsewhere.
+    api.post(`/my/announcements/${id}/read`).catch(() => {})
   }
 
   const handleLogout = async () => {
@@ -74,6 +111,9 @@ export function UserPortalHead({ title = '我的订阅', extra = null }) {
 	              <span className="sub-chip-dot" aria-label={`${unread} 条未读`}>{unread > 9 ? '9+' : unread}</span>
 	            )}
 	          </button>
+          <button type="button" className="sub-chip" onClick={toggleTheme} title={dark ? '切换到浅色' : '切换到深色'}>
+            {dark ? '浅色' : '深色'}
+          </button>
           <NavLink to="/change-password" className="sub-chip">账户设置</NavLink>
           <button type="button" className="sub-chip" onClick={handleLogout}>退出账号</button>
         </div>
@@ -94,8 +134,8 @@ export function UserPortalHead({ title = '我的订阅', extra = null }) {
               return (
                 <div
                   key={a.id}
-                  className={`border-b border-line-soft pb-3 last:border-0 last:pb-0 cursor-pointer transition-opacity border-l-2 pl-3 ${meta?.bar || 'border-l-transparent'} ${isRead ? 'opacity-60' : ''}`}
-                  onClick={() => markRead(a.id)}
+                  {...activateProps(() => markRead(a.id), { role: 'button' })}
+                  className={`border-b border-line-soft pb-3 last:border-0 last:pb-0 cursor-pointer transition-opacity border-l-2 pl-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand-from)] ${meta?.bar || 'border-l-transparent'} ${isRead ? 'opacity-60' : ''}`}
                 >
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     {pinned && <Badge color="amber">置顶</Badge>}

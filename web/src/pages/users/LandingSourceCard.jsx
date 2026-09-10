@@ -431,15 +431,18 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
   const [assigning, setAssigning] = useState(false)
   const [search, setSearch] = useState('')
   const [folderFilter, setFolderFilter] = useState('') // '' all | '0' ungrouped | folder id
+  const [loadError, setLoadError] = useState('')
   const toast = useToast()
 
-  useEffect(() => {
+  const loadRepo = () => {
     setLoading(true)
+    setLoadError('')
     Promise.all([
       api.get('/node-repo').then(d => setRepoNodes(d?.nodes || [])),
       api.get('/node-repo-folders').then(d => setFolders(d?.folders || [])).catch(() => setFolders([])),
-    ]).catch(console.error).finally(() => setLoading(false))
-  }, [])
+    ]).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
+  }
+  useEffect(loadRepo, [])
 
   // host:port already on this user (any source) — still selectable for re-import/refresh.
   const existingAddr = useMemo(() => {
@@ -552,6 +555,11 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
 
         {loading ? (
           <div className="text-sm text-ink-mut text-center py-10">加载中…</div>
+        ) : loadError ? (
+          <div className="text-sm text-ink-mut text-center py-10">
+            <p className="m-0">{loadError}</p>
+            <button type="button" onClick={loadRepo} className="btn-secondary text-xs mt-3">重试</button>
+          </div>
         ) : repoNodes.length === 0 ? (
           <div className="text-sm text-ink-mut text-center py-10">落地仓库为空，请先在「落地仓库」页面添加节点。</div>
         ) : filtered.length === 0 ? (

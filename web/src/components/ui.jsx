@@ -7,7 +7,81 @@ import { HealthDot } from './HealthDot'
 // Portal to document.body so nested page overflow/transform can't clip the sheet.
 // Animation is opacity-only: any transform/filter on the panel creates a containing
 // block that crops native <input type="date"> calendars and Select portals.
+//
+// Keyboard/screen-reader behavior: Escape closes, Tab is trapped inside the
+// sheet, focus is restored to the trigger on close, and body scroll is locked
+// while it is open.
 export function Modal({ open, onClose, title, children, wide }) {
+  const panelRef = useRef(null)
+  const restoreRef = useRef(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    if (!open) return undefined
+    const opener = document.activeElement
+    restoreRef.current = opener
+    // The app scrolls inside <main>, not <body>, so lock the nearest scrollable
+    // ancestor as well or the page keeps scrolling behind the sheet on mobile.
+    const scroller = (() => {
+      let el = opener && opener.nodeType === 1 ? opener : null
+      while (el && el !== document.body) {
+        const oy = getComputedStyle(el).overflowY
+        if (oy === 'auto' || oy === 'scroll') return el
+        el = el.parentElement
+      }
+      return document.body
+    })()
+    const prevBodyOverflow = document.body.style.overflow
+    const prevScrollerOverflow = scroller.style.overflow
+    document.body.style.overflow = 'hidden'
+    scroller.style.overflow = 'hidden'
+    const panel = panelRef.current
+    const focusables = () => {
+      if (!panel) return []
+      return Array.from(panel.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onCloseRef.current?.()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      if (items.length === 0) {
+        e.preventDefault()
+        panel?.focus?.()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === panel)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    // Only pull focus in when the caller did not already focus a field
+    // (autoFocus inputs land inside the sheet during commit).
+    if (!panel?.contains(document.activeElement)) {
+      const target = panel?.querySelector('[data-autofocus]') || panel
+      target?.focus?.()
+    }
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevBodyOverflow
+      scroller.style.overflow = prevScrollerOverflow
+      const back = restoreRef.current
+      restoreRef.current = null
+      if (back && typeof back.focus === 'function' && document.contains(back)) back.focus()
+    }
+  }, [open])
+
   if (!open) return null
   return createPortal(
     <div
@@ -15,7 +89,12 @@ export function Modal({ open, onClose, title, children, wide }) {
       onClick={onClose}
     >
       <div
-        className={`relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full my-auto ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeof title === 'string' ? title : undefined}
+        tabIndex={-1}
+        className={`relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full my-auto outline-none ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-line-soft">
@@ -219,8 +298,14 @@ export function CopyText({ text, children, hideIcon = false }) {
       setTimeout(() => setCopied(false), 1200)
     }).catch(() => { /* text stays on screen for manual copy; no toast here */ })
   }
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      copy(e)
+    }
+  }
   return (
-    <span className="cursor-pointer relative inline-flex items-center gap-1 group" onClick={copy} title="点击复制">
+    <span role="button" tabIndex={0} aria-label="复制" className="cursor-pointer relative inline-flex items-center gap-1 group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand-from)] rounded" onClick={copy} onKeyDown={onKeyDown} title="点击复制">
       {children || text}
       {!hideIcon && (
         <svg className="w-3.5 h-3.5 opacity-30 group-hover:opacity-70 transition-opacity flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"/></svg>
@@ -271,6 +356,27 @@ export function SensText({ children, blurred }) {
       {children}
     </span>
   )
+}
+
+/* ---------- Keyboard activation helper ---------- */
+// Spread onto a non-button container that should behave like a link/button for
+// mouse users. Keys inside nested controls (checkboxes, action buttons) keep
+// their own behavior because the handler only fires when the container itself
+// is the event target.
+export function activateProps(onActivate, { role = 'link' } = {}) {
+  if (!onActivate) return {}
+  return {
+    role,
+    tabIndex: 0,
+    onClick: onActivate,
+    onKeyDown: (e) => {
+      if (e.target !== e.currentTarget) return
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        onActivate()
+      }
+    },
+  }
 }
 
 /* ---------- ProbeButton ---------- */
@@ -559,7 +665,13 @@ export function Select({ value, onChange, options = [], groups, placeholder = '�
 
   return (
     <div ref={ref} className={`relative ${className}`} style={style}>
-      <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setOpen(o => !o)}
+      <button ref={triggerRef} type="button" disabled={disabled}
+        aria-haspopup="listbox" aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        onKeyDown={e => {
+          if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false) }
+          else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !open) { e.preventDefault(); setOpen(true) }
+        }}
         className="input-field flex items-center justify-between gap-2 text-left disabled:opacity-60 disabled:cursor-not-allowed">
         <span className={`flex items-center gap-1.5 min-w-0 ${hasSelection ? 'text-ink' : 'text-ink-mut'}`}>
           {selected && selected.icon}

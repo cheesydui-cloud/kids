@@ -174,7 +174,8 @@ func (s *Server) apiDeleteAnnouncement(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true})
 }
 
-// apiMyAnnouncements returns announcements targeted to the current user.
+// apiMyAnnouncements returns announcements targeted to the current user, plus
+// the ids this account has already read (synced across devices).
 func (s *Server) apiMyAnnouncements(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	list, err := db.ListAnnouncementsForUser(s.DB, u.ID)
@@ -185,7 +186,47 @@ func (s *Server) apiMyAnnouncements(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []db.Announcement{}
 	}
-	jsonOK(w, map[string]any{"announcements": list})
+	readIDs, err := db.ReadAnnouncementIDs(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if readIDs == nil {
+		readIDs = []int64{}
+	}
+	jsonOK(w, map[string]any{"announcements": list, "read_ids": readIDs})
+}
+
+// apiMarkAnnouncementRead records a read receipt for the current user after
+// checking that the notice is actually visible to them.
+func (s *Server) apiMarkAnnouncementRead(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	u := userFromCtx(r.Context())
+	list, err := db.ListAnnouncementsForUser(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	visible := false
+	for _, a := range list {
+		if a.ID == id {
+			visible = true
+			break
+		}
+	}
+	if !visible {
+		jsonErr(w, http.StatusNotFound, "announcement not found")
+		return
+	}
+	if err := db.MarkAnnouncementRead(s.DB, u.ID, id); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonOK(w, map[string]any{"ok": true})
 }
 
 // apiMyLoginAnnouncement returns the single notice marked for the login popup,

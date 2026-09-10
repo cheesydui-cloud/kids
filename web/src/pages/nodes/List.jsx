@@ -5,7 +5,7 @@ import { fmtTime, fmtBytes, nullStr } from '../../lib/fmt'
 import { useSpeed, fmtSpeed } from '../../lib/useSpeed'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { Layout, useToast } from '../../components/Layout'
-import { Loading, Empty, Badge, Modal, Confirm, NodeStackBadge, NodeBillingBadges, useConfirm, Select, CopyText } from '../../components/ui'
+import { Loading, Empty, Badge, Modal, Confirm, NodeStackBadge, NodeBillingBadges, useConfirm, Select, CopyText, activateProps } from '../../components/ui'
 import { PageHeader, Panel, PanelToolbar, SearchInput, ToolbarButton, ToolbarActions, TableScroll } from '../../components/page'
 
 export default function NodeList() {
@@ -187,10 +187,12 @@ export default function NodeList() {
       <Panel fill>
         <PanelToolbar>
           <SearchInput value={search} onChange={setSearch} placeholder="搜索节点名称…" />
-          <ToolbarActions className="hidden md:flex">
-            <ToolbarButton onClick={resyncAll} secondary>同步所有</ToolbarButton>
-            <ToolbarButton onClick={upgradeAll} secondary>一键升级全部</ToolbarButton>
-            <ToolbarButton onClick={() => setShowComposite(true)} secondary>＋ 组合节点</ToolbarButton>
+          <ToolbarActions>
+            <span className="hidden md:inline-flex items-center gap-2 flex-wrap">
+              <ToolbarButton onClick={resyncAll} secondary>同步所有</ToolbarButton>
+              <ToolbarButton onClick={upgradeAll} secondary>一键升级全部</ToolbarButton>
+              <ToolbarButton onClick={() => setShowComposite(true)} secondary>＋ 组合节点</ToolbarButton>
+            </span>
             <ToolbarButton onClick={() => setShowAdd(true)}>＋ 添加节点</ToolbarButton>
           </ToolbarActions>
         </PanelToolbar>
@@ -215,16 +217,22 @@ export default function NodeList() {
           <table className="tbl">
             <thead><tr>
               <th className="w-14">ID</th><th>名称</th><th>IP 栈</th><th>版本</th><th>最近同步</th><th>状态</th>
-              <th className="cursor-pointer select-none" onClick={() => cycleSort('traffic')}
+              <th aria-sort={sort.col === 'traffic' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 title="按授权记账的当期用量：单向计费节点只计上行，随用户流量周期重置清零">
-                <span className="inline-flex items-center">流量<SortArrow col="traffic" sort={sort} /></span>
+                <button type="button" onClick={() => cycleSort('traffic')} className="th-sort-btn">
+                  流量<SortArrow col="traffic" sort={sort} />
+                </button>
               </th>
-              {tab !== 'composite' && <th className="cursor-pointer select-none" onClick={() => cycleSort('rawtraffic')}
+              {tab !== 'composite' && <th aria-sort={sort.col === 'rawtraffic' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 title="节点实际转发的累计字节（上行+下行），不乘倍率、不随重置清零">
-                <span className="inline-flex items-center">原始流量<SortArrow col="rawtraffic" sort={sort} /></span>
+                <button type="button" onClick={() => cycleSort('rawtraffic')} className="th-sort-btn">
+                  原始流量<SortArrow col="rawtraffic" sort={sort} />
+                </button>
               </th>}
-              <th className="cursor-pointer select-none min-w-[170px]" onClick={() => cycleSort('speed')}>
-                <span className="inline-flex items-center">速度<SortArrow col="speed" sort={sort} /></span>
+              <th className="min-w-[170px]" aria-sort={sort.col === 'speed' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button type="button" onClick={() => cycleSort('speed')} className="th-sort-btn">
+                  速度<SortArrow col="speed" sort={sort} />
+                </button>
               </th>
               <th className="text-right">操作</th>
             </tr></thead>
@@ -236,8 +244,8 @@ export default function NodeList() {
                   onPointerDown={e => onPinDown(e, i)}
                   onPointerMove={onPinMove}
                   onPointerUp={onPinUp}
-                  onClick={() => { if (!pinClickGuard.current) navigate(`/nodes/${n.id}`) }}
-                  className={`cursor-pointer ${dragIndex === i ? 'opacity-50' : ''} ${pinMode?.idx === i ? 'opacity-40' : ''}`}>
+                  {...activateProps(() => { if (!pinClickGuard.current) navigate(`/nodes/${n.id}`) })}
+                  className={`cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--brand-from)] ${dragIndex === i ? 'opacity-50' : ''} ${pinMode?.idx === i ? 'opacity-40' : ''}`}>
                   <td className="font-mono text-xs text-ink-mut">
                     {draggable && <span className="text-ink-mut mr-1 select-none cursor-move" title="拖拽排序"
                       draggable onDragStart={() => setDragIndex(i)}>⠿</span>}#{n.id}
@@ -277,10 +285,10 @@ export default function NodeList() {
                   </td>
                   <td className="text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                     <div className="flex gap-2 justify-end">
-                      {n.node_type !== 'composite' && <button onClick={() => resyncNode(n.id)} title="重新同步" className="icon-btn">
+                      {n.node_type !== 'composite' && <button onClick={() => resyncNode(n.id)} title="重新同步" aria-label="重新同步" className="icon-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
                       </button>}
-                      <button onClick={() => deleteNode(n)} title="删除" className="icon-btn-danger">
+                      <button onClick={() => deleteNode(n)} title="删除" aria-label="删除节点" className="icon-btn-danger">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
                       </button>
                     </div>

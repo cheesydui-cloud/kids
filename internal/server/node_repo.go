@@ -593,6 +593,31 @@ func (s *Server) apiDeleteNodeRepoFolder(w http.ResponseWriter, r *http.Request)
 	jsonOK(w, map[string]any{"ok": true})
 }
 
+// apiBatchDeleteNodeRepoEntries deletes several repository entries in one
+// request so the UI does not have to fire N sequential DELETEs.
+func (s *Server) apiBatchDeleteNodeRepoEntries(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(body.IDs) == 0 {
+		jsonErr(w, http.StatusBadRequest, "no nodes selected")
+		return
+	}
+	n, err := db.DeleteNodeRepoEntries(s.DB, body.IDs)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if u := userFromCtx(r.Context()); u != nil {
+		db.WriteAudit(s.DB, u.ID, "node_repo.batch_delete", "", fmt.Sprintf("%d entries", n))
+	}
+	jsonOK(w, map[string]any{"ok": true, "count": n})
+}
+
 // apiDeleteNodeRepoEntry deletes a node from the repository.
 func (s *Server) apiDeleteNodeRepoEntry(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")

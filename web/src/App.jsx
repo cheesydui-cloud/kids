@@ -16,6 +16,7 @@ const RulesDetail = lazy(() => import('./pages/rules/Detail'))
 const UserList = lazy(() => import('./pages/users/List'))
 const UserDetail = lazy(() => import('./pages/users/Detail'))
 const Announcements = lazy(() => import('./pages/Announcements'))
+const Audit = lazy(() => import('./pages/Audit'))
 const NodeRepo = lazy(() => import('./pages/NodeRepo'))
 const Docs = lazy(() => import('./pages/Docs'))
 const MySubscribe = lazy(() => import('./pages/my/Subscribe'))
@@ -142,6 +143,7 @@ export default function App() {
           <Route path="/users/:id" element={<AdminRoute><UserDetail /></AdminRoute>} />
           <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
           <Route path="/announcements" element={<AdminRoute><Announcements /></AdminRoute>} />
+          <Route path="/audit" element={<AdminRoute><Audit /></AdminRoute>} />
           <Route path="/docs" element={<AdminRoute><Docs /></AdminRoute>} />
           <Route path="/node-repo" element={<AdminRoute><NodeRepo /></AdminRoute>} />
 

@@ -706,6 +706,9 @@ func (s *Server) Router() http.Handler {
 			r.Delete("/users/{id}", s.apiDeleteUser)
 			r.Post("/grants/batch-apply", s.apiBatchApplyGrants)
 
+			// Audit log (read-only view of operator actions)
+			r.Get("/audit-logs", s.apiListAuditLogs)
+
 			// Announcements
 			r.Get("/announcements", s.apiListAnnouncements)
 			r.Post("/announcements", s.apiCreateAnnouncement)
@@ -735,6 +738,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/node-repo/{id}/cf-resync", s.apiResyncNodeRepoCF)
 			r.Post("/node-repo/cf-lookup", s.apiLookupNodeRepoCF)
 			r.Post("/node-repo/batch-group", s.apiBatchSetNodeRepoGroup)
+			r.Post("/node-repo/batch-delete", s.apiBatchDeleteNodeRepoEntries)
 			r.Delete("/node-repo/{id}", s.apiDeleteNodeRepoEntry)
 			r.Get("/node-repo-folders", s.apiListNodeRepoFolders)
 			r.Post("/node-repo-folders", s.apiCreateNodeRepoFolder)
@@ -753,6 +757,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/my/subscribe/rotate", s.apiMyRotateSubscribe)
 			r.Get("/my/landing-nodes", s.apiMyLandingNodes)
 			r.Get("/my/announcements", s.apiMyAnnouncements)
+			r.Post("/my/announcements/{id}/read", s.apiMarkAnnouncementRead)
 			r.Get("/my/login-announcement", s.apiMyLoginAnnouncement)
 			r.Get("/my/docs", s.apiMyDocs)
 			r.Get("/my/docs/{id}", s.apiMyGetDoc)

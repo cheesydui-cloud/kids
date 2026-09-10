@@ -14,6 +14,7 @@ export default function NodeRepo() {
   const [folders, setFolders] = useState([])
   const [ungrouped, setUngrouped] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [showBulk, setShowBulk] = useState(false)
   const [showMove, setShowMove] = useState(false)
@@ -38,10 +39,11 @@ export default function NodeRepo() {
 
   const load = () => {
     setLoading(true)
+    setLoadError('')
     Promise.all([
       api.get('/node-repo').then(d => setList(d?.nodes || [])),
       loadFolders(),
-    ]).catch(console.error).finally(() => setLoading(false))
+    ]).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
   }
   useEffect(load, [])
 
@@ -54,8 +56,8 @@ export default function NodeRepo() {
     if (sel.size === 0) { toast('请先勾选要删除的节点', 'error'); return }
     if (!(await confirm({ title: '批量删除', message: `确认删除选中的 ${sel.size} 个节点？`, confirmText: '删除', danger: true }))) return
     try {
-      for (const id of sel) { await api.del(`/node-repo/${id}`) }
-      toast(`已删除 ${sel.size} 个节点`)
+      const d = await api.post('/node-repo/batch-delete', { ids: [...sel] })
+      toast(`已删除 ${d?.count ?? sel.size} 个节点`)
       setSel(new Set())
       load()
     } catch (err) { toast(err.message, 'error') }
@@ -200,7 +202,11 @@ export default function NodeRepo() {
         </PanelToolbar>
 
         <TableScroll>
-        {!list || list.length === 0 ? (
+        {loadError ? (
+          <Empty title="加载失败" desc={loadError}>
+            <button onClick={load} className="btn-secondary text-xs mt-3">重试</button>
+          </Empty>
+        ) : !list || list.length === 0 ? (
           <Empty title="暂无节点" desc="点击右上角「添加节点」将预先准备好的代理节点录入落地仓库。" />
         ) : filtered.length === 0 ? (
           <Empty title="无匹配节点" desc="试试别的关键词或分组。" />

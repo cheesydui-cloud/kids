@@ -53,6 +53,7 @@ export default function NodeDetail() {
   const [changeIPOpen, setChangeIPOpen] = useState(false)
   const [changeIPVal, setChangeIPVal] = useState('')
   const [cfBusy, setCfBusy] = useState(false)
+  const [loadError, setLoadError] = useState('')
   // revealedSecret holds the one-time plaintext token returned by a reset; it
   // is never persisted server-side and is cleared when the reveal modal closes.
   const [revealedSecret, setRevealedSecret] = useState('')
@@ -74,7 +75,8 @@ export default function NodeDetail() {
   }
   const load = () => {
     setLoading(true)
-    api.get(`/nodes/${id}`).then(applyData).catch(console.error).finally(() => setLoading(false))
+    setLoadError('')
+    api.get(`/nodes/${id}`).then(applyData).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
   }
   // Refresh without the full-page Loading swap: load() unmounts every card,
   // which would wipe in-progress child edits (e.g. binding rows) — the silent
@@ -107,7 +109,15 @@ export default function NodeDetail() {
   }, [offline, id])
 
   if (loading) return <Layout><Loading /></Layout>
-  if (!data) return <Layout><Empty title="节点不存在" /></Layout>
+  if (!data) {
+    return (
+      <Layout>
+        <Empty title={loadError ? '加载失败' : '节点不存在'} desc={loadError}>
+          <button onClick={load} className="btn-secondary text-xs mt-3">重试</button>
+        </Empty>
+      </Layout>
+    )
+  }
 
   const { node, panel_url, panel_url_configured, latest_agent_version, latest_agent_sha } = data
   const ruleHops = data.rule_hops || []

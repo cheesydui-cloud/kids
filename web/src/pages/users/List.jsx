@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { billedUsedBytes, fmtDate, fmtTrafficGB, nullStr, nullInt, toLocalDateTimeValue, unixFromDateInput } from '../../lib/fmt'
 import { Layout, useToast } from '../../components/Layout'
-import { Loading, Empty, Badge, Modal, Select, DateInput } from '../../components/ui'
+import { Loading, Empty, Badge, Modal, Select, DateInput, activateProps } from '../../components/ui'
 import { copyToClipboard } from '../../lib/clipboard'
 import { PageHeader, Panel, PanelToolbar, SearchInput, ToolbarButton, ToolbarActions, TableScroll } from '../../components/page'
 import FolderBar, { MoveToFolderModal } from '../../components/FolderBar'
@@ -143,8 +143,10 @@ export default function UserList() {
           {sel.size > 0 && (
             <button onClick={() => setShowMove(true)} className="btn-secondary !h-[32px] text-xs">移入分组 ({sel.size})</button>
           )}
-          <ToolbarActions className="hidden md:flex">
-            <ToolbarButton onClick={() => setShowPaste(true)} secondary>粘贴授权</ToolbarButton>
+          <ToolbarActions>
+            <span className="hidden md:inline-flex">
+              <ToolbarButton onClick={() => setShowPaste(true)} secondary>粘贴授权</ToolbarButton>
+            </span>
             <ToolbarButton onClick={() => setShowCreate(true)}>＋ 新建用户</ToolbarButton>
           </ToolbarActions>
         </PanelToolbar>
@@ -161,14 +163,18 @@ export default function UserList() {
               <th className="w-8"><input type="checkbox"
                 checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
               <th className="w-16">ID</th><th>用户名</th><th>分组</th><th>角色</th><th>规则配额</th><th>流量</th><th>状态</th>
-              <th className="cursor-pointer select-none whitespace-nowrap" onClick={toggleExpirySort}>到期{sortBy === 'expires_asc' ? ' ↑' : sortBy === 'expires_desc' ? ' ↓' : ''}</th>
+              <th className="whitespace-nowrap" aria-sort={sortBy === 'expires_asc' ? 'ascending' : sortBy === 'expires_desc' ? 'descending' : 'none'}>
+                <button type="button" onClick={toggleExpirySort} className="th-sort-btn">
+                  到期{sortBy === 'expires_asc' ? ' ↑' : sortBy === 'expires_desc' ? ' ↓' : ''}
+                </button>
+              </th>
               <th>备注</th>
             </tr></thead>
             <tbody>
               {filtered.map((u, i) => (
                   <tr key={u.id}
-                    className={`cursor-pointer ${dragIndex === i ? 'opacity-50' : ''}`}
-                    onClick={() => navigate(`/users/${u.id}`)}
+                    className={`cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--brand-from)] ${dragIndex === i ? 'opacity-50' : ''}`}
+                    {...activateProps(() => navigate(`/users/${u.id}`))}
                     onDragOver={draggable ? e => e.preventDefault() : undefined}
                     onDrop={draggable ? () => onDrop(i) : undefined}>
                     <td onClick={e => e.stopPropagation()}>

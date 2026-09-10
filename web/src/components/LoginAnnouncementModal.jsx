@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { useUser } from './Layout'
 import { Badge } from './ui'
@@ -32,6 +32,14 @@ export function LoginAnnouncementModal() {
   const timerRef = useRef(null)
   const tickRef = useRef(null)
   const shownForUser = useRef(null)
+  const okRef = useRef(null)
+
+  // Dismissing (manually, via Escape, or by timeout) also records a read
+  // receipt so the unread badge is not stuck on a notice the user just saw.
+  const markReadAndClose = useCallback(() => {
+    setOpen(false)
+    if (ann?.id) api.post(`/my/announcements/${ann.id}/read`).catch(() => {})
+  }, [ann?.id])
 
   useEffect(() => {
     if (!user || user.role === 'admin') {
@@ -70,12 +78,25 @@ export function LoginAnnouncementModal() {
     tickRef.current = setInterval(() => {
       setLeft(v => (v > 0 ? v - 1 : 0))
     }, 1000)
-    timerRef.current = setTimeout(() => setOpen(false), AUTO_CLOSE_SEC * 1000)
+    timerRef.current = setTimeout(markReadAndClose, AUTO_CLOSE_SEC * 1000)
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
       if (tickRef.current) clearInterval(tickRef.current)
     }
-  }, [open, ann?.id])
+  }, [open, ann?.id, markReadAndClose])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    okRef.current?.focus?.()
+    const onKey = (e) => { if (e.key === 'Escape') markReadAndClose() }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [open, markReadAndClose])
 
   if (!open || !ann) return null
 
@@ -102,7 +123,7 @@ export function LoginAnnouncementModal() {
           </div>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={markReadAndClose}
             className="w-8 h-8 rounded-lg text-ink-mut hover:text-ink hover:bg-raised transition-colors grid place-items-center text-lg leading-none flex-none"
             aria-label="关闭公告"
           >
@@ -119,7 +140,7 @@ export function LoginAnnouncementModal() {
         </div>
         <div className="px-6 pb-5 flex items-center justify-between gap-3">
           <span className="text-xs text-ink-mut">{left > 0 ? `${left} 秒后自动关闭` : '即将关闭…'}</span>
-          <button type="button" onClick={() => setOpen(false)} className="btn-primary px-5">
+          <button ref={okRef} type="button" onClick={markReadAndClose} className="btn-primary px-5">
             我知道了
           </button>
         </div>

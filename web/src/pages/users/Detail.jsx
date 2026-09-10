@@ -38,12 +38,13 @@ export default function UserDetail() {
   const [bindings, setBindings] = useState([])
   const [nodeRoles, setNodeRoles] = useState({})
   const [probeAllTrigger, setProbeAllTrigger] = useState(0)
+  const [loadError, setLoadError] = useState('')
   const [showCard, setShowCard] = useState(false)
   const confirm = useConfirm()
 
   const load = (silent) => {
-    if (!silent) setLoading(true)
-    api.get(`/users/${id}`).then(setData).catch(console.error).finally(() => setLoading(false))
+    if (!silent) { setLoading(true); setLoadError('') }
+    api.get(`/users/${id}`).then(setData).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
   }
   const refreshLandingForRules = () => {
     load(true)
@@ -63,7 +64,15 @@ export default function UserDetail() {
   )
 
   if (loading) return <Layout><Loading /></Layout>
-  if (!data) return <Layout><Empty title="用户不存在" /></Layout>
+  if (!data) {
+    return (
+      <Layout>
+        <Empty title={loadError ? '加载失败' : '用户不存在'} desc={loadError}>
+          <button onClick={() => load()} className="btn-secondary text-xs mt-3">重试</button>
+        </Empty>
+      </Layout>
+    )
+  }
 
   const { user, nodes = [], grants = [], all_nodes = [], rules = [], landing_nodes = [] } = data
   const nodeMap = Object.fromEntries(all_nodes.map(n => [n.id, n]))

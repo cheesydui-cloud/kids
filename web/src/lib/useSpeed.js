@@ -159,6 +159,28 @@ export function fmtSpeed(bps) {
   return (bps / 1073741824).toFixed(2) + ' GB/s'
 }
 
+// Subscribe to a single rule's live rate. The table renders one of these per
+// row, so a busy panel only re-renders the cells whose numbers actually moved
+// instead of reconciling the whole list every second.
+export function useRuleSpeedValue(ruleId, { enabled = true } = {}) {
+  const [val, setVal] = useState(undefined)
+  useEffect(() => {
+    if (!enabled || !ruleId) return undefined
+    let prevUp
+    let prevDown
+    return ensureShared().subscribe(({ ruleSpeeds }) => {
+      const s = ruleSpeeds[ruleId]
+      const up = s?.up || 0
+      const down = s?.down || 0
+      if (up === prevUp && down === prevDown) return
+      prevUp = up
+      prevDown = down
+      setVal({ up, down })
+    })
+  }, [ruleId, enabled])
+  return val
+}
+
 // Sum per-rule live rates. Each rule already picks the entry hop only, so
 // this is "all users right now" without counting the same chain twice.
 export function sumRuleSpeeds(ruleSpeeds) {

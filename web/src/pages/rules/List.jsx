@@ -179,7 +179,7 @@ export default function RulesList() {
       <Panel fill>
         <PanelToolbar>
           <SearchInput value={search} onChange={setSearch} placeholder="搜索规则名称、节点、目标…" />
-          <ToolbarActions className="hidden md:flex">
+          <ToolbarActions>
             <ToolbarButton onClick={openCreate}>＋ 创建规则</ToolbarButton>
           </ToolbarActions>
         </PanelToolbar>
@@ -270,7 +270,7 @@ function FilterDropdown({ label, icon, options, selected, onChange, searchPlaceh
 
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen(o => !o)}
+      <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
         className="inline-flex items-center gap-2 h-[34px] px-3.5 rounded-[9px] text-[13.5px] cursor-pointer transition-colors bg-surface border border-line text-ink-soft hover:border-ink-mut">
         {icon}
         {label}
@@ -294,13 +294,13 @@ function FilterDropdown({ label, icon, options, selected, onChange, searchPlaceh
             ) : shown.map(o => {
               const checked = selected.has(o.value)
               return (
-                <div key={o.value} onClick={() => toggle(o.value)}
-                  className="flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg cursor-pointer text-[13px] text-ink hover:bg-raised transition-colors">
+                <button key={o.value} type="button" aria-pressed={checked} onClick={() => toggle(o.value)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg cursor-pointer text-left text-[13px] text-ink hover:bg-raised transition-colors">
                   <span className={`w-4 h-4 flex-none rounded border-[1.5px] flex items-center justify-center ${checked ? 'bg-[color:var(--brand-from)] border-[color:var(--brand-from)]' : 'border-line'}`}>
                     {checked && <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
                   </span>
                   <span className="truncate">{o.label}</span>
-                </div>
+                </button>
               )
             })}
           </div>

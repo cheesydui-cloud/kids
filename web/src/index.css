@@ -833,6 +833,29 @@ input[type="radio"] {
    label lines up with right-aligned data below it (the base rule's higher
    specificity would otherwise win and pull the label left). */
 .tbl th.text-right { @apply text-right; }
+/* Sortable headers are real buttons inside the th so keyboard users can sort
+   and screen readers get aria-sort on the cell. */
+.th-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.th-sort-btn:hover { color: color-mix(in srgb, var(--color-ink) 85%, transparent); }
+.th-sort-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand-from) 70%, transparent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
 .tbl td {
   @apply py-[14px] px-5 align-middle whitespace-nowrap text-[13.5px];
   border-bottom: 1.5px solid var(--color-line-soft);
@@ -1602,7 +1625,7 @@ input[type="radio"] {
   .sub-reset-link { margin-left: 46px; }
   .sub-hero-meta {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     width: 100%;
   }

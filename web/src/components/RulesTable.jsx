@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Badge, ProtoBadge, SensText, CopyText, Tooltip, ExitKindBadge, Spinner, NodeTypeIcon } from './ui'
+import { Badge, ProtoBadge, SensText, CopyText, Tooltip, ExitKindBadge, Spinner, NodeTypeIcon, activateProps } from './ui'
 import { useCopyFmt, useToast } from './Layout'
 import { fmtBytes, fmtDate, isExpired, expiryBadge } from '../lib/fmt'
 import { buildRelayDisplayName } from '../lib/landing'
 import { formatRelayCopyText, formatRuleCopyText, relayExpiryFromMap } from '../lib/relayCopy'
 import { createLimiter } from '../lib/limiter'
 import { useIsMobile } from '../lib/useIsMobile'
-import { useRuleSpeed, fmtSpeed } from '../lib/useSpeed'
+import { useRuleSpeedValue, fmtSpeed } from '../lib/useSpeed'
 import { HealthDot } from './HealthDot'
 import { QRCodeButton } from './QRCodeModal'
 
@@ -33,15 +33,24 @@ function SortArrow({ dir }) {
   )
 }
 
+function SortableTh({ col, sort, cycleSort, children, align = 'left' }) {
+  const active = sort.col === col
+  return (
+    <th aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={() => cycleSort(col)}
+        className={`th-sort-btn ${align === 'right' ? 'w-full justify-end' : ''}`}>
+        {children}<SortArrow dir={active ? sort.dir : null} />
+      </button>
+    </th>
+  )
+}
+
 export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, onEdit, onCopy, onToggle, onRowClick, probeAllTrigger, displayRate = 1, landingExpiry, copyUsername = '' }) {
   const isAdmin = variant === 'admin'
   const isMobile = useIsMobile()
   const [sort, setSort] = useState({ col: null, dir: null })
   const { copyFmt } = useCopyFmt()
   const toast = useToast()
-  // Live rates are admin-only: the user list hides the speed column entirely.
-  // Per-rule only (never node totals) so rules sharing a relay show independent ↑/↓.
-  const ruleSpeeds = useRuleSpeed({ enabled: isAdmin })
 
   const ownerForCopy = (r) => r.owner_name || copyUsername || ''
 
@@ -90,32 +99,25 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
         <tr>
           {isAdmin && <th className="w-12">ID</th>}
           <th>名称</th>
-          <th className="cursor-pointer select-none" onClick={() => cycleSort('node')}>
-            <span className="inline-flex items-center">节点<SortArrow dir={sort.col === 'node' ? sort.dir : null} /></span>
-          </th>
+          <SortableTh col="node" sort={sort} cycleSort={cycleSort}>节点</SortableTh>
           {isAdmin && <th>入口 / 出口</th>}
           <th>协议</th>
           {isAdmin && (
-            <th className="cursor-pointer select-none" onClick={() => cycleSort('owner')}>
-              <span className="inline-flex items-center">所有者<SortArrow dir={sort.col === 'owner' ? sort.dir : null} /></span>
-            </th>
+            <SortableTh col="owner" sort={sort} cycleSort={cycleSort}>所有者</SortableTh>
           )}
           <th>备注</th>
           {isAdmin && <th className="whitespace-nowrap">网速</th>}
-          <th className="text-right cursor-pointer select-none" onClick={() => cycleSort('traffic')}>
-            <span className="inline-flex items-center justify-end">流量<SortArrow dir={sort.col === 'traffic' ? sort.dir : null} /></span>
-          </th>
+          <SortableTh col="traffic" sort={sort} cycleSort={cycleSort} align="right">流量</SortableTh>
           <th className="text-right">操作</th>
         </tr>
       </thead>
       <tbody>
         {sorted.map(r => {
           const node = nodeMap[r.node_id]
-          const sp = isAdmin ? (ruleSpeeds[r.id] || { up: 0, down: 0 }) : null
           return (
             <tr key={r.id}
-              className={onRowClick ? 'cursor-pointer' : ''}
-              onClick={onRowClick ? () => onRowClick(r) : undefined}>
+              className={onRowClick ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--brand-from)]' : ''}
+              {...(onRowClick ? activateProps(() => onRowClick(r)) : {})}>
               {isAdmin && <td className="font-mono text-xs text-ink-mut">#{r.id}</td>}
               <td className="font-semibold">
                 <span className="inline-flex items-center gap-1.5">
@@ -211,10 +213,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
               </td>
               {isAdmin && (
               <td className="font-mono text-xs whitespace-nowrap">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="text-emerald-600">↑{fmtSpeed(sp.up)}</span>
-                  <span className="text-emerald-600">↓{fmtSpeed(sp.down)}</span>
-                </span>
+                <RuleSpeedCell ruleId={r.id} />
               </td>
               )}
               <td className="text-right font-mono text-xs text-ink-mut">{fmtBytes(Math.round(((r.exit_bytes || 0)) * displayRate))}</td>
@@ -243,13 +242,12 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
     <div>
       {sorted.map(r => {
         const node = nodeMap[r.node_id]
-        const sp = isAdmin ? (ruleSpeeds[r.id] || { up: 0, down: 0 }) : null
         return (
           <div key={r.id} className={`mobile-card ${onRowClick ? 'cursor-pointer' : ''}`}
-            onClick={onRowClick ? () => onRowClick(r) : undefined}>
+            {...(onRowClick ? activateProps(() => onRowClick(r)) : {})}>
             <div className="flex items-center justify-between mb-1">
               <span className="font-semibold text-[14px] inline-flex items-center gap-1.5">{r.name}{r.disabled && <Badge color="amber">停用</Badge>}</span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                 <ProbeIconButton ruleId={r.id} probeAllTrigger={probeAllTrigger} />
                 {isAdmin && <QRCodeButton text={ruleQRText(r)} toast={toast} />}
                 <ProtoBadge proto={r.proto} />
@@ -265,7 +263,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
               {isAdmin && (
                 <>
                   <span className="text-ink-mut">·</span>
-                  <span className="font-mono text-emerald-600">↑{fmtSpeed(sp.up)} ↓{fmtSpeed(sp.down)}</span>
+                  <RuleSpeedCell ruleId={r.id} compact />
                 </>
               )}
               <span className="text-ink-mut">·</span>
@@ -288,6 +286,21 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
     </div>
     )
   }
+}
+
+// Isolated live-rate cell: owns its own subscription so the surrounding list
+// is untouched when speeds tick.
+function RuleSpeedCell({ ruleId, compact = false }) {
+  const sp = useRuleSpeedValue(ruleId)
+  if (compact) {
+    return <span className="font-mono text-emerald-600">↑{fmtSpeed(sp?.up)} ↓{fmtSpeed(sp?.down)}</span>
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-emerald-600">↑{fmtSpeed(sp?.up)}</span>
+      <span className="text-emerald-600">↓{fmtSpeed(sp?.down)}</span>
+    </span>
+  )
 }
 
 function ProbeIconButton({ ruleId, probeAllTrigger }) {
@@ -332,6 +345,7 @@ function ProbeIconButton({ ruleId, probeAllTrigger }) {
   return (
     <span className="inline-flex items-center gap-1">
       <button onClick={probe} disabled={state === 'loading'} title={tip || label || '测试连通性'}
+        aria-label={label || '测试连通性'}
         className={`icon-btn ${state === 'ok' ? '!text-green-500 !border-green-500/30' : state === 'fail' ? '!text-red-400 !border-red-500/30' : ''}`}>
         {state === 'loading' ? <Spinner className="w-4 h-4" /> : <IconPulse />}
       </button>
@@ -367,18 +381,20 @@ function MoreMenu({ items }) {
     if (rect.bottom > maxBottom) setDropUp(true)
   }, [open])
   const toggle = () => { setDropUp(false); setOpen(o => !o) }
+  const onMenuKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }
   const pos = dropUp ? 'bottom-[calc(100%+4px)]' : 'top-[calc(100%+4px)]'
   return (
     <div ref={ref} className="relative">
-      <button onClick={toggle} className="icon-btn">
+      <button onClick={toggle} className="icon-btn" aria-label="更多操作" aria-haspopup="menu" aria-expanded={open}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
       </button>
       {open && (
-        <div ref={menuRef} className={`absolute right-0 ${pos} z-50 min-w-[100px] bg-surface border border-line rounded-lg shadow-[0_8px_30px_-8px_rgba(0,0,0,0.5)] py-1`}>
+        <div ref={menuRef} role="menu" onKeyDown={onMenuKey}
+          className={`absolute right-0 ${pos} z-50 min-w-[100px] bg-surface border border-line rounded-lg shadow-[0_8px_30px_-8px_rgba(0,0,0,0.5)] py-1`}>
           {items.map((item, i) => item.href ? (
-            <Link key={i} to={item.href} className="block px-3.5 py-2 text-[13px] text-ink hover:bg-raised transition-colors no-underline">{item.label}</Link>
+            <Link key={i} to={item.href} role="menuitem" className="block px-3.5 py-2 text-[13px] text-ink hover:bg-raised transition-colors no-underline">{item.label}</Link>
           ) : (
-            <button key={i} onClick={() => { setOpen(false); item.onClick() }}
+            <button key={i} role="menuitem" onClick={() => { setOpen(false); item.onClick() }}
               className={`block w-full text-left px-3.5 py-2 text-[13px] transition-colors bg-transparent border-0 cursor-pointer ${item.danger ? 'link-danger hover:bg-rose-50 dark:hover:bg-rose-950/30' : 'text-ink hover:bg-raised'}`}>{item.label}</button>
           ))}
         </div>

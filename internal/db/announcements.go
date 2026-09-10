@@ -277,8 +277,45 @@ func itoa(n int64) string {
 	return string(buf[i:])
 }
 
-// DeleteAnnouncement removes an announcement by ID.
+// DeleteAnnouncement removes an announcement and its read receipts.
 func DeleteAnnouncement(d *sql.DB, id int64) error {
-	_, err := d.Exec(`DELETE FROM announcements WHERE id = ?`, id)
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM announcement_reads WHERE announcement_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM announcements WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MarkAnnouncementRead records a user's read receipt. Repeat reads are a no-op
+// apart from refreshing read_at, so the client can call it optimistically.
+func MarkAnnouncementRead(d *sql.DB, userID, announcementID int64) error {
+	_, err := d.Exec(`INSERT INTO announcement_reads (user_id, announcement_id, read_at) VALUES (?, ?, ?)
+		ON CONFLICT(user_id, announcement_id) DO UPDATE SET read_at = excluded.read_at`,
+		userID, announcementID, now())
 	return err
+}
+
+// ReadAnnouncementIDs returns every notice the user has already read.
+func ReadAnnouncementIDs(d *sql.DB, userID int64) ([]int64, error) {
+	rows, err := d.Query(`SELECT announcement_id FROM announcement_reads WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
