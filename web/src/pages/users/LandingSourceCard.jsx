@@ -442,7 +442,7 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
       api.get('/node-repo-folders').then(d => setFolders(d?.folders || [])).catch(() => setFolders([])),
     ]).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
   }
-  useEffect(loadRepo, [])
+  useEffect(() => { loadRepo() }, [])
 
   // host:port already on this user (any source) — still selectable for re-import/refresh.
   const existingAddr = useMemo(() => {

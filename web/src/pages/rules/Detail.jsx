@@ -31,7 +31,7 @@ export default function RulesDetail() {
     api.get(`/rules/${id}`).then(setData).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
     api.get('/node-bindings').then(d => setBindings(d?.bindings || [])).catch(console.error)
   }
-  useEffect(load, [id])
+  useEffect(() => { load() }, [id])
 
   if (loading) return <Layout><Loading /></Layout>
   if (!data) {

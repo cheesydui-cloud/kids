@@ -45,7 +45,7 @@ export default function NodeRepo() {
       loadFolders(),
     ]).catch((e) => setLoadError(e?.message || '加载失败')).finally(() => setLoading(false))
   }
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
 
   const deleteNode = async (n) => {
     if (!(await confirm({ title: '删除节点', message: `确认删除节点「${n.name}」？`, confirmText: '删除', danger: true }))) return

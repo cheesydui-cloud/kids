@@ -92,7 +92,7 @@ export default function RulesList() {
     // loads once alongside the rule list rather than per-node like /bindings.
     api.get('/node-bindings').then(d => setBindings(d?.bindings || [])).catch(console.error)
   }
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
 
   // Only blank the page on the first load; later reloads (delete/edit) keep the
   // current list on screen instead of flashing a full-page spinner.

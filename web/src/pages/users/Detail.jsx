@@ -50,7 +50,7 @@ export default function UserDetail() {
     load(true)
     fetchNodeRoles().then(setNodeRoles).catch(() => setNodeRoles({}))
   }
-  useEffect(load, [id])
+  useEffect(() => { load() }, [id])
   useEffect(() => { api.get('/users').then(d => setAllUsers(d?.users || [])) }, [])
   useEffect(() => { api.get('/node-bindings').then(d => setBindings(d?.bindings || [])).catch(console.error) }, [])
   useEffect(() => { fetchNodeRoles().then(setNodeRoles).catch(() => setNodeRoles({})) }, [])

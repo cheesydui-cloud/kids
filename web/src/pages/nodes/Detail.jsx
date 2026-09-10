@@ -93,7 +93,7 @@ export default function NodeDetail() {
   // which would wipe in-progress child edits (e.g. binding rows) — the silent
   // path keeps them mounted and just refreshes the data underneath.
   const reloadSilent = () => api.get(`/nodes/${id}`).then(applyData).catch(console.error)
-  useEffect(load, [id])
+  useEffect(() => { load() }, [id])
   useEffect(() => { api.get('/nodes/folders').then(d => setFolders(d?.folders || [])).catch(() => {}) }, [])
 
   const saveOps = async (e) => {

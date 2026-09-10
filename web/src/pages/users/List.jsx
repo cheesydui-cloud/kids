@@ -43,7 +43,7 @@ export default function UserList() {
       loadFolders(),
     ]).catch(err => setError(err?.message || '加载失败')).finally(() => setLoading(false))
   }
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
   useEffect(() => { api.get('/nodes').then(d => setAllNodes(d?.nodes || [])) }, [])
 
   if (loading && !data) return <Layout><Loading /></Layout>

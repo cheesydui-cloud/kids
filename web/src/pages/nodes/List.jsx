@@ -45,13 +45,15 @@ export default function NodeList() {
     setError('')
     api.get('/nodes').then(setData).catch(err => setError(err?.message || '加载失败')).finally(() => setLoading(false))
   }
-  useEffect(load, [])
+  // load/loadFolders return Promises. Passing them to useEffect makes React
+  // treat the Promise as a cleanup function on unmount ("X is not a function").
+  useEffect(() => { load() }, [])
 
   const loadFolders = () => api.get('/nodes/folders').then(d => {
     setFolders(d?.folders || [])
     setUngrouped(d?.ungrouped || 0)
   }).catch(() => {})
-  useEffect(loadFolders, [])
+  useEffect(() => { loadFolders() }, [])
 
   // This effect must stay before the loading/error early returns below. The
   // list renders once without data and again with data; placing it after those

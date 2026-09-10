@@ -39,7 +39,7 @@ export default function Announcements() {
       setUsers(u)
     }).finally(() => setLoading(false))
   }
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
 
   const deleteAnn = async (ann) => {
     if (!(await confirm({ title: '删除公告', message: `确认删除公告「${ann.title}」？`, confirmText: '删除', danger: true }))) return
