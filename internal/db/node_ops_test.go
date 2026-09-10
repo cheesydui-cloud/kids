@@ -61,6 +61,24 @@ func TestNodeOpsFieldsAndFolders(t *testing.T) {
 		t.Fatalf("list should expose ops fields: %+v", list)
 	}
 
+	if _, err := UpsertSelfNode(d); err != nil {
+		t.Fatal(err)
+	}
+	folders, err := ListNodeFolders(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(folders) != 1 || folders[0].Count != 1 {
+		t.Fatalf("folder count should ignore the hidden self node: %+v", folders)
+	}
+	ungrouped, err := UngroupedNodeCount(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ungrouped != 0 {
+		t.Fatalf("ungrouped=%d, want 0 (self node must not count)", ungrouped)
+	}
+
 	// Deleting the folder moves the node back to ungrouped but keeps the node.
 	if err := DeleteNodeFolder(d, f.ID); err != nil {
 		t.Fatal(err)
@@ -74,5 +92,13 @@ func TestNodeOpsFieldsAndFolders(t *testing.T) {
 	}
 	if got.Remark == "" {
 		t.Fatal("folder delete must not clear the remark")
+	}
+
+	ungrouped, err = UngroupedNodeCount(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ungrouped != 1 {
+		t.Fatalf("ungrouped=%d after folder delete, want 1 (self still excluded)", ungrouped)
 	}
 }

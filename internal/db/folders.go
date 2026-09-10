@@ -401,13 +401,13 @@ func ListNodeFolders(d *sql.DB) ([]*Folder, error) {
 		return nil, err
 	}
 	for _, f := range out {
-		_ = d.QueryRow(`SELECT COUNT(*) FROM nodes WHERE group_id=?`, f.ID).Scan(&f.Count)
+		_ = d.QueryRow(`SELECT COUNT(*) FROM nodes WHERE group_id=? AND node_type != 'self'`, f.ID).Scan(&f.Count)
 	}
 	return out, nil
 }
 
 func UngroupedNodeCount(d *sql.DB) (int, error) {
-	return count(d, `SELECT COUNT(*) FROM nodes WHERE group_id=0`)
+	return count(d, `SELECT COUNT(*) FROM nodes WHERE group_id=0 AND node_type != 'self'`)
 }
 
 func CreateNodeFolder(d *sql.DB, name string) (*Folder, error) {

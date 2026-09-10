@@ -142,11 +142,12 @@ export default function NodeList() {
   }
 
   const cycleSort = (col) => {
+    // Never call setSpeedSnap inside the setSort updater: React 18 may run
+    // updaters during render, and a nested setState there crashes the page.
+    if (col === 'speed') setSpeedSnap(null)
     setSort(s => {
-      if (col === 'speed') setSpeedSnap(null)
       if (s.col !== col) return { col, dir: 'desc' }
       if (s.dir === 'desc') return { col, dir: 'asc' }
-      if (col === 'speed') setSpeedSnap(null)
       return { col: null, dir: null }
     })
   }
