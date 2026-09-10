@@ -53,6 +53,14 @@ export default function NodeList() {
   }).catch(() => {})
   useEffect(loadFolders, [])
 
+  // This effect must stay before the loading/error early returns below. The
+  // list renders once without data and again with data; placing it after those
+  // returns changes the Hook order between renders.
+  useEffect(() => {
+    if (sort.col !== 'speed' || speedSnap) return
+    if (Object.keys(speeds).length > 0) setSpeedSnap({ ...speeds })
+  }, [sort.col, speeds, speedSnap])
+
   const resyncAll = async () => {
     if (!(await confirm({ title: '同步所有节点', message: '向所有节点重新推送转发规则？', confirmText: '同步' }))) return
     try { await api.post('/nodes/resync-all'); toast('已发起同步'); load() } catch (err) { toast(err.message, 'error') }
@@ -132,12 +140,6 @@ export default function NodeList() {
     setTab(key)
     if (key === 'composite') setSort(s => s.col === 'rawtraffic' ? { col: null, dir: null } : s)
   }
-  // Sorting by speed needs the whole map, which only subscribes while that
-  // sort is active; seed the stable snapshot once the first frame arrives.
-  useEffect(() => {
-    if (sort.col !== 'speed' || speedSnap) return
-    if (Object.keys(speeds).length > 0) setSpeedSnap({ ...speeds })
-  }, [sort.col, speeds, speedSnap])
 
   const cycleSort = (col) => {
     setSort(s => {
