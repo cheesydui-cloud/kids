@@ -45,6 +45,8 @@ export default function NodeDetail() {
   const [portRange, setPortRange] = useState('10001-60000')
   const [cmdRelayHost, setCmdRelayHost] = useState('')
   const [cmdRelayHostV6, setCmdRelayHostV6] = useState('')
+  const [cmdUseProxy, setCmdUseProxy] = useState(() => sessionStorage.getItem('nodes.install.useProxy') === '1')
+  const [cmdProxy, setCmdProxy] = useState(() => sessionStorage.getItem('nodes.install.proxy') || 'http://127.0.0.1:7890')
   // CF DNS for line entry domain (same idea as 落地仓库).
   const [cfSync, setCfSync] = useState(false)
   const [backendIP, setBackendIP] = useState('')
@@ -311,12 +313,23 @@ export default function NodeDetail() {
   const relayHostPart = cmdRelayHost.trim() ? ` \\\n  --relay-host ${cmdRelayHost.trim()}` : ''
   const relayHostV6Part = cmdRelayHostV6.trim() ? ` \\\n  --relay-host-v6 ${cmdRelayHostV6.trim()}` : ''
   const insecurePart = needsInsecure ? ' \\\n  --insecure' : ''
+  const proxyURL = (() => {
+    const raw = cmdProxy.trim()
+    if (!raw) return ''
+    if (/^(https?|socks4a?|socks5h?):\/\//i.test(raw)) return raw
+    if (/^[\w.-]+:\d+$/.test(raw)) return `http://${raw}`
+    return raw
+  })()
+  const proxyOK = /^(https?|socks4a?|socks5h?):\/\/[^\s'"\\]+$/i.test(proxyURL)
+  const useProxy = cmdUseProxy && proxyOK
+  const curlProxyPart = useProxy ? `-x ${proxyURL} ` : ''
+  const proxyPart = useProxy ? ` \\\n  --proxy ${proxyURL}` : ''
   // Tokens are stored in plaintext, so node.secret carries the real value for
   // the command. revealedSecret (a fresh reset) takes priority before the reload
   // lands. Legacy v3.0.0 nodes (secret_legacy) have an unusable hashed value —
   // node.secret is empty there, so prompt a reset instead.
   const tokenForCmd = revealedSecret || node.secret || (node.secret_legacy ? '<请先点“重置 Token”>' : '')
-  const installCmd = `curl -fsSL ${normalizedPanelUrl}/v1/install-agent | bash -s -- \\\n  --panel-url ${normalizedPanelUrl} \\\n  --token ${tokenForCmd}${portRangePart}${relayHostPart}${relayHostV6Part}${insecurePart}`
+  const installCmd = `curl -fsSL ${curlProxyPart}${normalizedPanelUrl}/v1/install-agent | bash -s -- \\\n  --panel-url ${normalizedPanelUrl} \\\n  --token ${tokenForCmd}${portRangePart}${relayHostPart}${relayHostV6Part}${insecurePart}${proxyPart}`
 
   return (
     <Layout>
@@ -460,6 +473,30 @@ export default function NodeDetail() {
               <input className="input-field font-mono" style={{ height: 30, maxWidth: 220 }} value={cmdRelayHostV6}
                 onChange={e => setCmdRelayHostV6(e.target.value)} placeholder="IPv6（可选）" />
             </div>
+            <div className="mb-3 flex items-center gap-2.5 flex-wrap text-[13px]">
+              <label className="inline-flex items-center gap-2 text-ink-soft cursor-pointer select-none">
+                <input type="checkbox" checked={cmdUseProxy} onChange={e => {
+                  const on = e.target.checked
+                  setCmdUseProxy(on)
+                  sessionStorage.setItem('nodes.install.useProxy', on ? '1' : '0')
+                }} />
+                走代理安装
+              </label>
+              {cmdUseProxy && (
+                <input className="input-field font-mono" style={{ height: 30, maxWidth: 280 }} value={cmdProxy}
+                  onChange={e => {
+                    setCmdProxy(e.target.value)
+                    sessionStorage.setItem('nodes.install.proxy', e.target.value)
+                  }}
+                  placeholder="http://127.0.0.1:7890" />
+              )}
+              {cmdUseProxy && !proxyOK && (
+                <span className="text-[12px] text-amber-700 dark:text-amber-300">填 http(s)/socks5 代理，例如 http://127.0.0.1:7890</span>
+              )}
+            </div>
+            {cmdUseProxy && proxyOK && (
+              <p className="m-0 mb-3 text-[12px] text-ink-mut">只给拉取安装脚本和 nft-agent 走代理；装好后控制信道仍直连面板。</p>
+            )}
             <div className="relative bg-[#1e1e2e] dark:bg-app border border-line rounded-[10px] px-5 py-[18px]">
               <button onClick={() => copyToClipboard(installCmd).then(() => toast('已复制')).catch(() => toast('复制失败', 'error'))}
                 className="absolute top-3.5 right-3.5 text-[12.5px] font-semibold text-[#a0a4b0] bg-[#2a2a3c] border border-[#3a3a4c] px-3.5 py-[6px] rounded-[7px] cursor-pointer hover:bg-[#33334a] transition-colors">复制</button>

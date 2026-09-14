@@ -39,6 +39,10 @@ curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.s
 # 远程节点：在面板「节点详情」复制命令（从面板下载，不经过 GitHub）
 curl -fsSL http://面板IP:7788/v1/install-agent | bash -s -- --panel-url http://面板IP:7788 --token <hex> --insecure
 
+# 国内机器装国外面板：勾选「走代理安装」，或手工加 curl -x 与 --proxy
+curl -fsSL -x http://127.0.0.1:7890 http://面板IP:7788/v1/install-agent | bash -s -- \
+  --panel-url http://面板IP:7788 --token <hex> --insecure --proxy http://127.0.0.1:7890
+
 # 单机 TUI（不装 Web 面板）
 curl -fsSL https://raw.githubusercontent.com/cheesydui-cloud/kids/main/install.sh | bash -s tui
 

@@ -30,7 +30,9 @@ PORT_RANGE=""
 RELAY_HOST=""
 RELAY_HOST_V6=""
 ALLOW_INSECURE="${NFTF_ALLOW_INSECURE:-}"
+INSTALL_PROXY="${NFTF_CURL_PROXY:-}"
 CURL_TLS=()
+CURL_PROXY=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,6 +47,8 @@ while [[ $# -gt 0 ]]; do
     --relay-host-v6) require_val --relay-host-v6 "${2:-}"; RELAY_HOST_V6="$2"; shift 2 ;;
     --relay-host-v6=*) RELAY_HOST_V6="${1#*=}"; shift ;;
     --insecure) ALLOW_INSECURE=1; shift ;;
+    --proxy) require_val --proxy "${2:-}"; INSTALL_PROXY="$2"; shift 2 ;;
+    --proxy=*) INSTALL_PROXY="${1#*=}"; shift ;;
     -k|--insecure-tls) CURL_TLS=(-k); shift ;;
     -h|--help)
       cat <<'H'
@@ -55,6 +59,7 @@ kids 节点安装（只连面板）
   --relay-host H    数据面 IPv4/域名
   --relay-host-v6 H 数据面 IPv6
   --insecure        允许明文 http 控制信道
+  --proxy URL       下载安装脚本/二进制时走 HTTP 或 SOCKS 代理
   -k                curl 跳过 TLS 校验（自签证书）
 H
       exit 0 ;;
@@ -78,6 +83,23 @@ case "$PANEL_URL" in
   *) die "缺少面板地址：加 --panel-url http://面板IP:7788（和 curl 同一个地址）" ;;
 esac
 [[ -n "$TOKEN" ]] || die "缺少 --token（在面板节点详情页复制）"
+
+if [[ -n "$INSTALL_PROXY" ]]; then
+  case "$INSTALL_PROXY" in
+    *$'\n'*|*$'\r'*|*[[:space:]]*) die "--proxy 不能包含空白" ;;
+  esac
+  # Letters, digits, and URL punctuation only — keeps curl -x / nft-upgrade quoting simple.
+  if ! printf '%s' "$INSTALL_PROXY" | grep -Eq '^[A-Za-z0-9._~:/?#[@!$&()*+,;=-]+$'; then
+    die "--proxy 含有非法字符"
+  fi
+  case "$INSTALL_PROXY" in
+    http://*|https://*|socks4://*|socks4a://*|socks5://*|socks5h://*) ;;
+    *:[0-9]*) INSTALL_PROXY="http://$INSTALL_PROXY" ;;
+    *) die "--proxy 只支持 http(s)://、socks5:// 或 host:port，例如 http://127.0.0.1:7890" ;;
+  esac
+  CURL_PROXY=(-x "$INSTALL_PROXY")
+  note "下载走代理: $INSTALL_PROXY"
+fi
 
 case "$PANEL_URL" in
   https://*|http://*) ;;
@@ -130,8 +152,8 @@ url="$PANEL_URL/v1/binary?arch=$ARCH"
 note "[1/4] 从面板下载 nft-agent ($ARCH) ..."
 note "      $url"
 curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --progress-bar \
-  "${CURL_TLS[@]}" -D "$hdr" "$url" -o "$bin" \
-  || die "从面板下载失败。请确认本机能访问 $PANEL_URL ，且面板已升级到含节点安装接口的版本"
+  "${CURL_TLS[@]}" "${CURL_PROXY[@]}" -D "$hdr" "$url" -o "$bin" \
+  || die "从面板下载失败。请确认本机能访问 $PANEL_URL（或代理可达），且面板已升级到含节点安装接口的版本"
 
 size="$(wc -c < "$bin" | tr -d ' ')"
 if [[ -z "$size" || "$size" -lt 1048576 ]]; then
@@ -210,10 +232,16 @@ StateDirectoryMode=0750
 WantedBy=multi-user.target
 EOF
 
+proxy_flag=""
+curl_proxy_flag=""
+if [[ -n "$INSTALL_PROXY" ]]; then
+  proxy_flag=" --proxy $(printf '%q' "$INSTALL_PROXY")"
+  curl_proxy_flag="-x $(printf '%q' "$INSTALL_PROXY") "
+fi
 cat >"$INSTALL_DIR/nft-upgrade" <<UP
 #!/usr/bin/env bash
 set -euo pipefail
-curl -fsSL ${CURL_TLS[*]+"${CURL_TLS[*]} "} $PANEL_URL/v1/install-agent | bash -s -- --token "\$(cat $ETC_DIR/panel.token)" ${PORT_RANGE:+--port-range $PORT_RANGE} ${RELAY_HOST:+--relay-host $RELAY_HOST} ${RELAY_HOST_V6:+--relay-host-v6 $RELAY_HOST_V6} ${ALLOW_INSECURE:+--insecure}
+curl -fsSL ${CURL_TLS[*]+"${CURL_TLS[*]} "}${curl_proxy_flag:-}$PANEL_URL/v1/install-agent | bash -s -- --token "\$(cat $ETC_DIR/panel.token)" ${PORT_RANGE:+--port-range $PORT_RANGE} ${RELAY_HOST:+--relay-host $RELAY_HOST} ${RELAY_HOST_V6:+--relay-host-v6 $RELAY_HOST_V6} ${ALLOW_INSECURE:+--insecure}${proxy_flag}
 UP
 chmod 0755 "$INSTALL_DIR/nft-upgrade"
 

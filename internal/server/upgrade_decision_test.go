@@ -84,6 +84,23 @@ func TestServeInstallAgentBakesPanelURL(t *testing.T) {
 	}
 }
 
+func TestInstallAgentScriptAcceptsProxyFlag(t *testing.T) {
+	s := installscript.AgentInstall
+	for _, want := range []string{
+		"--proxy)",
+		"--proxy=*)",
+		`CURL_PROXY=(-x "$INSTALL_PROXY")`,
+		"${CURL_PROXY[@]}",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("installer missing %q", want)
+		}
+	}
+	if strings.Contains(s, "__KIDS_PANEL_URL__") && strings.Count(s, "--proxy") < 2 {
+		t.Fatal("expected --proxy in both the flag parser and help/upgrade wrapper")
+	}
+}
+
 func TestInstallScriptPlaceholderOnce(t *testing.T) {
 	n := strings.Count(installscript.AgentInstall, "__KIDS_PANEL_URL__")
 	if n != 1 {
