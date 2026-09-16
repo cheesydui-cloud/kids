@@ -245,12 +245,13 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 overflow-y-auto px-4 py-6" onClick={onClose}>
-      <div className="bg-surface rounded-xl shadow-2xl border border-line w-full max-w-lg my-auto max-h-[calc(100vh-3rem)] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-line-soft shrink-0 bg-surface z-10">
+    <div className="fixed inset-0 z-[60] overflow-y-auto overscroll-contain bg-black/40" onClick={onClose}>
+      <div className="flex min-h-full items-start justify-center px-4 py-6">
+      <div className="bg-surface rounded-xl shadow-2xl border border-line w-full max-w-lg my-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-line-soft bg-surface">
           <h3 className="text-[16px] font-bold">{editing ? '编辑公告' : '发布公告'}</h3>
         </div>
-        <form onSubmit={submit} className="px-6 py-5 space-y-4 overflow-y-auto overscroll-contain min-h-0">
+        <form onSubmit={submit} className="px-6 py-5 space-y-4">
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">标题</label>
             <input className="input-field" value={title} onChange={e => setTitle(e.target.value)} placeholder="输入公告标题" autoFocus />
@@ -338,6 +339,7 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
             </button>
           </div>
         </form>
+      </div>
       </div>
     </div>
   )
