@@ -8,6 +8,12 @@ import { HealthDot } from './HealthDot'
 // Animation is opacity-only: any transform/filter on the panel creates a containing
 // block that crops native <input type="date"> calendars and Select portals.
 //
+// Tall sheets (落地仓库添加节点、规则表单) must scroll inside the panel: a flex
+// overlay with items-center clips the overflowing start edge, so the footer
+// (保存) cannot be reached. Overlay stays items-start + overflow-y-auto with
+// my-auto on the panel so short dialogs still center. DateInput/Select menus
+// portal to document.body, so inner overflow-y-auto does not clip them.
+//
 // Keyboard/screen-reader behavior: Escape closes, Tab is trapped inside the
 // sheet, focus is restored to the trigger on close, and body scroll is locked
 // while it is open.
@@ -85,7 +91,7 @@ export function Modal({ open, onClose, title, children, wide }) {
   if (!open) return null
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center bg-black/50 backdrop-blur-[4px] px-4 py-6 overflow-y-auto"
+      className="fixed inset-0 z-[80] flex items-start justify-center bg-black/50 backdrop-blur-[4px] px-4 py-6 overflow-y-auto"
       onClick={onClose}
     >
       <div
@@ -94,14 +100,14 @@ export function Modal({ open, onClose, title, children, wide }) {
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
         tabIndex={-1}
-        className={`relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full my-auto outline-none ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
+        className={`relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full my-auto outline-none flex flex-col max-h-[calc(100vh-3rem)] ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line-soft">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line-soft shrink-0">
           <h3 className="text-[16px] font-bold tracking-tight text-ink">{title}</h3>
           <button type="button" onClick={onClose} className="w-8 h-8 rounded-lg text-ink-mut hover:text-ink hover:bg-raised transition-colors grid place-items-center text-lg leading-none" aria-label="关闭弹窗">&times;</button>
         </div>
-        <div className="px-6 py-6">{children}</div>
+        <div className="px-6 py-6 overflow-y-auto overscroll-contain min-h-0">{children}</div>
       </div>
     </div>,
     document.body,
