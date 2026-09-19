@@ -104,16 +104,15 @@ export function LoginAnnouncementModal() {
   const bar = accentBar[ann.color] || accentBar.default
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto overscroll-contain bg-black/50 backdrop-blur-[4px]">
-      <div className="flex min-h-full items-start justify-center px-4 py-6">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-[4px] p-4 sm:p-6">
       <div
-        className="bg-surface/95 border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full max-w-lg my-auto animate-in backdrop-blur-xl overflow-hidden"
+        className="bg-surface/95 border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full max-w-lg min-h-0 max-h-full flex flex-col animate-in backdrop-blur-xl overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label="登录公告"
       >
         <div className={`h-1.5 w-full ${bar}`} />
-        <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-line-soft">
+        <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-line-soft shrink-0">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <Badge color="violet">登录公告</Badge>
@@ -131,7 +130,7 @@ export function LoginAnnouncementModal() {
             &times;
           </button>
         </div>
-        <div className="px-6 py-5">
+        <div className="px-6 py-5 min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="text-[14px] text-ink-soft whitespace-pre-wrap leading-relaxed">
             {ann.content}
           </div>
@@ -139,13 +138,12 @@ export function LoginAnnouncementModal() {
             <div className="text-[11px] text-ink-mut mt-4">{fmtDate(ann.created_at)}</div>
           )}
         </div>
-        <div className="px-6 pb-5 flex items-center justify-between gap-3">
+        <div className="px-6 pb-5 flex items-center justify-between gap-3 shrink-0">
           <span className="text-xs text-ink-mut">{left > 0 ? `${left} 秒后自动关闭` : '即将关闭…'}</span>
           <button ref={okRef} type="button" onClick={markReadAndClose} className="btn-primary px-5">
             我知道了
           </button>
         </div>
-      </div>
       </div>
     </div>
   )
