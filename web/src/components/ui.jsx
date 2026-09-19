@@ -8,15 +8,16 @@ import { HealthDot } from './HealthDot'
 // Animation is opacity-only: any transform/filter on the panel creates a containing
 // block that crops native <input type="date"> calendars and Select portals.
 //
-// Tall sheets (落地仓库添加节点、规则表单) scroll inside .nf-modal-body.
-// Panel max-height is calc(100dvh - 3rem), not max-height:100% — percentage
-// max-height on a flex item is ignored, so 备注/到期时间/保存 get clipped
-// with no scrollbar. DateInput/Select portal to body.
+// Tall sheets (落地仓库添加节点、规则表单) scroll on the overlay. The
+// panel must not use overflow:hidden — that swallows wheel events so the
+// mouse wheel never reaches 备注/到期时间/保存. Overlay listens for
+// wheel and drives its own scrollTop. DateInput/Select portal to body.
 //
 // Keyboard/screen-reader behavior: Escape closes, Tab is trapped inside the
 // sheet, focus is restored to the trigger on close, and body scroll is locked
 // while it is open.
 export function Modal({ open, onClose, title, children, wide }) {
+  const overlayRef = useRef(null)
   const panelRef = useRef(null)
   const restoreRef = useRef(null)
   const onCloseRef = useRef(onClose)
@@ -77,8 +78,29 @@ export function Modal({ open, onClose, title, children, wide }) {
       const target = panel?.querySelector('[data-autofocus]') || panel
       target?.focus?.()
     }
+    const overlay = overlayRef.current
+    const onWheel = (e) => {
+      if (e.ctrlKey || !overlay) return
+      let nested = e.target
+      while (nested && nested !== overlay) {
+        if (nested.nodeType === 1) {
+          const oy = getComputedStyle(nested).overflowY
+          if ((oy === 'auto' || oy === 'scroll') && nested.scrollHeight > nested.clientHeight + 1) return
+        }
+        nested = nested.parentElement
+      }
+      const max = overlay.scrollHeight - overlay.clientHeight
+      if (max <= 0) return
+      const next = Math.min(max, Math.max(0, overlay.scrollTop + e.deltaY))
+      if (next === overlay.scrollTop) return
+      overlay.scrollTop = next
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    overlay?.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       document.removeEventListener('keydown', onKey)
+      overlay?.removeEventListener('wheel', onWheel)
       document.body.style.overflow = prevBodyOverflow
       scroller.style.overflow = prevScrollerOverflow
       const back = restoreRef.current
@@ -90,23 +112,26 @@ export function Modal({ open, onClose, title, children, wide }) {
   if (!open) return null
   return createPortal(
     <div
+      ref={overlayRef}
       className="nf-modal-overlay z-[80] bg-black/50 backdrop-blur-[4px]"
       onClick={onClose}
     >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={typeof title === 'string' ? title : undefined}
-        tabIndex={-1}
-        className={`nf-modal-panel relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full outline-none ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line-soft shrink-0">
-          <h3 className="text-[16px] font-bold tracking-tight text-ink">{title}</h3>
-          <button type="button" onClick={onClose} className="w-8 h-8 rounded-lg text-ink-mut hover:text-ink hover:bg-raised transition-colors grid place-items-center text-lg leading-none" aria-label="关闭弹窗">&times;</button>
+      <div className="nf-modal-frame">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={typeof title === 'string' ? title : undefined}
+          tabIndex={-1}
+          className={`nf-modal-panel relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full outline-none ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b border-line-soft">
+            <h3 className="text-[16px] font-bold tracking-tight text-ink">{title}</h3>
+            <button type="button" onClick={onClose} className="w-8 h-8 rounded-lg text-ink-mut hover:text-ink hover:bg-raised transition-colors grid place-items-center text-lg leading-none" aria-label="关闭弹窗">&times;</button>
+          </div>
+          <div className="nf-modal-body px-6 py-6">{children}</div>
         </div>
-        <div className="nf-modal-body px-6 py-6">{children}</div>
       </div>
     </div>,
     document.body,

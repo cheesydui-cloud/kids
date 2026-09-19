@@ -105,6 +105,7 @@ export function LoginAnnouncementModal() {
 
   return (
     <div className="nf-modal-overlay z-[80] bg-black/50 backdrop-blur-[4px]">
+      <div className="nf-modal-frame">
       <div
         className="nf-modal-panel bg-surface/95 border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full max-w-lg animate-in backdrop-blur-xl"
         role="dialog"
@@ -144,6 +145,7 @@ export function LoginAnnouncementModal() {
             我知道了
           </button>
         </div>
+      </div>
       </div>
     </div>
   )

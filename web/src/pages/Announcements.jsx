@@ -246,8 +246,9 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
 
   return (
     <div className="nf-modal-overlay z-[60] bg-black/40" onClick={onClose}>
+      <div className="nf-modal-frame">
       <div className="nf-modal-panel bg-surface rounded-xl shadow-2xl border border-line w-full max-w-lg" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-line-soft bg-surface shrink-0">
+        <div className="px-6 py-4 border-b border-line-soft bg-surface">
           <h3 className="text-[16px] font-bold">{editing ? '编辑公告' : '发布公告'}</h3>
         </div>
         <form onSubmit={submit} className="nf-modal-body px-6 py-5 space-y-4">
@@ -338,6 +339,7 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
             </button>
           </div>
         </form>
+      </div>
       </div>
     </div>
   )
