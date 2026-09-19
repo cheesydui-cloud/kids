@@ -104,9 +104,9 @@ export function LoginAnnouncementModal() {
   const bar = accentBar[ann.color] || accentBar.default
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-[4px] p-4 sm:p-6">
+    <div className="nf-modal-overlay z-[80] bg-black/50 backdrop-blur-[4px]">
       <div
-        className="bg-surface/95 border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full max-w-lg min-h-0 max-h-full flex flex-col animate-in backdrop-blur-xl overflow-hidden"
+        className="nf-modal-panel bg-surface/95 border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full max-w-lg animate-in backdrop-blur-xl"
         role="dialog"
         aria-modal="true"
         aria-label="登录公告"
@@ -130,7 +130,7 @@ export function LoginAnnouncementModal() {
             &times;
           </button>
         </div>
-        <div className="px-6 py-5 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="nf-modal-body px-6 py-5">
           <div className="text-[14px] text-ink-soft whitespace-pre-wrap leading-relaxed">
             {ann.content}
           </div>

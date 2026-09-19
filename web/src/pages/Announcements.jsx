@@ -245,12 +245,12 @@ function AnnouncementForm({ users, initial, onClose, onDone }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 sm:p-6" onClick={onClose}>
-      <div className="bg-surface rounded-xl shadow-2xl border border-line w-full max-w-lg min-h-0 max-h-full flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+    <div className="nf-modal-overlay z-[60] bg-black/40" onClick={onClose}>
+      <div className="nf-modal-panel bg-surface rounded-xl shadow-2xl border border-line w-full max-w-lg" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-line-soft bg-surface shrink-0">
           <h3 className="text-[16px] font-bold">{editing ? '编辑公告' : '发布公告'}</h3>
         </div>
-        <form onSubmit={submit} className="px-6 py-5 space-y-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <form onSubmit={submit} className="nf-modal-body px-6 py-5 space-y-4">
           <div>
             <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">标题</label>
             <input className="input-field" value={title} onChange={e => setTitle(e.target.value)} placeholder="输入公告标题" autoFocus />

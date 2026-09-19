@@ -8,11 +8,10 @@ import { HealthDot } from './HealthDot'
 // Animation is opacity-only: any transform/filter on the panel creates a containing
 // block that crops native <input type="date"> calendars and Select portals.
 //
-// Tall sheets (落地仓库添加节点、规则表单) scroll inside the panel. Overlay is a
-// fixed flex box (items-center) with padding; the panel is a flex item with
-// min-h-0 max-h-full so it can shrink below content height. Without min-h-0,
-// flex min-height:auto keeps the sheet as tall as the form and overflow never
-// fires — 到期时间 / 保存 stay clipped. DateInput/Select portal to body.
+// Tall sheets (落地仓库添加节点、规则表单) scroll inside .nf-modal-body.
+// Panel max-height is calc(100dvh - 3rem), not max-height:100% — percentage
+// max-height on a flex item is ignored, so 备注/到期时间/保存 get clipped
+// with no scrollbar. DateInput/Select portal to body.
 //
 // Keyboard/screen-reader behavior: Escape closes, Tab is trapped inside the
 // sheet, focus is restored to the trigger on close, and body scroll is locked
@@ -91,7 +90,7 @@ export function Modal({ open, onClose, title, children, wide }) {
   if (!open) return null
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-[4px] p-4 sm:p-6"
+      className="nf-modal-overlay z-[80] bg-black/50 backdrop-blur-[4px]"
       onClick={onClose}
     >
       <div
@@ -100,14 +99,14 @@ export function Modal({ open, onClose, title, children, wide }) {
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
         tabIndex={-1}
-        className={`relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full min-h-0 max-h-full flex flex-col overflow-hidden outline-none ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
+        className={`nf-modal-panel relative z-[81] bg-surface border border-line rounded-[20px] shadow-[0_28px_80px_-24px_rgba(15,23,42,0.55)] w-full outline-none ${wide ? 'max-w-3xl' : 'max-w-xl'} animate-modal-in`}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-line-soft shrink-0">
           <h3 className="text-[16px] font-bold tracking-tight text-ink">{title}</h3>
           <button type="button" onClick={onClose} className="w-8 h-8 rounded-lg text-ink-mut hover:text-ink hover:bg-raised transition-colors grid place-items-center text-lg leading-none" aria-label="关闭弹窗">&times;</button>
         </div>
-        <div className="px-6 py-6 min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+        <div className="nf-modal-body px-6 py-6">{children}</div>
       </div>
     </div>,
     document.body,
