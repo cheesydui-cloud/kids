@@ -316,6 +316,7 @@ func GetRule(d DBTX, id int64) (*Rule, error) {
 // hand in hand with RegenerateRule rebuilding the hops for the new node.
 // entry_listen_port is owned by RegenerateRule and not touched here.
 func UpdateRuleHeader(d DBTX, r *Rule) error {
+	TouchDataEpoch()
 	if r.EntryFamily == "" {
 		r.EntryFamily = "v4"
 	}
@@ -345,23 +346,32 @@ func FillRuleTraffic(d DBTX, rules []*Rule) error {
 	if len(rules) == 0 {
 		return nil
 	}
-	rows, err := d.Query(`SELECT rule_id, total_bytes, billed_bytes FROM rule_hops WHERE position=0`)
-	if err != nil {
-		return err
+	ids := make([]int64, len(rules))
+	for i, r := range rules {
+		ids[i] = r.ID
 	}
-	defer rows.Close()
 	bytesByRule := map[int64]int64{}
 	billedByRule := map[int64]int64{}
-	for rows.Next() {
-		var ruleID, bytes, billed int64
-		if err := rows.Scan(&ruleID, &bytes, &billed); err != nil {
+	for _, part := range chunkInt64s(ids, inClauseChunk) {
+		ph, args := placeholderList(part)
+		rows, err := d.Query(`SELECT rule_id, total_bytes, billed_bytes FROM rule_hops WHERE position=0 AND rule_id IN (`+ph+`)`, args...)
+		if err != nil {
 			return err
 		}
-		bytesByRule[ruleID] = bytes
-		billedByRule[ruleID] = billed
-	}
-	if err := rows.Err(); err != nil {
-		return err
+		for rows.Next() {
+			var ruleID, bytes, billed int64
+			if err := rows.Scan(&ruleID, &bytes, &billed); err != nil {
+				rows.Close()
+				return err
+			}
+			bytesByRule[ruleID] = bytes
+			billedByRule[ruleID] = billed
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
 	}
 	for _, r := range rules {
 		r.TotalBytes = bytesByRule[r.ID]
@@ -458,6 +468,7 @@ func SetRuleDisabled(d DBTX, id int64, disabled bool) error {
 // rule_hops clears the hop rows; we collect nodes first so the caller can
 // re-push them after the rules are gone.
 func DeleteRule(d *sql.DB, id int64) ([]int64, error) {
+	TouchDataEpoch()
 	nodes, err := RuleHopNodeIDs(d, id)
 	if err != nil {
 		return nil, err
@@ -512,6 +523,7 @@ func TotalRuleTrafficBytes(d *sql.DB) (int64, error) {
 // kernel state must be re-pushed. Used when a node grant is revoked so the
 // user's forwarding stops instead of lingering. rule_hops cascade-delete.
 func DeleteRulesForUserNode(d *sql.DB, userID, nodeID int64) ([]int64, error) {
+	TouchDataEpoch()
 	// A rule "uses" a granted logical node when the node is its entry OR one of
 	// its middle layers — both surface as rule_hops.via_node_id == nodeID (the
 	// entry segment's hops carry via_node_id = the rule's node_id). Matching on
@@ -543,6 +555,7 @@ func DeleteRulesForUserNode(d *sql.DB, userID, nodeID int64) ([]int64, error) {
 // never appears in rule_hops.node_id, so an FK cascade alone would leave the
 // composite's physical children carrying stale kernel rules.
 func DeleteRulesUsingNode(d *sql.DB, nodeID int64) ([]int64, error) {
+	TouchDataEpoch()
 	ruleIDs, err := queryInt64s(d, `SELECT DISTINCT rule_id FROM rule_hops WHERE node_id=? OR via_node_id=?`, nodeID, nodeID)
 	if err != nil {
 		return nil, err
@@ -630,6 +643,7 @@ var ErrDuplicateChainNode = errors.New("同一节点不能在链路中重复")
 // port-range exhaustion, udp=>kernel. Policy (grant ownership, exit CIDR,
 // quota) is the caller's responsibility.
 func RegenerateRule(tx DBTX, r *Rule, hops []HopInput, avoid map[int64]int) (string, string, []int64, error) {
+	TouchDataEpoch()
 	if len(hops) == 0 {
 		return "", "", nil, fmt.Errorf("链路至少需要一跳")
 	}

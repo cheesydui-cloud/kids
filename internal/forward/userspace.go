@@ -225,59 +225,75 @@ func newUserspaceBackend() *userspaceBackend {
 	return &userspaceBackend{listeners: map[int]*listener{}, groups: map[int64]*rate.Limiter{}, poolSize: envPoolSize()}
 }
 
-// Reconcile makes the running listener set match rules. New listeners open
-// first (make-before-break: a bind failure rolls back the just-opened ones and
-// leaves the previous set intact); targets/limits hot-update without restart;
-// removed listeners are closed.
+// Reconcile makes the running listener set match rules. New listeners bind
+// outside b.mu so a slow EADDRINUSE retry does not stall counter reads.
+// A bind failure keeps the listeners that did open, skips hot-update, and
+// does not close listeners the new ruleset dropped; the next Reconcile retries.
 func (b *userspaceBackend) Reconcile(rules []nft.Rule) error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	desired := make(map[int]nft.Rule, len(rules))
 	for _, r := range rules {
 		desired[r.SrcPort] = r
 	}
 
-		desiredGroups := map[int64]int{}
-		for _, r := range rules {
-			if r.ShapeGroup > 0 && r.RateMBytes > 0 {
-				desiredGroups[r.ShapeGroup] = r.RateMBytes
-			}
+	desiredGroups := map[int64]int{}
+	for _, r := range rules {
+		if r.ShapeGroup > 0 && r.RateMBytes > 0 {
+			desiredGroups[r.ShapeGroup] = r.RateMBytes
 		}
-		for sg, mbps := range desiredGroups {
-			// RateMBytes is the historical field name; the value is Mbps.
-			// Convert to bytes/s the same way makeLimiter does for legacy caps.
-			bytesPerSec := float64(mbps) * 1e6 / 8.0
-			if lim, ok := b.groups[sg]; ok {
-				lim.SetLimit(rate.Limit(bytesPerSec))
-				lim.SetBurst(groupBurst(bytesPerSec))
-			} else {
-				b.groups[sg] = rate.NewLimiter(rate.Limit(bytesPerSec), groupBurst(bytesPerSec))
-			}
+	}
+	for sg, mbps := range desiredGroups {
+		// RateMBytes is the historical field name; the value is Mbps.
+		// Convert to bytes/s the same way makeLimiter does for legacy caps.
+		bytesPerSec := float64(mbps) * 1e6 / 8.0
+		if lim, ok := b.groups[sg]; ok {
+			lim.SetLimit(rate.Limit(bytesPerSec))
+			lim.SetBurst(groupBurst(bytesPerSec))
+		} else {
+			b.groups[sg] = rate.NewLimiter(rate.Limit(bytesPerSec), groupBurst(bytesPerSec))
 		}
+	}
 	for sg := range b.groups {
 		if _, ok := desiredGroups[sg]; !ok {
 			delete(b.groups, sg)
 		}
 	}
 
-	var opened []*listener
-	var bindErrors []string
+	var toOpen []nft.Rule
 	for port, r := range desired {
 		if _, ok := b.listeners[port]; ok {
 			continue
 		}
-		l, err := openListener(r, b.poolSize)
+		toOpen = append(toOpen, r)
+	}
+	poolSize := b.poolSize
+	b.mu.Unlock()
+
+	var opened []*listener
+	var bindErrors []string
+	for _, r := range toOpen {
+		l, err := openListener(r, poolSize)
 		if err != nil {
 			// Don't roll back already-opened listeners — a single port
 			// failure (e.g. still in TIME_WAIT) shouldn't tear down the
 			// rest. Collect the error and skip this port; the next
 			// Reconcile will retry.
-			bindErrors = append(bindErrors, fmt.Sprintf("port %d: %v", port, err))
+			bindErrors = append(bindErrors, fmt.Sprintf("port %d: %v", r.SrcPort, err))
 			continue
 		}
-		b.listeners[port] = l
 		opened = append(opened, l)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, l := range opened {
+		if _, ok := b.listeners[l.port]; ok {
+			l.close()
+			continue
+		}
+		b.listeners[l.port] = l
 	}
 	if len(bindErrors) > 0 {
 		return fmt.Errorf("bind errors: %s", strings.Join(bindErrors, "; "))
@@ -285,6 +301,9 @@ func (b *userspaceBackend) Reconcile(rules []nft.Rule) error {
 
 	for port, r := range desired {
 		l := b.listeners[port]
+		if l == nil {
+			continue
+		}
 		newAddr := targetAddr(r)
 		oldTgt := l.tgt.Load()
 		l.tgt.Store(&target{addr: newAddr})

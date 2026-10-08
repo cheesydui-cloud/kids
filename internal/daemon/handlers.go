@@ -31,10 +31,14 @@ type Daemon struct {
 	countersFn  func() ([]forward.Counter, error)
 	resolveFn   resolveFunc
 
-	// countersMu guards lastCounters, the per-rule byte total observed on the
-	// previous counterSamples call. The sampler computes deltas against it.
-	countersMu   sync.Mutex
-	lastCounters map[string][2]int64
+	// countersMu guards lastCounters and pendingCounters. lastCounters is the
+	// per-rule byte total observed on the previous sample. pendingCounters
+	// holds deltas sampled immediately before a successful nft flush; the
+	// next counterSamples reports them, because the flush itself zeroes the
+	// kernel counters those bytes lived in.
+	countersMu      sync.Mutex
+	lastCounters    map[string][2]int64
+	pendingCounters []wsproto.CounterSample
 
 	// connectURL/connectTok configure the outbound WebSocket dialer to
 	// the panel. Empty connectURL = tui/server-local mode (no dialer).
@@ -75,9 +79,31 @@ type Daemon struct {
 // this method never takes d.mu, so the d.mu -> reconcileMu lock order is
 // preserved.
 func (d *Daemon) applySerialized(ctx context.Context, resolved []nft.Rule) error {
+	// Sample before the flush. sampleDeltas takes countersMu only around the
+	// cursor update and releases it before Reconcile, which holds the
+	// dataplane lock. On failure, rewind just this sample. On success, stash
+	// it: nft deletes the table and the kernel counters go back to zero, so
+	// the next poll cannot see these bytes.
+	fresh, serr := d.sampleDeltas()
+	if serr != nil {
+		log.Printf("counters: pre-apply sample: %v", serr)
+	}
 	d.reconcileMu.Lock()
 	defer d.reconcileMu.Unlock()
-	return d.dp.Reconcile(ctx, resolved)
+	err := d.dp.Reconcile(ctx, resolved)
+	if serr != nil {
+		return err
+	}
+	if err != nil {
+		d.reAddCounters(fresh)
+		return err
+	}
+	if len(fresh) > 0 {
+		d.countersMu.Lock()
+		d.pendingCounters = append(d.pendingCounters, fresh...)
+		d.countersMu.Unlock()
+	}
+	return nil
 }
 
 // reconcileOwners is the shared merge->resolve->apply pipeline used by

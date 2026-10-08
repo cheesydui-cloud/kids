@@ -26,6 +26,35 @@ func ListAllNodeBindings(d *sql.DB) ([]*NodeBinding, error) {
 	return queryAll(d, `SELECT `+bindingCols+` FROM node_bindings ORDER BY downstream_node_id, upstream_node_id`, scanNodeBinding)
 }
 
+// ListNodeBindingsAmong returns edges whose both ends are in ids. More than
+// inClauseChunk ids falls back to a full scan: chunking an AND of two IN
+// lists would drop edges that straddle chunks.
+func ListNodeBindingsAmong(d *sql.DB, ids []int64) ([]*NodeBinding, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if len(ids) > inClauseChunk {
+		all, err := ListAllNodeBindings(d)
+		if err != nil {
+			return nil, err
+		}
+		set := make(map[int64]bool, len(ids))
+		for _, id := range ids {
+			set[id] = true
+		}
+		out := make([]*NodeBinding, 0)
+		for _, e := range all {
+			if set[e.UpstreamNodeID] && set[e.DownstreamNodeID] {
+				out = append(out, e)
+			}
+		}
+		return out, nil
+	}
+	ph, args := placeholderList(ids)
+	args = append(append([]any{}, args...), args...)
+	return queryAll(d, `SELECT `+bindingCols+` FROM node_bindings WHERE upstream_node_id IN (`+ph+`) AND downstream_node_id IN (`+ph+`) ORDER BY downstream_node_id, upstream_node_id`, scanNodeBinding, args...)
+}
+
 func ListBindingsForDownstream(d *sql.DB, downstreamID int64) ([]*NodeBinding, error) {
 	return queryAll(d, `SELECT `+bindingCols+` FROM node_bindings WHERE downstream_node_id=? ORDER BY upstream_node_id`, scanNodeBinding, downstreamID)
 }

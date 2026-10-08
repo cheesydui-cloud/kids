@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -302,7 +303,20 @@ func (s *Server) apiChangeUsername(w http.ResponseWriter, r *http.Request) {
 
 // --- Dashboard ---
 
+const dashboardCacheTTL = 5 * time.Second
+
 func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	s.dashMu.Lock()
+	if s.dashBody != nil && now.Before(s.dashUntil) {
+		body := s.dashBody
+		s.dashMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+		return
+	}
+	s.dashMu.Unlock()
+
 	nodes, err := db.ListNodes(s.DB)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "读取节点统计失败: "+err.Error())
@@ -368,7 +382,7 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 	if landingSoon == nil {
 		landingSoon = []db.LandingExitSoonItem{}
 	}
-	jsonOK(w, map[string]any{
+	payload := map[string]any{
 		"nodes":              nodes,
 		"node_traffic":       nodeTraffic,
 		"rule_count":         ruleCount,
@@ -379,7 +393,20 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 		"hourly_raw":         hourly,
 		"user_count":         userCount,
 		"landing_expiring":   landingSoon,
-	})
+	}
+	ensureNonNilSlices(payload)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "编码仪表盘失败: "+err.Error())
+		return
+	}
+	body := append([]byte(nil), buf.Bytes()...)
+	s.dashMu.Lock()
+	s.dashBody = body
+	s.dashUntil = time.Now().Add(dashboardCacheTTL)
+	s.dashMu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
 }
 
 // --- Nodes ---
@@ -2315,19 +2342,19 @@ func (s *Server) apiListRules(w http.ResponseWriter, r *http.Request) {
 		byID[u.ID] = u
 		userList = append(userList, map[string]any{"id": u.ID, "username": u.Username})
 	}
-	// Per-owner landing index, built once per owner from the materialized landing
-	// set — the same table that drives metering, so the badge matches billing.
-	// withURI=true so admin list "复制" can put the user's proxy link on the
-	// clipboard without relying on the admin's browser-local URIs.
-	idxByOwner := map[int64]map[string]landing.Node{}
-	ownerIndex := func(ownerID int64) map[string]landing.Node {
-		if idx, ok := idxByOwner[ownerID]; ok {
-			return idx
+	// Per-owner landing index from the materialized landing set — the same
+	// table that drives metering, so the badge matches billing. One query
+	// covers every owner. withURI=true so admin list "复制" can put the
+	// user's proxy link on the clipboard.
+	ownerSeen := map[int64]bool{}
+	var ownerIDs []int64
+	for _, rl := range rules {
+		if rl.OwnerID.Valid && !ownerSeen[rl.OwnerID.Int64] {
+			ownerSeen[rl.OwnerID.Int64] = true
+			ownerIDs = append(ownerIDs, rl.OwnerID.Int64)
 		}
-		idx := s.landingIndexFromDB(ownerID)
-		idxByOwner[ownerID] = idx
-		return idx
 	}
+	idxByOwner := s.landingIndexesFromDB(ownerIDs)
 	ruleIDs := make([]int64, len(rules))
 	for i, rl := range rules {
 		ruleIDs[i] = rl.ID
@@ -2345,7 +2372,7 @@ func (s *Server) apiListRules(w http.ResponseWriter, r *http.Request) {
 			if u := byID[rl.OwnerID.Int64]; u != nil {
 				oname = u.Username
 			}
-			idx = ownerIndex(rl.OwnerID.Int64)
+			idx = idxByOwner[rl.OwnerID.Int64]
 		}
 		item := buildRuleListItemFromHops(rl, oname, hopsByRule[rl.ID], nodeByID)
 		item.classifyExit(idx, true)
@@ -3644,28 +3671,6 @@ func (s *Server) apiMyListRules(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "读取节点授权失败: "+err.Error())
 		return
 	}
-	// A user is granted the composite itself, not its hop children, so the
-	// relay-stack resolver needs the full node list to see the child hosts;
-	// copy the derived fields back onto the (narrower) granted set.
-	allNodes, err := db.ListNodes(s.DB)
-	if err != nil {
-		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
-		return
-	}
-	db.ResolveCompositeRelayStack(s.DB, allNodes)
-	stackByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
-	for _, n := range grantedNodes {
-		if full := stackByID[n.ID]; full != nil {
-			n.EntryRelayHost = full.EntryRelayHost
-			n.EntryRelayHostV6 = full.EntryRelayHostV6
-			n.ExitRelayHostV6 = full.ExitRelayHostV6
-		}
-	}
-	// Attach each granted composite's member chain so the rule form can flatten
-	// it in the live preview, and keep the all-nodes map for resolving saved
-	// rules' physical hops (which may pass through non-granted composite members).
-	db.ResolveCompositeHops(s.DB, grantedNodes)
-	allByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
 	grantedByID := buildMap(grantedNodes, func(n *db.Node) int64 { return n.ID })
 	br := u.BillingRate
 	if br <= 0 {
@@ -3681,6 +3686,24 @@ func (s *Server) apiMyListRules(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "读取规则路径失败: "+err.Error())
 		return
 	}
+	// Physical hop nodes may sit outside the grant. Load those, plus the
+	// direct children of granted composites, and copy relay/Hops onto the
+	// granted pointers. The response still sends only granted nodes.
+	extraNodes := make([]int64, 0)
+	seenHopNode := map[int64]bool{}
+	for _, hs := range hopsByRule {
+		for _, h := range hs {
+			if h != nil && !seenHopNode[h.NodeID] {
+				seenHopNode[h.NodeID] = true
+				extraNodes = append(extraNodes, h.NodeID)
+			}
+		}
+	}
+	allByID, err := db.AttachCompositeStructure(s.DB, grantedNodes, extraNodes)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
+		return
+	}
 	for _, rl := range rules {
 		item := buildRuleListItemFromHops(rl, "", hopsByRule[rl.ID], allByID)
 		item.classifyExit(idx, true)
@@ -3693,17 +3716,11 @@ func (s *Server) apiMyListRules(w http.ResponseWriter, r *http.Request) {
 		views = append(views, item)
 	}
 	s.fillRuleChains(views, allByID)
-	grantedSet := make(map[int64]bool)
+	grantedIDs := make([]int64, 0, len(grantedNodes))
 	for _, n := range grantedNodes {
-		grantedSet[n.ID] = true
+		grantedIDs = append(grantedIDs, n.ID)
 	}
-	allEdges, _ := db.ListAllNodeBindings(s.DB)
-	edges := make([]*db.NodeBinding, 0, len(allEdges))
-	for _, e := range allEdges {
-		if grantedSet[e.UpstreamNodeID] && grantedSet[e.DownstreamNodeID] {
-			edges = append(edges, e)
-		}
-	}
+	edges, _ := db.ListNodeBindingsAmong(s.DB, grantedIDs)
 	showRate, _ := db.GetSetting(s.DB, "show_rate_to_user")
 	jsonOK(w, map[string]any{
 		"rules": views, "nodes": grantedNodes,
@@ -3738,25 +3755,19 @@ func (s *Server) apiMyGetRule(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "读取节点授权失败: "+err.Error())
 		return
 	}
-	// A user is granted the composite itself, not its hop children, so the
-	// relay-stack resolver needs the full node list to see the child hosts;
-	// copy the derived fields back onto the (narrower) granted set.
-	allNodes, err := db.ListNodes(s.DB)
+	extraNodes := make([]int64, 0, len(hops))
+	seenHopNode := map[int64]bool{}
+	for _, h := range hops {
+		if h != nil && !seenHopNode[h.NodeID] {
+			seenHopNode[h.NodeID] = true
+			extraNodes = append(extraNodes, h.NodeID)
+		}
+	}
+	allByID, err := db.AttachCompositeStructure(s.DB, grantedNodes, extraNodes)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "读取节点失败: "+err.Error())
 		return
 	}
-	db.ResolveCompositeRelayStack(s.DB, allNodes)
-	stackByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
-	for _, n := range grantedNodes {
-		if full := stackByID[n.ID]; full != nil {
-			n.EntryRelayHost = full.EntryRelayHost
-			n.EntryRelayHostV6 = full.EntryRelayHostV6
-			n.ExitRelayHostV6 = full.ExitRelayHostV6
-		}
-	}
-	db.ResolveCompositeHops(s.DB, grantedNodes)
-	allByID := buildMap(allNodes, func(n *db.Node) int64 { return n.ID })
 	grantedByID := buildMap(grantedNodes, func(n *db.Node) int64 { return n.ID })
 	idx, err := s.landingIndexFromDBChecked(u.ID)
 	if err != nil {

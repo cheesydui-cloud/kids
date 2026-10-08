@@ -34,17 +34,32 @@ func (d *Daemon) handleCounters(w http.ResponseWriter, r *http.Request) {
 // counterSamples computes per-rule byte deltas since the last call, for the
 // dialer to push to the panel. nft re-applies (flush+recreate) the table on
 // every reconcile, zeroing kernel counters, so a current value below the last
-// observed one is treated as a reset (delta = current).
-//
-// Limitation: bytes accumulated within a reconcile window that is flushed
-// before it is ever polled are lost, so quota accounting is approximate, not
-// exact. This is acceptable because reconciles are infrequent relative to the
-// poll interval and the panel only needs coarse traffic totals.
+// observed one is treated as a reset (delta = current). Deltas sampled just
+// before that flush are prepended from pendingCounters; a sample error leaves
+// that queue untouched for the next poll.
 func (d *Daemon) counterSamples() []wsproto.CounterSample {
-	cur, err := d.dp.Counters()
+	fresh, err := d.sampleDeltas()
 	if err != nil {
 		log.Printf("counters: %v", err)
 		return nil
+	}
+	d.countersMu.Lock()
+	out := append(append([]wsproto.CounterSample{}, d.pendingCounters...), fresh...)
+	d.pendingCounters = nil
+	d.countersMu.Unlock()
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// sampleDeltas reads the dataplane, then updates the cursor. The dataplane
+// read happens before countersMu so a reconcile holding the dataplane lock
+// cannot deadlock against a sampler that already holds countersMu.
+func (d *Daemon) sampleDeltas() ([]wsproto.CounterSample, error) {
+	cur, err := d.dp.Counters()
+	if err != nil {
+		return nil, err
 	}
 	d.countersMu.Lock()
 	defer d.countersMu.Unlock()
@@ -75,34 +90,49 @@ func (d *Daemon) counterSamples() []wsproto.CounterSample {
 			delete(d.lastCounters, key)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // reAddCounters rewinds the sampler cursor by the given deltas after a failed
 // send so the next counterSamples() call re-reports them. Without this, a
-// dropped counters frame silently discards traffic and undercounts quota. Bytes
-// for a key already pruned (its rule was removed) are unrecoverable and dropped.
+// dropped counters frame silently discards traffic and undercounts quota.
+// Bytes that no longer fit in the cursor (the kernel counter was flushed to
+// zero after the sample) are put back on pendingCounters instead of dropped.
 func (d *Daemon) reAddCounters(samples []wsproto.CounterSample) {
 	d.countersMu.Lock()
 	defer d.countersMu.Unlock()
 	if d.lastCounters == nil {
+		d.pendingCounters = append(d.pendingCounters, samples...)
 		return
 	}
 	for _, s := range samples {
 		key := s.Proto + "/" + strconv.Itoa(s.ListenPort)
-		if last, ok := d.lastCounters[key]; ok {
-			up := last[0] - s.BytesUp
-			down := last[1] - s.BytesDown
-			// Clamp at 0: a negative cursor would make the next sample's
-			// "cur < last" wrap-detection misfire and double-count the rewound
-			// bytes if the kernel counter resets (reconcile flush) in between.
-			if up < 0 {
-				up = 0
-			}
-			if down < 0 {
-				down = 0
-			}
-			d.lastCounters[key] = [2]int64{up, down}
+		last, ok := d.lastCounters[key]
+		if !ok {
+			d.pendingCounters = append(d.pendingCounters, s)
+			continue
+		}
+		up := last[0] - s.BytesUp
+		down := last[1] - s.BytesDown
+		lostUp, lostDown := int64(0), int64(0)
+		// Clamp at 0: a negative cursor would make the next sample's
+		// "cur < last" wrap-detection misfire and double-count the rewound
+		// bytes if the kernel counter resets (reconcile flush) in between.
+		// The clamped remainder is the pre-flush delta, which the kernel no
+		// longer holds, so it waits on the pending queue.
+		if up < 0 {
+			lostUp = -up
+			up = 0
+		}
+		if down < 0 {
+			lostDown = -down
+			down = 0
+		}
+		d.lastCounters[key] = [2]int64{up, down}
+		if lostUp > 0 || lostDown > 0 {
+			d.pendingCounters = append(d.pendingCounters, wsproto.CounterSample{
+				ListenPort: s.ListenPort, Proto: s.Proto, BytesUp: lostUp, BytesDown: lostDown,
+			})
 		}
 	}
 }

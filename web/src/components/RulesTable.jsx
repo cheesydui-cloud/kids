@@ -14,6 +14,60 @@ import { QRCodeButton } from './QRCodeModal'
 // Cap concurrent connectivity probes so "test all" doesn't fire one request per
 // rule at once (each fans out to every hop on the server side).
 const probeLimit = createLimiter(6)
+const VIRTUAL_THRESHOLD = 80
+const VIRTUAL_OVERSCAN = 12
+
+function useRowWindow(enabled, count, estimate) {
+  const anchorRef = useRef(null)
+  const [win, setWin] = useState({ start: 0, end: count })
+  useEffect(() => {
+    if (!enabled) return undefined
+    const root = anchorRef.current?.closest('.table-scroll')
+    if (!root) return undefined
+    let raf = 0
+    const measure = () => {
+      const height = root.clientHeight || estimate
+      const start = Math.max(0, Math.floor(root.scrollTop / estimate) - VIRTUAL_OVERSCAN)
+      const end = Math.min(count, start + Math.ceil(height / estimate) + VIRTUAL_OVERSCAN * 2)
+      setWin(prev => (prev.start === start && prev.end === end ? prev : { start, end }))
+    }
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(measure)
+    }
+    measure()
+    root.addEventListener('scroll', onScroll, { passive: true })
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onScroll) : null
+    ro?.observe(root)
+    return () => {
+      cancelAnimationFrame(raf)
+      root.removeEventListener('scroll', onScroll)
+      ro?.disconnect()
+    }
+  }, [enabled, count, estimate])
+  if (!enabled) return { anchorRef, start: 0, end: count, padTop: 0, padBottom: 0 }
+  return {
+    anchorRef,
+    start: win.start,
+    end: win.end,
+    padTop: win.start * estimate,
+    padBottom: Math.max(0, count - win.end) * estimate,
+  }
+}
+
+function probeViewFromPayload(d) {
+  if (d?.hops?.length) {
+    const parts = d.hops.map(h => h.error ? 'x' : h.latency_ms + 'ms')
+    const joined = parts.join(' → ')
+    if (d.ok) {
+      const label = d.hops.length > 1 ? joined + ' = ' + d.latency_ms + 'ms' : d.latency_ms + 'ms'
+      return { state: 'ok', latencyMs: d.latency_ms || 0, label, tip: joined + ' = ' + d.latency_ms + 'ms' }
+    }
+    return { state: 'fail', latencyMs: null, label: joined, tip: joined }
+  }
+  if (d?.ok) return { state: 'ok', latencyMs: d.latency_ms || 0, label: (d.latency_ms || 0) + 'ms', tip: '' }
+  return { state: 'fail', latencyMs: null, label: d?.error || '不通', tip: '' }
+}
 
 /* Shared rule table for both the admin (`/rules`) and user (`/my/rules`) lists.
    variant drives the columns that differ: admin shows id/owner and links to a
@@ -91,10 +145,31 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
     return sort.dir === 'asc' ? c : -c
   })
 
+  const [probeSeeds, setProbeSeeds] = useState({})
+  useEffect(() => {
+    if (!probeAllTrigger) return undefined
+    let cancel = false
+    // Probe the filtered list the page passed in, including rows that are
+    // not mounted while the table is virtualized.
+    for (const rule of rules) {
+      const id = rule.id
+      probeLimit(() => fetch(`/api/probe-chain?rule_id=${id}`).then(res => res.json()))
+        .then(d => { if (!cancel) setProbeSeeds(prev => ({ ...prev, [id]: probeViewFromPayload(d) })) })
+        .catch(() => { if (!cancel) setProbeSeeds(prev => ({ ...prev, [id]: { state: 'fail', latencyMs: null, label: '失败', tip: '' } })) })
+    }
+    return () => { cancel = true }
+  }, [probeAllTrigger])
+
+  const estimate = isMobile ? 108 : (isAdmin ? 72 : 56)
+  const virtual = sorted.length > VIRTUAL_THRESHOLD
+  const rowWin = useRowWindow(virtual, sorted.length, estimate)
+  const visible = virtual ? sorted.slice(rowWin.start, rowWin.end) : sorted
+  const colSpan = isAdmin ? 10 : 6
+
   if (isMobile) return renderCards()
 
   return (
-    <table className="tbl">
+    <table className="tbl" ref={rowWin.anchorRef}>
       <thead>
         <tr>
           {isAdmin && <th className="w-12">ID</th>}
@@ -112,7 +187,10 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
         </tr>
       </thead>
       <tbody>
-        {sorted.map(r => {
+        {virtual && rowWin.padTop > 0 && (
+          <tr aria-hidden="true"><td colSpan={colSpan} style={{ height: rowWin.padTop, padding: 0, border: 0 }} /></tr>
+        )}
+        {visible.map(r => {
           const node = nodeMap[r.node_id]
           return (
             <tr key={r.id}
@@ -219,7 +297,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
               <td className="text-right font-mono text-xs text-ink-mut">{fmtBytes(Math.round(((r.exit_bytes || 0)) * displayRate))}</td>
               <td className="text-right whitespace-nowrap">
                 <div className="inline-flex gap-2 justify-end items-center" onClick={e => e.stopPropagation()}>
-                  <ProbeIconButton ruleId={r.id} probeAllTrigger={probeAllTrigger} />
+                  <ProbeIconButton ruleId={r.id} seed={probeSeeds[r.id]} />
                   {/* QR lives on「我的代理」for users; admin list keeps one-tap scan. */}
                   {isAdmin && <QRCodeButton text={ruleQRText(r)} toast={toast} />}
                   <MoreMenu items={[
@@ -233,14 +311,18 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
             </tr>
           )
         })}
+        {virtual && rowWin.padBottom > 0 && (
+          <tr aria-hidden="true"><td colSpan={colSpan} style={{ height: rowWin.padBottom, padding: 0, border: 0 }} /></tr>
+        )}
       </tbody>
     </table>
   )
 
   function renderCards() {
     return (
-    <div>
-      {sorted.map(r => {
+    <div ref={rowWin.anchorRef}>
+      {virtual && rowWin.padTop > 0 && <div aria-hidden="true" style={{ height: rowWin.padTop }} />}
+      {visible.map(r => {
         const node = nodeMap[r.node_id]
         return (
           <div key={r.id} className={`mobile-card ${onRowClick ? 'cursor-pointer' : ''}`}
@@ -248,7 +330,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
             <div className="flex items-center justify-between mb-1">
               <span className="font-semibold text-[14px] inline-flex items-center gap-1.5">{r.name}{r.disabled && <Badge color="amber">停用</Badge>}</span>
               <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                <ProbeIconButton ruleId={r.id} probeAllTrigger={probeAllTrigger} />
+                <ProbeIconButton ruleId={r.id} seed={probeSeeds[r.id]} />
                 {isAdmin && <QRCodeButton text={ruleQRText(r)} toast={toast} />}
                 <ProtoBadge proto={r.proto} />
               </div>
@@ -283,6 +365,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
           </div>
         )
       })}
+      {virtual && rowWin.padBottom > 0 && <div aria-hidden="true" style={{ height: rowWin.padBottom }} />}
     </div>
     )
   }
@@ -303,14 +386,18 @@ function RuleSpeedCell({ ruleId, compact = false }) {
   )
 }
 
-function ProbeIconButton({ ruleId, probeAllTrigger }) {
+function ProbeIconButton({ ruleId, seed }) {
   const [state, setState] = useState('idle')
   const [label, setLabel] = useState('')
   const [tip, setTip] = useState('')
   const [latencyMs, setLatencyMs] = useState(null)
   useEffect(() => {
-    if (probeAllTrigger) probe()
-  }, [probeAllTrigger])
+    if (!seed) return
+    setState(seed.state || 'idle')
+    setLabel(seed.label || '')
+    setTip(seed.tip || '')
+    setLatencyMs(seed.latencyMs ?? null)
+  }, [seed])
   const probe = () => {
     setState('loading')
     probeLimit(() => fetch(`/api/probe-chain?rule_id=${ruleId}`).then(r => r.json())).then(d => {

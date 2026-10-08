@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -28,6 +29,7 @@ func (s *Server) apiSpeedWS(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	var last []byte
 	for {
 		select {
 		case <-ctx.Done():
@@ -46,9 +48,13 @@ func (s *Server) apiSpeedWS(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
+			if bytes.Equal(data, last) {
+				continue
+			}
 			if err := ws.Write(ctx, websocket.MessageText, data); err != nil {
 				return
 			}
+			last = append([]byte(nil), data...)
 		}
 	}
 }

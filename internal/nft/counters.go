@@ -16,23 +16,49 @@ type Counter struct {
 	Packets    int64  `json:"packets"`
 }
 
-// Counters parses the prerouting chain of our table and returns one entry per
-// rule. We look only at rules with a counter expression; the postrouting chain
-// is masquerade-only and would duplicate the totals.
+// accountChains are the only chains whose counters feed traffic accounting.
+// Listing each chain avoids walking the whole nft_forward table.
+var accountChains = []string{"account", "account_local", "account_local_reply"}
+
+// Counters returns one entry per accounting-chain rule. A missing chain is
+// skipped. All three missing means the table has no accounting rules yet.
 func Counters() ([]Counter, error) {
-	cmd := exec.Command("nft", "-j", "list", "table", TableFamily, TableName)
+	var out []Counter
+	found := 0
+	for _, chain := range accountChains {
+		part, ok, err := listAccountChain(chain)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		found++
+		out = append(out, part...)
+	}
+	if found == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func listAccountChain(chain string) ([]Counter, bool, error) {
+	cmd := exec.Command("nft", "-j", "list", "chain", TableFamily, TableName, chain)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		// table absent ≡ no rules; not an error from the caller's POV
-		if strings.Contains(stderr.String(), "No such file or directory") ||
-			strings.Contains(stderr.String(), "does not exist") {
-			return nil, nil
+		msg := stderr.String()
+		if strings.Contains(msg, "No such file") || strings.Contains(msg, "does not exist") {
+			return nil, false, nil
 		}
-		return nil, fmt.Errorf("nft -j list: %v: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, false, fmt.Errorf("nft -j list chain %s: %v: %s", chain, err, strings.TrimSpace(msg))
 	}
-	return parseCounters(stdout.Bytes())
+	part, err := parseCounters(stdout.Bytes())
+	if err != nil {
+		return nil, false, err
+	}
+	return part, true, nil
 }
 
 // nft JSON schema types — typed structs that mirror the subset of nft's
@@ -63,7 +89,7 @@ type nftExpr struct {
 }
 
 type nftMatch struct {
-	Left  nftMatchSide `json:"left"`
+	Left  nftMatchSide    `json:"left"`
 	Right json.RawMessage `json:"right"`
 }
 

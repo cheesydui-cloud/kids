@@ -565,6 +565,86 @@ func ListNodes(d *sql.DB) ([]*Node, error) {
 	return queryAll(d, `SELECT `+nodeCols+` FROM nodes ORDER BY sort_order, id`, scanNode)
 }
 
+// ListNodesByIDs loads the given nodes. An empty id list returns nil.
+func ListNodesByIDs(d *sql.DB, ids []int64) ([]*Node, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var out []*Node
+	for _, part := range chunkInt64s(ids, inClauseChunk) {
+		ph, args := placeholderList(part)
+		rows, err := queryAll(d, `SELECT `+nodeCols+` FROM nodes WHERE id IN (`+ph+`) ORDER BY sort_order, id`, scanNode, args...)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
+	return out, nil
+}
+
+// AttachCompositeStructure fills EntryRelayHost, EntryRelayHostV6,
+// ExitRelayHostV6, and Hops on composite nodes in granted. It loads direct
+// children plus extraIDs (physical hops a rule view must name). The returned
+// map holds the granted pointers and those extra nodes. Online status is
+// left as stored: relay hosts are the child's own columns, so one level of
+// children is enough.
+func AttachCompositeStructure(d *sql.DB, granted []*Node, extraIDs []int64) (map[int64]*Node, error) {
+	byID := make(map[int64]*Node, len(granted)+len(extraIDs))
+	for _, n := range granted {
+		if n != nil {
+			byID[n.ID] = n
+		}
+	}
+	missing := make([]int64, 0, len(extraIDs))
+	seen := map[int64]bool{}
+	addMissing := func(id int64) {
+		if id == 0 || byID[id] != nil || seen[id] {
+			return
+		}
+		seen[id] = true
+		missing = append(missing, id)
+	}
+	for _, id := range extraIDs {
+		addMissing(id)
+	}
+	loaded, err := ListNodesByIDs(d, missing)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range loaded {
+		byID[n.ID] = n
+	}
+	compositeIDs := make([]int64, 0)
+	for _, n := range byID {
+		if n.NodeType == "composite" {
+			compositeIDs = append(compositeIDs, n.ID)
+		}
+	}
+	hops, err := ListNodeHopsByNodeIDs(d, compositeIDs)
+	if err != nil {
+		return nil, err
+	}
+	missing = missing[:0]
+	seen = map[int64]bool{}
+	for _, h := range hops {
+		addMissing(h.HopNodeID)
+	}
+	kids, err := ListNodesByIDs(d, missing)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range kids {
+		byID[n.ID] = n
+	}
+	all := make([]*Node, 0, len(byID))
+	for _, n := range byID {
+		all = append(all, n)
+	}
+	resolveCompositeRelayStack(all, hops)
+	resolveCompositeHops(all, hops)
+	return byID, nil
+}
+
 // ReorderNodes assigns sort_order to match the given id sequence (1-based).
 // IDs absent from the list keep their previous order value, so a partial list
 // still places the listed nodes ahead in the given order.
@@ -777,11 +857,13 @@ func UpdateNodeRelayHostV6(d *sql.DB, id int64, relayHostV6 string) error {
 }
 
 func UpdateNodeRateMultiplier(d DBTX, id int64, mult float64) error {
+	TouchDataEpoch()
 	_, err := d.Exec(`UPDATE nodes SET rate_multiplier=? WHERE id=?`, mult, id)
 	return err
 }
 
 func UpdateNodeUnidirectional(d DBTX, id int64, uni bool) error {
+	TouchDataEpoch()
 	v := 0
 	if uni {
 		v = 1
@@ -906,6 +988,7 @@ func scanRuleHop(r rowScanner) (*RuleHop, error) {
 }
 
 func DeleteRulesForUser(d *sql.DB, userID int64) ([]int64, error) {
+	TouchDataEpoch()
 	nodes, err := DistinctUserNodes(d, userID)
 	if err != nil {
 		return nil, err
@@ -939,52 +1022,44 @@ func ActiveRuleHopsForPush(d *sql.DB, nodeID int64) ([]*RuleHop, error) {
 	// Billable traffic matches the account UI: used × billing_rate (rate ≤ 0 → 1).
 	// Exclude over-quota owners even if the disable flag has not been written yet,
 	// so a race between counter flush and enforceUserQuota cannot leave rules live.
-	q := `SELECT ` + ruleHopCols + ` FROM rule_hops rh
-		WHERE rh.node_id=?
-		AND NOT EXISTS (
-		  SELECT 1 FROM rules r
-		  WHERE r.id = rh.rule_id AND r.disabled = 1
-		)
-		AND NOT EXISTS (
-		  SELECT 1 FROM rules r JOIN users u ON u.id = r.owner_id
-		  WHERE r.id = rh.rule_id
-		  AND (u.disabled = 1 OR (u.expires_at IS NOT NULL AND u.expires_at > 0 AND u.expires_at < strftime('%s','now')))
-		)
-		AND NOT EXISTS (
-		  SELECT 1 FROM rules r JOIN users u ON u.id = r.owner_id
-		  WHERE r.id = rh.rule_id
-		    AND u.traffic_quota_bytes > 0
+	//
+	// One exclusion set replaces six correlated NOT EXISTS probes. Any exhausted
+	// per-grant segment drops the whole rule. Ownerless rules survive the user
+	// joins (they match nothing) and are excluded only when the rule itself is
+	// disabled. NOT IN of an empty set excludes nothing; rule_id is never NULL.
+	q := `WITH excluded(id) AS (
+		  SELECT r.id FROM rules r WHERE r.disabled = 1
+		  UNION
+		  SELECT r.id FROM rules r JOIN users u ON u.id = r.owner_id
+		  WHERE u.disabled = 1 OR (u.expires_at IS NOT NULL AND u.expires_at > 0 AND u.expires_at < strftime('%s','now'))
+		  UNION
+		  SELECT r.id FROM rules r JOIN users u ON u.id = r.owner_id
+		  WHERE u.traffic_quota_bytes > 0
 		    AND CAST(ROUND(u.traffic_used_bytes * CASE WHEN u.billing_rate > 0 THEN u.billing_rate ELSE 1.0 END) AS INTEGER) >= u.traffic_quota_bytes
-		)
-		AND NOT EXISTS (
-		  SELECT 1 FROM rule_hops rh2
+		  UNION
+		  SELECT rh2.rule_id FROM rule_hops rh2
 		  JOIN rules r2 ON r2.id = rh2.rule_id
 		  JOIN user_nodes un ON un.user_id = r2.owner_id AND un.node_id = rh2.via_node_id
-		  WHERE rh2.rule_id = rh.rule_id
-		    AND un.traffic_quota_bytes > 0
+		  WHERE un.traffic_quota_bytes > 0
 		    AND un.traffic_used_bytes >= un.traffic_quota_bytes
-		)
-			AND NOT EXISTS (
-			  SELECT 1 FROM rules r4
-			  JOIN users u4 ON u4.id = r4.owner_id
-			  JOIN user_landing_exits ule ON ule.user_id = r4.owner_id
-			    AND ule.host = r4.exit_host AND ule.port = r4.exit_port
-			  WHERE r4.id = rh.rule_id
-			    AND ule.present = 1
-			    AND ule.quota_bytes > 0
-			    AND CAST(ROUND(ule.used_bytes * CASE WHEN u4.billing_rate > 0 THEN u4.billing_rate ELSE 1.0 END) AS INTEGER) >= ule.quota_bytes
-			)
-		AND NOT EXISTS (
-		  -- Landing-exit expiry: drop rules whose exit clock has passed.
-		  -- Independent of present so even a missed enforcer tick (or a
-		  -- present=0 residual) cannot leave expired exits live on agents.
-		  SELECT 1 FROM rules r5
+		  UNION
+		  SELECT r4.id FROM rules r4
+		  JOIN users u4 ON u4.id = r4.owner_id
+		  JOIN user_landing_exits ule ON ule.user_id = r4.owner_id
+		    AND ule.host = r4.exit_host AND ule.port = r4.exit_port
+		  WHERE ule.present = 1
+		    AND ule.quota_bytes > 0
+		    AND CAST(ROUND(ule.used_bytes * CASE WHEN u4.billing_rate > 0 THEN u4.billing_rate ELSE 1.0 END) AS INTEGER) >= ule.quota_bytes
+		  UNION
+		  SELECT r5.id FROM rules r5
 		  JOIN user_landing_exits ule2 ON ule2.user_id = r5.owner_id
 		    AND ule2.host = r5.exit_host AND ule2.port = r5.exit_port
-		  WHERE r5.id = rh.rule_id
-		    AND ule2.expires_at > 0
+		  WHERE ule2.expires_at > 0
 		    AND ule2.expires_at <= strftime('%s','now')
 		)
+		SELECT ` + ruleHopCols + ` FROM rule_hops rh
+		WHERE rh.node_id=?
+		  AND rh.rule_id NOT IN (SELECT id FROM excluded)
 		ORDER BY rh.listen_port`
 	return queryAll(d, q, scanRuleHop, nodeID)
 }

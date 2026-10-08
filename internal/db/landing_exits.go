@@ -81,6 +81,7 @@ type UserExitKey struct {
 // flipped presence while at/over quota — their push-exclusion state changed,
 // so the caller must re-dispatch the rules pointed at them.
 func SyncUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput, srcSubURL, srcURIs string) (flipped []LandingExitKey, synced bool, err error) {
+	TouchDataEpoch()
 	tx, err := d.Begin()
 	if err != nil {
 		return nil, false, err
@@ -188,6 +189,7 @@ func SyncUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput, src
 // assignment flow so importing repo nodes doesn't wipe subscription/manual exits.
 // Returns keys that flipped from present=0 to present=1 while at/over quota.
 func AppendUserLandingExits(d *sql.DB, userID int64, exits []LandingExitInput) ([]LandingExitKey, error) {
+	TouchDataEpoch()
 	tx, err := d.Begin()
 	if err != nil {
 		return nil, err
@@ -277,6 +279,27 @@ func ListUserLandingExits(d *sql.DB, userID int64) ([]*LandingExit, error) {
 func PresentLandingExitsForUser(d *sql.DB, userID int64) ([]*LandingExit, error) {
 	return queryAll(d, `SELECT `+landingExitCols+` FROM user_landing_exits WHERE user_id=? AND present=1 ORDER BY name, host, port`,
 		scanLandingExit, userID)
+}
+
+// PresentLandingExitsForUsers returns present landing exits grouped by user.
+// An empty id list returns an empty map. Missing users are absent from the map.
+func PresentLandingExitsForUsers(d *sql.DB, userIDs []int64) (map[int64][]*LandingExit, error) {
+	out := map[int64][]*LandingExit{}
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	for _, part := range chunkInt64s(userIDs, inClauseChunk) {
+		ph, args := placeholderList(part)
+		rows, err := queryAll(d, `SELECT `+landingExitCols+` FROM user_landing_exits WHERE present=1 AND user_id IN (`+ph+`) ORDER BY user_id, name, host, port`,
+			scanLandingExit, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range rows {
+			out[e.UserID] = append(out[e.UserID], e)
+		}
+	}
+	return out, nil
 }
 
 // PresentLandingExitSet returns the present (user, host, port) triples for the
@@ -377,6 +400,7 @@ func ResetUserLandingExitTraffic(d *sql.DB, userID int64, host string, port int)
 // When force=true it also deletes present=1 rows — used by admin delete so
 // manually imported/repo nodes can be removed. Returns (status, wasPresent, error).
 func DeleteUserLandingExit(d *sql.DB, userID int64, host string, port int, force bool) (string, bool, error) {
+	TouchDataEpoch()
 	found, present, err := exitRowPresent(d, userID, host, port)
 	if err != nil {
 		return "", false, err
@@ -523,6 +547,7 @@ func SetUserLandingExitName(d *sql.DB, userID int64, host string, port int, name
 // redisp is true when the data plane may need a re-push (any change that can
 // affect ActiveRuleHopsForPush for rules targeting this exit).
 func SetUserLandingExitExpires(d *sql.DB, userID int64, host string, port int, expiresAt int64) (updated, redisp bool, err error) {
+	TouchDataEpoch()
 	found, _, err := exitRowPresent(d, userID, host, port)
 	if err != nil || !found {
 		return false, false, err
@@ -575,6 +600,7 @@ type RepoExitPropagateResult struct {
 // old row is dropped after merging quota/used (sum) so history is not lost.
 // Metadata-only edits (same host:port) still refresh name/protocol/uri/expires.
 func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPort int, name, protocol, uri string, expiresAt int64) (RepoExitPropagateResult, error) {
+	TouchDataEpoch()
 	out := RepoExitPropagateResult{
 		OldHost: oldHost, OldPort: oldPort,
 		NewHost: newHost, NewPort: newPort,

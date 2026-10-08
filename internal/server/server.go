@@ -42,6 +42,9 @@ type Server struct {
 	asyncWg           sync.WaitGroup
 	subLatMu          sync.Mutex
 	subLatCache       map[int64]subLatSnap
+	dashMu            sync.Mutex
+	dashBody          []byte
+	dashUntil         time.Time
 }
 
 func New(d *sql.DB) (*Server, error) {
@@ -510,15 +513,6 @@ func buildRules(d *sql.DB, ruleHops []*db.RuleHop) []nft.Rule {
 }
 
 func buildRulesChecked(d *sql.DB, ruleHops []*db.RuleHop) ([]nft.Rule, error) {
-	ruleMap, err := db.RulesByID(d)
-	if err != nil {
-		return nil, fmt.Errorf("读取规则失败: %w", err)
-	}
-	users, err := db.UsersByID(d)
-	if err != nil {
-		return nil, fmt.Errorf("读取用户失败: %w", err)
-	}
-
 	ruleIDSet := map[int64]bool{}
 	for _, rh := range ruleHops {
 		ruleIDSet[rh.RuleID] = true
@@ -526,6 +520,24 @@ func buildRulesChecked(d *sql.DB, ruleHops []*db.RuleHop) ([]nft.Rule, error) {
 	ruleIDs := make([]int64, 0, len(ruleIDSet))
 	for id := range ruleIDSet {
 		ruleIDs = append(ruleIDs, id)
+	}
+	ruleMap, err := db.RulesByIDs(d, ruleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("读取规则失败: %w", err)
+	}
+	ownerSet := map[int64]bool{}
+	for _, r := range ruleMap {
+		if r != nil && r.OwnerID.Valid {
+			ownerSet[r.OwnerID.Int64] = true
+		}
+	}
+	ownerIDs := make([]int64, 0, len(ownerSet))
+	for id := range ownerSet {
+		ownerIDs = append(ownerIDs, id)
+	}
+	users, err := db.GetUsersByIDs(d, ownerIDs)
+	if err != nil {
+		return nil, fmt.Errorf("读取用户失败: %w", err)
 	}
 	hopCounts, err := db.RuleHopCounts(d, ruleIDs)
 	if err != nil {

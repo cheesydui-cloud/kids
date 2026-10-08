@@ -128,6 +128,12 @@ func (s *Server) landingIndexFromDBChecked(userID int64) (map[string]landing.Nod
 	if err != nil {
 		return nil, err
 	}
+	return indexLandingExits(exits), nil
+}
+
+// indexLandingExits classifies present exits by host:port. The first row for
+// a key wins, matching the per-user query order (name, host, port).
+func indexLandingExits(exits []*db.LandingExit) map[string]landing.Node {
 	m := make(map[string]landing.Node, len(exits))
 	for _, e := range exits {
 		key := net.JoinHostPort(e.Host, strconv.Itoa(e.Port))
@@ -152,7 +158,25 @@ func (s *Server) landingIndexFromDBChecked(userID int64) (map[string]landing.Nod
 			ExpiresAt: e.ExpiresAt,
 		}
 	}
-	return m, nil
+	return m
+}
+
+// landingIndexesFromDB loads present exits for every owner in one query.
+// A lookup error is logged and yields empty indexes, same as landingIndexFromDB.
+func (s *Server) landingIndexesFromDB(userIDs []int64) map[int64]map[string]landing.Node {
+	out := make(map[int64]map[string]landing.Node, len(userIDs))
+	for _, id := range userIDs {
+		out[id] = map[string]landing.Node{}
+	}
+	grouped, err := db.PresentLandingExitsForUsers(s.DB, userIDs)
+	if err != nil {
+		log.Printf("landing: batch present exits: %v", err)
+		return out
+	}
+	for id, exits := range grouped {
+		out[id] = indexLandingExits(exits)
+	}
+	return out
 }
 
 // hasDynamicSource reports whether the user has a subscription URL (a refresh

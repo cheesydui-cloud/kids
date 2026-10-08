@@ -56,7 +56,9 @@ func sendJSON(t *testing.T, c *websocket.Conn, v any) {
 
 // syncByPing sends a ping after a one-way notification frame and waits
 // for the matching pong. readerLoop processes frames serially, so the
-// pong's arrival proves the prior notification has finished its DB write.
+// pong proves the reader has accepted every frame sent before the ping.
+// Counter frames are applied on a separate worker; a pong does not mean
+// those database writes have finished.
 func syncByPing(t *testing.T, c *websocket.Conn) {
 	t.Helper()
 	p, _ := json.Marshal(wsproto.Ping{TS: time.Now().UnixMilli()})
@@ -220,18 +222,30 @@ func TestHubCountersUpdatesRuleHopBytes(t *testing.T) {
 	sendJSON(t, c, wsproto.Envelope{Type: wsproto.TypeCounters, Payload: cf2})
 	syncByPing(t, c)
 
-	hopMap, _ := db.RuleHopMapByNode(hub.DB, n.ID)
+	// The reader only queues counter frames. Poll until the worker commits.
+	// Separate applies and one coalesced batch both land at total 1536 with
+	// the newest sample (256+256) as last_bytes.
 	key := "tcp/" + strconv.Itoa(listenPort)
-	got := hopMap[key]
+	deadline := time.Now().Add(2 * time.Second)
+	var got *db.RuleHop
+	for {
+		hopMap, err := db.RuleHopMapByNode(hub.DB, n.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = hopMap[key]
+		if got != nil && got.TotalBytes == 1536 && got.LastBytes == 512 {
+			return
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if got == nil {
 		t.Fatalf("rule hop not found for %s", key)
 	}
-	if got.TotalBytes != 1536 {
-		t.Fatalf("expected TotalBytes 1536 (1024 + 512), got %d", got.TotalBytes)
-	}
-	if got.LastBytes != 512 {
-		t.Fatalf("expected LastBytes 512 (most recent delta), got %d", got.LastBytes)
-	}
+	t.Fatalf("hop bytes = total %d last %d, want total 1536 last 512", got.TotalBytes, got.LastBytes)
 }
 
 func TestHubCountersAccumulatesUserTrafficAndNotifies(t *testing.T) {

@@ -75,9 +75,9 @@ func (d *Dataplane) Counters() ([]Counter, error) {
 	if err != nil {
 		return nil, err
 	}
-	d.mu.Lock()
+	// userspace.Counters takes its own lock. Skipping d.mu lets a counter
+	// poll proceed while Reconcile is blocked in a userspace bind.
 	uc := d.userspace.Counters()
-	d.mu.Unlock()
 	return append(kc, uc...), nil
 }
 

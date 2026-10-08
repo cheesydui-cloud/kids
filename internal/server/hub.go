@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -60,9 +59,10 @@ type Hub struct {
 	// mutates rule state on their behalf. Keeps the hub transport-only.
 	Redispatch func(nodeIDs []int64)
 
-	mu         sync.RWMutex
-	conns      map[int64]*agentConn
-	speedCache *speedCache
+	mu           sync.RWMutex
+	conns        map[int64]*agentConn
+	speedCache   *speedCache
+	counterSnaps counterSnapCache
 }
 
 func NewHub(d *sql.DB) *Hub {
@@ -76,6 +76,15 @@ type agentConn struct {
 	ws      *websocket.Conn
 	writeCh chan []byte
 	closed  chan struct{}
+
+	// counterWake is a coalescing signal (buffer 1). The reader merges samples
+	// into counterPending and returns; counterLoop does the database work.
+	counterWake    chan struct{}
+	counterMu      sync.Mutex
+	counterPending []accountedSample
+	counterIndex   map[string]int
+	// lastSeenUnix is the last TouchNodeLastSeen attempt, in Unix nanoseconds.
+	lastSeenUnix atomic.Int64
 
 	// closeOnce guards closed so the multiple close paths (a displaced
 	// conn in registerConn, unregisterConn on disconnect, and Hub.Close
@@ -169,14 +178,16 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// Register before hello_ack so both sides can rely on the invariant
 	// "hello_ack visible => conn is in the hub map".
 	ac := &agentConn{
-		nodeID:  node.ID,
-		arch:    hello.Arch,
-		origin:  requestOrigin(r),
-		ws:      ws,
-		writeCh: make(chan []byte, 16),
-		closed:  make(chan struct{}),
-		pending: make(map[string]chan json.RawMessage),
+		nodeID:      node.ID,
+		arch:        hello.Arch,
+		origin:      requestOrigin(r),
+		ws:          ws,
+		writeCh:     make(chan []byte, 16),
+		closed:      make(chan struct{}),
+		pending:     make(map[string]chan json.RawMessage),
+		counterWake: make(chan struct{}, 1),
 	}
+	ac.lastSeenUnix.Store(time.Now().UnixNano())
 	h.registerConn(ac)
 	defer h.unregisterConn(ac)
 
@@ -209,12 +220,12 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// A node may have missed rule changes while it was offline. Reconcile now so
-	// the kernel state converges on reconnect instead of drifting until the next
-	// mutation. The rev check keeps this a no-op when the node is already in sync.
-	h.reconcileOnConnect(node.ID, hello.LastAppliedRev)
-
+	// A node may have missed rule changes while it was offline. Reconcile in the
+	// background so the hello path is not stuck on the ruleset query. writerLoop
+	// is already running, and readerLoop (below) can accept the apply_ack.
 	go h.writerLoop(ac)
+	go h.counterLoop(ac)
+	go h.reconcileOnConnect(node.ID, hello.LastAppliedRev)
 	h.readerLoop(ctx, ac)
 }
 
@@ -305,6 +316,10 @@ func (h *Hub) writerLoop(ac *agentConn) {
 
 func (h *Hub) readerLoop(parent context.Context, ac *agentConn) {
 	defer func() {
+		// The counter worker can observe close and exit before this loop
+		// finishes the frame it already read. Flush here so that batch is
+		// still recorded.
+		h.flushPendingCounters(ac)
 		if r := recover(); r != nil {
 			log.Printf("hub: readerLoop panic for node %d: %v", ac.nodeID, r)
 			ac.signalClose()
@@ -326,18 +341,16 @@ func (h *Hub) readerLoop(parent context.Context, ac *agentConn) {
 		case wsproto.TypePing:
 			pong, _ := json.Marshal(wsproto.Pong{TS: time.Now().UnixMilli()})
 			ac.enqueueWrite(wsproto.Envelope{Type: wsproto.TypePong, ID: env.ID, Payload: pong})
-			// Refresh last_seen on every ping so "假在线" stale-detection has a
-			// live clock; agents ping ~10s so this is cheap and bounds drift.
-			if err := db.TouchNodeLastSeen(h.DB, ac.nodeID); err != nil {
-				log.Printf("hub: TouchNodeLastSeen node %d: %v", ac.nodeID, err)
-			}
+			// Heartbeat writes are throttled. Agents ping ~10s; one UPDATE
+			// every 20s still lands inside the 45s stale-online window.
+			ac.maybeTouchLastSeen(h.DB)
 		case wsproto.TypeCounters:
 			var co wsproto.Counters
 			if err := json.Unmarshal(env.Payload, &co); err != nil {
 				log.Printf("hub: node %d malformed counters: %v", ac.nodeID, err)
 				continue
 			}
-			h.applyCounters(ac.nodeID, co.Samples)
+			ac.enqueueCounters(co.Samples)
 		case wsproto.TypeRuleCreate:
 			h.handleRuleCreate(ac, env)
 		case wsproto.TypeRuleUpdate:
@@ -386,6 +399,8 @@ func (ac *agentConn) enqueueWrite(env wsproto.Envelope) {
 	select {
 	case ac.writeCh <- b:
 	case <-ac.closed:
+	default:
+		ac.closeForWritePressure()
 	}
 }
 
@@ -693,383 +708,6 @@ func writeEnvelope(ctx context.Context, ws *websocket.Conn, env wsproto.Envelope
 func writeError(ctx context.Context, ws *websocket.Conn, code, msg string) {
 	p, _ := json.Marshal(wsproto.Error{Code: code, Message: msg})
 	_ = writeEnvelope(ctx, ws, wsproto.Envelope{Type: wsproto.TypeError, Payload: p})
-}
-
-// applyCounters folds per-rule bytes_delta into the rule_hops table and the
-// owning user's usage. The (node_id, listen_port, proto) tuple identifies
-// the hop. Each sample is resolved to its rule_hop row so we learn the hop
-// id and the owning rule/user.
-//
-// The same bytes flow through every hop of a chain, so the global user quota is
-// billed exactly once — at the entry hop (position 0) — weighted by the entry
-// node's own rate_multiplier and the user's billing rate. Per-grant quota
-// charges raw bytes once per logical segment, at that segment's first hop, onto
-// the segment's logical node grant. Quota suppression keys on the same logical
-// node end to end.
-func (h *Hub) applyCounters(nodeID int64, samples []wsproto.CounterSample) {
-	hopMap, err := db.RuleHopMapByNode(h.DB, nodeID)
-	if err != nil {
-		log.Printf("hub: node %d load rule hop map for counters: %v", nodeID, err)
-		return
-	}
-	// Only the rules referenced by this node's hops are ever looked up, so load
-	// just those instead of scanning the whole rules table every counters batch.
-	ruleIDSet := map[int64]bool{}
-	for _, rh := range hopMap {
-		ruleIDSet[rh.RuleID] = true
-	}
-	ruleIDs := make([]int64, 0, len(ruleIDSet))
-	for id := range ruleIDSet {
-		ruleIDs = append(ruleIDs, id)
-	}
-	ruleMap, _ := db.RulesByIDs(h.DB, ruleIDs)
-	if ruleMap == nil {
-		ruleMap = map[int64]*db.Rule{}
-	}
-	multipliers, err := db.NodeRateMultipliers(h.DB)
-	if err != nil {
-		log.Printf("hub: node %d load node rate multipliers: %v", nodeID, err)
-		multipliers = map[int64]float64{}
-	}
-	// Segment-first hops drive per-grant accounting: each logical segment's
-	// grant is charged once, at the hop where the segment begins.
-	segFirst, err := db.SegmentFirstHops(h.DB, ruleIDs)
-	if err != nil {
-		log.Printf("hub: node %d load segment first hops: %v", nodeID, err)
-		segFirst = map[int64]map[int]int64{}
-	}
-
-	// Landing-exit ledger lookups for this batch: which (owner, host, port)
-	// triples are present landing exits, and each rule's final hop position —
-	// the only hop whose bytes reach the exit ledger, since middle hops target
-	// system relay addresses. On a load error the batch skips exit metering
-	// entirely (under-counting beats mis-counting).
-	ownerSet := map[int64]bool{}
-	for _, r := range ruleMap {
-		if r.OwnerID.Valid {
-			ownerSet[r.OwnerID.Int64] = true
-		}
-	}
-	ownerIDs := make([]int64, 0, len(ownerSet))
-	for id := range ownerSet {
-		ownerIDs = append(ownerIDs, id)
-	}
-	exitSet, err := db.PresentLandingExitSet(h.DB, ownerIDs)
-	if err != nil {
-		log.Printf("hub: node %d load landing exit set: %v", nodeID, err)
-		exitSet = nil
-	}
-	maxPos, err := db.MaxHopPositions(h.DB, ruleIDs)
-	if err != nil {
-		log.Printf("hub: node %d load hop positions: %v", nodeID, err)
-		exitSet = nil
-	}
-
-	node, err := db.GetNode(h.DB, nodeID)
-	if err != nil {
-		log.Printf("hub: node %d load for billing direction: %v", nodeID, err)
-		return
-	}
-
-	type userNode struct{ userID, nodeID int64 }
-	touched := map[userNode]bool{}
-
-	// Pre-load all owning users and run cycle-reset checks once per batch,
-	// outside the sample loop and outside the flush transaction. This removes
-	// per-sample GetUserByID/CheckAndResetTrafficCycle queries from the hot
-	// path while keeping the reset/redispatch behavior identical.
-	userCache := map[int64]*db.User{}
-	if len(ownerIDs) > 0 {
-		loaded, err := db.GetUsersByIDs(h.DB, ownerIDs)
-		if err != nil {
-			log.Printf("hub: node %d load users for counters: %v", nodeID, err)
-		} else {
-			for uid, u := range loaded {
-				if u == nil {
-					continue
-				}
-				if reset, _ := db.CheckAndResetTrafficCycle(h.DB, u); reset {
-					if u.Disabled && u.DisableReason.Valid && u.DisableReason.String == "流量超额" {
-						_ = db.SetUserDisabled(h.DB, uid, false, "")
-					}
-					if nodes, err := db.DistinctUserNodes(h.DB, uid); err == nil && h.Redispatch != nil {
-						go h.Redispatch(nodes)
-					}
-				}
-				userCache[uid] = u
-			}
-		}
-	}
-
-	// Accumulate all row mutations and flush them in one transaction after the
-	// loop. Reads, cycle resets and redispatch stay outside any tx: with
-	// MaxOpenConns(1) a tx holds the only connection, so a pool read or a
-	// redispatch goroutine inside it would deadlock.
-	type hopWrite struct{ lastBytes, lastUp, lastDown, addTotal, addBilled int64 }
-	hopWrites := map[int64]*hopWrite{}
-	userNodeAdds := map[userNode]int64{}
-	userAdds := map[int64]int64{}
-	totalUserAdds := map[int64]int64{}
-	ruleExitAdds := map[int64]int64{}
-	exitAdds := map[db.UserExitKey]int64{}
-	// The reporting node's raw ledger: every sampled byte counts, both
-	// directions regardless of unidirectional billing, and before the rule_hop
-	// match below — a sample whose rule was deleted mid-batch is still real
-	// forwarded volume.
-	var rawAdd int64
-
-	for _, s := range samples {
-		// Pre-v0.33 agents send BytesDelta without direction; fall back to it
-		// so traffic accounting continues while the node upgrades.
-		if s.BytesUp == 0 && s.BytesDown == 0 && s.BytesDelta > 0 {
-			s.BytesUp = s.BytesDelta
-		}
-		totalDelta := s.BytesUp + s.BytesDown
-		rawAdd += totalDelta
-		billedDelta := totalDelta
-		if node.Unidirectional {
-			billedDelta = s.BytesUp
-		}
-		key := fmt.Sprintf("%s/%d", s.Proto, s.ListenPort)
-		rh, ok := hopMap[key]
-		if !ok {
-			log.Printf("hub: node %d counters sample for %s/%d matched no rule_hop row (rule may have been deleted)", nodeID, s.Proto, s.ListenPort)
-			continue
-		}
-		r := ruleMap[rh.RuleID]
-
-		// Exit ledger: final hop only, raw and unweighted — it records real
-		// traffic to the destination, independent of billing multipliers and
-		// the node's unidirectional setting. Growth must mark the pair touched
-		// itself: a downlink-only batch on a unidirectional node bills 0 and
-		// would otherwise never reach the quota callback.
-		if r != nil && r.OwnerID.Valid && totalDelta > 0 && len(exitSet) > 0 && rh.Position == maxPos[rh.RuleID] {
-			key := db.UserExitKey{UserID: r.OwnerID.Int64, Host: r.ExitHost, Port: r.ExitPort}
-			if exitSet[key] {
-				exitAdds[key] += totalDelta
-				touched[userNode{key.UserID, nodeID}] = true
-			}
-		}
-
-		// User billing is now based on the landing exit traffic only: the raw
-		// upload+download bytes observed at the rule's final hop. Entry node
-		// multipliers are intentionally excluded from user billing.
-		billedBase := billedDelta
-		var userID int64
-		hasOwner := r != nil && r.OwnerID.Valid && totalDelta > 0
-		if hasOwner {
-			userID = r.OwnerID.Int64
-
-			// Entry multiplier is kept only for the legacy rule_hops.billed_bytes
-			// admin metric; it does not affect user billing.
-			entryMult, ok := multipliers[r.NodeID]
-			if !ok || entryMult < 0 {
-				entryMult = 1.0
-			}
-			billedBase = int64(math.Round(float64(billedDelta) * entryMult))
-		}
-
-		// rule_hops: last_bytes stay raw for speed display. total_bytes is always
-		// the raw forwarded volume; billed_bytes carries the rate-neutral billed
-		// base (raw × entry node multiplier) on the entry hop and stays 0 on
-		// middle hops. A tcp+udp hop can fan in as two samples to the same row;
-		// last_* take the last sample and the total sums.
-		w := hopWrites[rh.ID]
-		if w == nil {
-			w = &hopWrite{}
-			hopWrites[rh.ID] = w
-		}
-		w.lastBytes = totalDelta
-		w.lastUp = s.BytesUp
-		w.lastDown = s.BytesDown
-		w.addTotal += totalDelta
-		if rh.Position == 0 {
-			w.addBilled += billedBase
-		}
-
-		if !hasOwner {
-			continue
-		}
-
-		// Per-grant quota: raw bytes, charged once per logical segment at its
-		// first hop, onto the segment's logical node grant (the entry segment's
-		// via is rules.node_id, so its grant is included). Suppression marks the
-		// same logical node so RulesAffectedByNode and OnTrafficUpdate stay in
-		// step with this accounting.
-		if via, ok := segFirst[rh.RuleID][rh.Position]; ok {
-			userNodeAdds[userNode{userID, via}] += billedDelta
-			touched[userNode{userID, via}] = true
-		}
-		// User billing: count raw up+down at the final hop only. This matches the
-		// landing exit ledger and is the single source of truth for user display.
-		if len(maxPos) > 0 && rh.Position == maxPos[rh.RuleID] && totalDelta > 0 {
-			ruleExitAdds[rh.RuleID] += totalDelta
-			userAdds[userID] += totalDelta
-			totalUserAdds[userID] += totalDelta
-		}
-	}
-
-	// Flush every accumulated mutation in a single transaction: one commit (one
-	// fsync) for the whole batch instead of 3-5 auto-commits per sample.
-	if len(hopWrites) > 0 || len(userNodeAdds) > 0 || len(userAdds) > 0 || len(totalUserAdds) > 0 || len(ruleExitAdds) > 0 || len(exitAdds) > 0 || rawAdd > 0 {
-		if tx, err := h.DB.Begin(); err != nil {
-			log.Printf("hub: node %d counters tx begin: %v", nodeID, err)
-		} else {
-			ok := true
-			if rawAdd > 0 {
-				if err := db.AddNodeRawTraffic(tx, nodeID, rawAdd); err != nil {
-					log.Printf("hub: node %d raw traffic add: %v", nodeID, err)
-					ok = false
-				}
-				if ok {
-					if err := db.AddNodeDailyRawTraffic(tx, nodeID, rawAdd); err != nil {
-						log.Printf("hub: node %d daily raw traffic add: %v", nodeID, err)
-						ok = false
-					}
-				}
-				if ok {
-					if err := db.AddHourlyRawTraffic(tx, rawAdd); err != nil {
-						log.Printf("hub: hourly raw traffic add: %v", err)
-						ok = false
-					}
-				}
-			}
-			for id, w := range hopWrites {
-				if !ok {
-					break
-				}
-				if _, err := tx.Exec(`UPDATE rule_hops SET last_bytes=?, last_bytes_up=?, last_bytes_down=?, total_bytes=total_bytes+?, billed_bytes=billed_bytes+? WHERE id=?`,
-					w.lastBytes, w.lastUp, w.lastDown, w.addTotal, w.addBilled, id); err != nil {
-					log.Printf("hub: node %d counters rule_hop update: %v", nodeID, err)
-					ok = false
-					break
-				}
-			}
-			for un, delta := range userNodeAdds {
-				if !ok {
-					break
-				}
-				if _, err := tx.Exec(`UPDATE user_nodes SET traffic_used_bytes = traffic_used_bytes + ? WHERE user_id=? AND node_id=?`, delta, un.userID, un.nodeID); err != nil {
-					log.Printf("hub: user %d node %d per-node traffic add: %v", un.userID, un.nodeID, err)
-					ok = false
-					break
-				}
-			}
-			for uid, delta := range userAdds {
-				if !ok {
-					break
-				}
-				if _, err := tx.Exec(`UPDATE users SET traffic_used_bytes = traffic_used_bytes + ? WHERE id=?`, delta, uid); err != nil {
-					log.Printf("hub: user %d traffic add: %v", uid, err)
-					ok = false
-					break
-				}
-				// Same raw final-hop delta into today's per-user day bucket
-				// (Asia/Shanghai). Independent of billing_rate / admin reset.
-				if err := db.AddUserDailyTraffic(tx, uid, delta); err != nil {
-					log.Printf("hub: user %d daily traffic add: %v", uid, err)
-					ok = false
-					break
-				}
-			}
-			for uid, delta := range totalUserAdds {
-				if !ok {
-					break
-				}
-				if _, err := tx.Exec(`UPDATE users SET total_traffic_used_bytes = total_traffic_used_bytes + ? WHERE id=?`, delta, uid); err != nil {
-					log.Printf("hub: user %d total traffic add: %v", uid, err)
-					ok = false
-					break
-				}
-			}
-			for ruleID, delta := range ruleExitAdds {
-				if !ok {
-					break
-				}
-				if _, err := tx.Exec(`UPDATE rules SET exit_bytes = exit_bytes + ? WHERE id=?`, delta, ruleID); err != nil {
-					log.Printf("hub: rule %d exit bytes add: %v", ruleID, err)
-					ok = false
-					break
-				}
-			}
-			for k, delta := range exitAdds {
-				if !ok {
-					break
-				}
-				// A zero-row hit means the row was flipped absent and deleted
-				// between load and flush; dropping one batch is the intent of
-				// that deletion.
-				if _, err := tx.Exec(`UPDATE user_landing_exits SET used_bytes = used_bytes + ?, updated_at = ? WHERE user_id=? AND host=? AND port=?`,
-					delta, time.Now().Unix(), k.UserID, k.Host, k.Port); err != nil {
-					log.Printf("hub: user %d exit %s:%d ledger add: %v", k.UserID, k.Host, k.Port, err)
-					ok = false
-					break
-				}
-			}
-			if ok {
-				if err := tx.Commit(); err != nil {
-					log.Printf("hub: node %d counters tx commit: %v", nodeID, err)
-				}
-			} else {
-				_ = tx.Rollback()
-			}
-		}
-	}
-
-	deltas := make([]counterDelta, 0, len(samples))
-	for _, s := range samples {
-		// Attribute the hop's speed to its rule's owner so the per-user speed
-		// view can filter it. An unmatched hop (rule deleted mid-batch) or an
-		// ownerless admin rule leaves ownerID 0 — it still counts toward the
-		// node total, just not toward any user's share.
-		//
-		// ruleID is set on every matched hop so multi-hop / composite chains
-		// still produce a per-rule rate even if only a middle hop is currently
-		// reporting. The rule snapshot prefers the entry hop (position 0)
-		// when present and falls back to any hop of that rule otherwise —
-		// never summing every hop of the same chain (that would N× the rate).
-		var ownerID, ruleID int64
-		var hopPos = -1
-		if rh, ok := hopMap[s.Proto+"/"+strconv.Itoa(s.ListenPort)]; ok {
-			if r := ruleMap[rh.RuleID]; r != nil && r.OwnerID.Valid {
-				ownerID = r.OwnerID.Int64
-			}
-			ruleID = rh.RuleID
-			hopPos = rh.Position
-		}
-		deltas = append(deltas, counterDelta{
-			proto:         s.Proto,
-			listenPortStr: strconv.Itoa(s.ListenPort),
-			bytesUp:       s.BytesUp,
-			bytesDown:     s.BytesDown,
-			ownerID:       ownerID,
-			ruleID:        ruleID,
-			hopPos:        hopPos,
-		})
-	}
-	h.speedCache.update(nodeID, deltas)
-
-	// Quota enforcement (the OnTrafficUpdate callback) can call back into the hub
-	// to re-dispatch a ruleset, which blocks on an apply_ack that this very
-	// readerLoop must deliver. Run it off-goroutine so the reader never waits on
-	// itself — otherwise every enforcement fires the 30s apply timeout and flaps
-	// the node. touched is loop-local, so snapshotting it here is race-free.
-	if h.OnTrafficUpdate != nil && len(touched) > 0 {
-		pairs := make([]userNode, 0, len(touched))
-		for un := range touched {
-			pairs = append(pairs, un)
-		}
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("hub: OnTrafficUpdate panic: %v", r)
-				}
-			}()
-			for _, un := range pairs {
-				h.OnTrafficUpdate(un.userID, un.nodeID)
-			}
-		}()
-	}
 }
 
 // applyRuleHopEdit folds a node-reported edit to its hop in ruleID back

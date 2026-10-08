@@ -57,17 +57,6 @@ export default function RulesList() {
   const landingNodes = localNodes
   const localIdx = useMemo(() => landingIndex(localNodes), [localNodes])
 
-  const enrich = (r) => {
-    const key = r.exit_host && r.exit_port ? `${r.exit_host}:${r.exit_port}` : null
-    if (key && localIdx.has(key) && r.entry) {
-      const ep = splitEndpoint(r.entry)
-      const node = localIdx.get(key)
-      const relay = ep && rewriteEndpoint(node.uri, ep.host, ep.port)
-      if (relay) return { ...r, exit_kind: 'landing', landing_name: node.name, landing_protocol: node.protocol, relay_uri: relay }
-    }
-    return r
-  }
-
   const addProxyURI = (uri) => {
     if (!user?.username) return
     const existing = loadLocalURIs(user.username)
@@ -94,6 +83,37 @@ export default function RulesList() {
   }
   useEffect(() => { load() }, [])
 
+  const nodes = useMemo(() => (data?.nodes || []).filter(n => n.node_type !== 'self'), [data])
+  const nodeMap = useMemo(() => {
+    const m = {}
+    nodes.forEach(n => { m[n.id] = n })
+    return m
+  }, [nodes])
+  const rules = useMemo(() => (data?.rules || []).map(r => {
+    const key = r.exit_host && r.exit_port ? `${r.exit_host}:${r.exit_port}` : null
+    if (key && localIdx.has(key) && r.entry) {
+      const ep = splitEndpoint(r.entry)
+      const node = localIdx.get(key)
+      const relay = ep && rewriteEndpoint(node.uri, ep.host, ep.port)
+      if (relay) return { ...r, exit_kind: 'landing', landing_name: node.name, landing_protocol: node.protocol, relay_uri: relay }
+    }
+    return r
+  }), [data, localIdx])
+  const q = search.trim().toLowerCase()
+  const filtered = useMemo(() => {
+    let out = rules
+    if (selectedOwners.size > 0) out = out.filter(r => r.owner_id?.Valid && selectedOwners.has(r.owner_id.Int64))
+    if (selectedNodes.size > 0) out = out.filter(r => selectedNodes.has(r.node_id))
+    if (q) out = out.filter(r => {
+      const node = nodeMap[r.node_id]
+      const exit = r.exit_host && r.exit_port ? `${r.exit_host}:${r.exit_port}` : ''
+      return [r.name, node?.name, r.entry, exit, r.owner_name].some(v => (v || '').toLowerCase().includes(q))
+    })
+    return out
+  }, [rules, selectedOwners, selectedNodes, q, nodeMap])
+  const filterActive = selectedOwners.size > 0 || selectedNodes.size > 0
+  const headerCount = (filterActive || q) ? `${filtered.length}/${rules.length}` : rules.length
+
   // Only blank the page on the first load; later reloads (delete/edit) keep the
   // current list on screen instead of flashing a full-page spinner.
   if (loading && !data) return <Layout><Loading /></Layout>
@@ -101,12 +121,7 @@ export default function RulesList() {
   // "暂无规则".
   if (!data && error) return <Layout><Empty title="加载失败" desc={error}><button onClick={load} className="btn-secondary text-xs mt-3">重试</button></Empty></Layout>
 
-  const { rules: allRulesRaw = [], nodes: allNodes = [] } = data || {}
-  const nodes = allNodes.filter(n => n.node_type !== 'self')
-  const nodeMap = {}
-  nodes.forEach(n => { nodeMap[n.id] = n })
   const pickerUsers = users.filter(u => u.username !== 'admin')
-  const rules = allRulesRaw.map(enrich)
 
   const toggleRule = async (rule) => {
     const nextOff = !rule.disabled
@@ -145,20 +160,6 @@ export default function RulesList() {
     }
   }
 
-  const q = search.trim().toLowerCase()
-  let filtered = rules
-  // Owner and node filters are both applied client-side: the initial load
-  // already fetched every rule, so re-requesting a subset per filter change was
-  // pure waste.
-  if (selectedOwners.size > 0) filtered = filtered.filter(r => r.owner_id?.Valid && selectedOwners.has(r.owner_id.Int64))
-  if (selectedNodes.size > 0) filtered = filtered.filter(r => selectedNodes.has(r.node_id))
-  if (q) filtered = filtered.filter(r => {
-    const node = nodeMap[r.node_id]
-    const exit = r.exit_host && r.exit_port ? `${r.exit_host}:${r.exit_port}` : ''
-    return [r.name, node?.name, r.entry, exit, r.owner_name].some(v => (v || '').toLowerCase().includes(q))
-  })
-
-  const filterActive = selectedOwners.size > 0 || selectedNodes.size > 0
   // A single updateParams call: setSearchParams's updater closes over the
   // searchParams from this render, not an accumulating prev, so two separate
   // setSelectedOwners/setSelectedNodes calls here would each compute from the
@@ -174,7 +175,7 @@ export default function RulesList() {
   return (
     <Layout>
       <div className="h-full flex flex-col">
-      <PageHeader title="转发规则" count={rules.length} />
+      <PageHeader title="转发规则" count={headerCount} />
 
       <Panel fill>
         <PanelToolbar>

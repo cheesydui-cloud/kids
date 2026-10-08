@@ -56,6 +56,24 @@ func ListAllNodeHops(d *sql.DB) ([]*NodeHop, error) {
 	return queryAll(d, `SELECT node_id, position, hop_node_id, mode, traffic_multiplier FROM node_hops ORDER BY node_id, position`, scanNodeHop)
 }
 
+// ListNodeHopsByNodeIDs returns hops for the given composite nodes, ordered
+// by (node_id, position). An empty id list returns nil.
+func ListNodeHopsByNodeIDs(d *sql.DB, ids []int64) ([]*NodeHop, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var out []*NodeHop
+	for _, part := range chunkInt64s(ids, inClauseChunk) {
+		ph, args := placeholderList(part)
+		rows, err := queryAll(d, `SELECT node_id, position, hop_node_id, mode, traffic_multiplier FROM node_hops WHERE node_id IN (`+ph+`) ORDER BY node_id, position`, scanNodeHop, args...)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
+	return out, nil
+}
+
 func DeleteNodeHops(d DBTX, nodeID int64) error {
 	_, err := d.Exec(`DELETE FROM node_hops WHERE node_id=?`, nodeID)
 	return err

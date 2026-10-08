@@ -89,12 +89,28 @@ type counterDelta struct {
 func (sc *speedCache) update(nodeID int64, samples []counterDelta) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+	now := time.Now()
+	// Drop idle hops and stale nodes before applying this batch. A hop that
+	// comes back in this batch is treated as a first sample and waits for the
+	// next one before it has a rate.
+	hopCut := now.Add(-hopIdleTTL)
+	nodeCut := now.Add(-nodeStaleTTL)
+	for nid, ns := range sc.nodes {
+		if ns.lastSeen.Before(nodeCut) {
+			delete(sc.nodes, nid)
+			continue
+		}
+		for key, hs := range ns.hops {
+			if hs.lastTime.Before(hopCut) {
+				delete(ns.hops, key)
+			}
+		}
+	}
 	ns, ok := sc.nodes[nodeID]
 	if !ok {
 		ns = &nodeSpeedState{hops: map[string]*hopState{}}
 		sc.nodes[nodeID] = ns
 	}
-	now := time.Now()
 	ns.lastSeen = now
 	for _, s := range samples {
 		key := s.proto + "/" + s.listenPortStr
@@ -163,7 +179,6 @@ func hopRate(hs *hopState, now time.Time) (up, down float64) {
 // keep a stale rate on every other port of the same node.
 func (sc *speedCache) snapshotFiltered(keep func(*hopState) bool) []SpeedEntry {
 	sc.mu.RLock()
-	defer sc.mu.RUnlock()
 	now := time.Now()
 	cutoff := now.Add(-nodeStaleTTL)
 	out := make([]SpeedEntry, 0, len(sc.nodes))
@@ -192,6 +207,7 @@ func (sc *speedCache) snapshotFiltered(keep func(*hopState) bool) []SpeedEntry {
 			TS:     ns.lastSeen.UnixMilli(),
 		})
 	}
+	sc.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
 	return out
 }
@@ -204,7 +220,6 @@ func (sc *speedCache) snapshotFiltered(keep func(*hopState) bool) []SpeedEntry {
 // every other rule's live rate.
 func (sc *speedCache) snapshotRulesFiltered(keep func(*hopState) bool) []RuleSpeedEntry {
 	sc.mu.RLock()
-	defer sc.mu.RUnlock()
 	now := time.Now()
 	cutoff := now.Add(-nodeStaleTTL)
 	type agg struct {
@@ -269,6 +284,7 @@ func (sc *speedCache) snapshotRulesFiltered(keep func(*hopState) bool) []RuleSpe
 			TS:     a.ts,
 		})
 	}
+	sc.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].RuleID < out[j].RuleID })
 	return out
 }

@@ -25,13 +25,23 @@ type fakeDataplane struct {
 	cleanupCalls int
 	err          error             // Reconcile error
 	counters     []forward.Counter // returned by Counters()
+	// afterReconcile runs only after a successful Reconcile, with no lock held.
+	afterReconcile func()
 }
 
 func (f *fakeDataplane) Reconcile(ctx context.Context, rules []nft.Rule) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.nftCalls = append(f.nftCalls, append([]nft.Rule(nil), rules...))
-	return f.err
+	err := f.err
+	hook := f.afterReconcile
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if hook != nil {
+		hook()
+	}
+	return nil
 }
 
 func (f *fakeDataplane) Counters() ([]forward.Counter, error) { return f.counters, nil }
@@ -199,7 +209,7 @@ func TestHandler_CreateRule_AutoAssignsPort(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-		if got.ListenPort < 10001 || got.ListenPort > 60000 {
+	if got.ListenPort < 10001 || got.ListenPort > 60000 {
 		t.Fatalf("auto-assigned port %d out of range", got.ListenPort)
 	}
 	if len(d.owners["tui"]) != 1 || d.owners["tui"][0].SrcPort != got.ListenPort {
@@ -692,17 +702,17 @@ func TestCounterSamples_DeltasAndReset(t *testing.T) {
 
 func TestParseRuleID(t *testing.T) {
 	cases := []struct {
-		in   string
-		id   int64
-		ok   bool
+		in string
+		id int64
+		ok bool
 	}{
 		{"5", 5, true},
 		{"123", 123, true},
-		{"0", 0, false},      // zero not valid
-		{"", 0, false},       // empty
-		{"abc", 0, false},    // hex
+		{"0", 0, false},        // zero not valid
+		{"", 0, false},         // empty
+		{"abc", 0, false},      // hex
 		{"abcd1234", 0, false}, // hex
-		{"-1", 0, false},     // negative
+		{"-1", 0, false},       // negative
 	}
 	for _, tc := range cases {
 		got, ok := parseRuleID(tc.in)
@@ -724,7 +734,7 @@ func TestPickLocalFreePort(t *testing.T) {
 	if port == 10001 {
 		t.Fatal("picked occupied port")
 	}
-		if port < 10001 || port > 60000 {
+	if port < 10001 || port > 60000 {
 		t.Fatalf("port %d out of range", port)
 	}
 }
