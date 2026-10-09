@@ -23,6 +23,7 @@ const (
 	migrateDBName       = "panel.db"
 	migrateBrandDir     = "brand"
 	migrateDocsDir      = "docs-assets"
+	migrateSubKeyName   = SubTokenKeyFile
 	MigrateIncomingDir  = "migrate-incoming"
 	MigrateReadyName    = "ready"
 	// MaxExtractBytes caps uncompressed payload so a crafted archive cannot fill the disk.
@@ -99,6 +100,19 @@ func WriteMigrateArchive(d *sql.DB, brandDir, docsDir, panelVersion string, w io
 	}
 	files[migrateDBName] = dbHash
 
+	var keyPath string
+	if key := SubTokenKey(d); len(key) == 32 {
+		keyPath = filepath.Join(tmp, migrateSubKeyName)
+		if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+			return nil, err
+		}
+		keyHash, err := hashFile(keyPath)
+		if err != nil {
+			return nil, err
+		}
+		files[migrateSubKeyName] = keyHash
+	}
+
 	man := &MigrateManifest{
 		Format:       MigrateFormatV1,
 		CreatedAt:    time.Now().Unix(),
@@ -116,6 +130,13 @@ func WriteMigrateArchive(d *sql.DB, brandDir, docsDir, panelVersion string, w io
 		_ = tw.Close()
 		_ = gw.Close()
 		return nil, err
+	}
+	if keyPath != "" {
+		if err := tarRegular(tw, migrateSubKeyName, keyPath, files); err != nil {
+			_ = tw.Close()
+			_ = gw.Close()
+			return nil, err
+		}
 	}
 	if err := tarTree(tw, brandDir, migrateBrandDir, files); err != nil {
 		_ = tw.Close()
@@ -456,6 +477,7 @@ func StageIncoming(dataDir, extractDir string) error {
 	if err := copyFile(filepath.Join(extractDir, migrateDBName), filepath.Join(inc, migrateDBName)); err != nil {
 		return err
 	}
+	_ = copyFile(filepath.Join(extractDir, migrateSubKeyName), filepath.Join(inc, migrateSubKeyName))
 	_ = copyDirIfExists(filepath.Join(extractDir, migrateBrandDir), filepath.Join(inc, migrateBrandDir))
 	_ = copyDirIfExists(filepath.Join(extractDir, migrateDocsDir), filepath.Join(inc, migrateDocsDir))
 	return os.WriteFile(filepath.Join(inc, MigrateReadyName), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
@@ -492,6 +514,12 @@ func ApplyStagedMigrate(dbPath string) error {
 	_ = os.Remove(dbPath + "-shm")
 	if err := replaceFile(srcDB, dbPath); err != nil {
 		return fmt.Errorf("替换数据库失败: %w", err)
+	}
+	srcKey := filepath.Join(inc, migrateSubKeyName)
+	if _, err := os.Stat(srcKey); err == nil {
+		if err := replaceFile(srcKey, filepath.Join(dataDir, migrateSubKeyName)); err != nil {
+			return fmt.Errorf("替换订阅密钥失败: %w", err)
+		}
 	}
 	_ = os.Remove(dbPath + "-wal")
 	_ = os.Remove(dbPath + "-shm")

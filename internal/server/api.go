@@ -240,10 +240,9 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 	brand := s.brandingPayload()
 	panelName, _ := brand["panel_name"].(string)
 	userView := apiUserFullView(u)
-	// has_landing_source drives the sidebar entries "落地节点" and "我的代理".
-	// A user who only has repo-imported exits (no subscription URL or manual
-	// URIs) would otherwise lose those nav items — also check the DB for
-	// present landing exits (includes node-pool imports with source='repo').
+	// Older clients still read has_landing_source. Fold in present landing
+	// exits, including node-pool imports with source='repo'. The panel no
+	// longer uses this flag for navigation.
 	if !userView["has_landing_source"].(bool) {
 		if exits, _ := db.PresentLandingExitsForUser(s.DB, u.ID); len(exits) > 0 {
 			userView["has_landing_source"] = true
@@ -382,17 +381,28 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 	if landingSoon == nil {
 		landingSoon = []db.LandingExitSoonItem{}
 	}
+	art, _ := s.loadAgentArtifact()
+	latestAgentSHA := ""
+	if art != nil {
+		latestAgentSHA = art.SHA
+	}
+	latestAgentVersion := serverVersion()
+	for _, n := range nodes {
+		normalizeAgentVersion(n, latestAgentVersion, latestAgentSHA)
+	}
 	payload := map[string]any{
-		"nodes":              nodes,
-		"node_traffic":       nodeTraffic,
-		"rule_count":         ruleCount,
-		"rule_count_by_node": ruleCountByNode,
-		"total_bytes":        totalBytes,
-		"today_raw_bytes":    todayRawBytes,
-		"month_raw_bytes":    monthRawBytes,
-		"hourly_raw":         hourly,
-		"user_count":         userCount,
-		"landing_expiring":   landingSoon,
+		"nodes":                nodes,
+		"node_traffic":         nodeTraffic,
+		"rule_count":           ruleCount,
+		"rule_count_by_node":   ruleCountByNode,
+		"total_bytes":          totalBytes,
+		"today_raw_bytes":      todayRawBytes,
+		"month_raw_bytes":      monthRawBytes,
+		"hourly_raw":           hourly,
+		"user_count":           userCount,
+		"landing_expiring":     landingSoon,
+		"latest_agent_version": latestAgentVersion,
+		"latest_agent_sha":     latestAgentSHA,
 	}
 	ensureNonNilSlices(payload)
 	var buf bytes.Buffer
@@ -3097,6 +3107,11 @@ func (s *Server) apiGetUser(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "读取昨日流量失败: "+err.Error())
 		return
 	}
+	userRequests, err := db.ListUserRequests(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户申请失败: "+err.Error())
+		return
+	}
 	jsonOK(w, map[string]any{
 		"user": apiUserFullView(target), "nodes": grantedNodes,
 		"grants": grants, "all_nodes": allNodes,
@@ -3106,6 +3121,7 @@ func (s *Server) apiGetUser(w http.ResponseWriter, r *http.Request) {
 		"today_day":           db.DayKeyNow(),
 		"yesterday_raw_bytes": yesterdayRaw,
 		"yesterday_day":       db.DayKeyYesterday(),
+		"requests":            userRequests,
 	})
 }
 

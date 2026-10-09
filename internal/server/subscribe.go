@@ -525,6 +525,22 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uriURL, clashURL, mihomoURL := s.subscribeURLs(r, token)
+	daily, err := db.UserTrafficLastDays(s.DB, u.ID, 7)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取每日流量失败")
+		return
+	}
+	requests, err := db.ListUserRequests(s.DB, u.ID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取申请失败")
+		return
+	}
+	openReqs := make([]db.UserRequest, 0)
+	for _, row := range requests {
+		if row.Status == "open" {
+			openReqs = append(openReqs, row)
+		}
+	}
 	var expires any
 	if u.ExpiresAt.Valid && u.ExpiresAt.Int64 != 0 {
 		expires = u.ExpiresAt.Int64
@@ -541,6 +557,8 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 		"items":      p.Items,
 		"skipped":    p.Skipped,
 		"rules":      s.userSubRules(u, p),
+		"daily":      daily,
+		"requests":   openReqs,
 		"account": map[string]any{
 			"username":                 u.Username,
 			"disabled":                 u.Disabled,

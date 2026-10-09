@@ -10,6 +10,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -30,7 +31,9 @@ type Server struct {
 	Landing    *landing.Fetcher
 	// DocsDir is where uploaded doc images are stored (typically
 	// <db-dir>/docs-assets). Empty disables uploads.
-	DocsDir           string
+	DocsDir string
+	// DataDir is the directory that holds panel.db, backups, and sub_token.key.
+	DataDir           string
 	loginLimiter      *loginLimiter
 	stopExpiry        chan struct{}
 	stopCycle         chan struct{}
@@ -63,9 +66,13 @@ func NewWithDocsDir(d *sql.DB, docsDir string) (*Server, error) {
 	}
 	hub := NewHub(d)
 	disp := &Dispatcher{DB: d, Hub: hub}
+	dataDir := ""
+	if docsDir != "" {
+		dataDir = filepath.Dir(docsDir)
+	}
 	s := &Server{
 		DB: d, Hub: hub, Dispatcher: disp, Landing: landing.NewFetcher(),
-		DocsDir:      docsDir,
+		DocsDir: docsDir, DataDir: dataDir,
 		loginLimiter: newLoginLimiter(),
 		stopExpiry:   make(chan struct{}), stopCycle: make(chan struct{}),
 		stopLandingSync: make(chan struct{}), stopLandingExpiry: make(chan struct{}),
@@ -674,6 +681,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/settings/update", s.apiStartPanelUpdate)
 			r.Get("/settings/migrate", s.apiExportMigrate)
 			r.Post("/settings/migrate", s.apiImportMigrate)
+			r.Get("/settings/backup", s.apiBackupStatus)
 			r.Get("/settings/cf-records", s.apiListCFRecords)
 			r.Post("/settings/cf-records", s.apiCreateCFRecord)
 			r.Delete("/settings/cf-records/{id}", s.apiDeleteCFRecord)
@@ -720,6 +728,7 @@ func (s *Server) Router() http.Handler {
 			r.Delete("/user-folders/{id}", s.apiDeleteUserFolder)
 			r.Post("/users/{id}/toggle", s.apiToggleUser)
 			r.Post("/users/{id}/reset-password", s.apiResetUserPassword)
+			r.Post("/users/{id}/requests/{reqID}/done", s.apiCloseUserRequest)
 			r.Delete("/users/{id}", s.apiDeleteUser)
 			r.Post("/grants/batch-apply", s.apiBatchApplyGrants)
 
@@ -765,13 +774,16 @@ func (s *Server) Router() http.Handler {
 
 		})
 
-		// User routes
+		// User routes. Rule create/update/delete stay for older clients and tests.
+		// The panel no longer links here: users import a subscription and may
+		// only toggle rules an admin already created.
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAPIAuth, s.requireRole("user"))
 			r.Get("/my", s.apiMyDashboard)
 			r.Get("/my/subscribe", s.apiMySubscribe)
 			r.Get("/my/subscribe/latency", s.apiMySubscribeLatency)
 			r.Post("/my/subscribe/rotate", s.apiMyRotateSubscribe)
+			r.Post("/my/requests", s.apiMyCreateRequest)
 			r.Get("/my/landing-nodes", s.apiMyLandingNodes)
 			r.Get("/my/announcements", s.apiMyAnnouncements)
 			r.Post("/my/announcements/{id}/read", s.apiMarkAnnouncementRead)
@@ -799,7 +811,9 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 
-	// Outbound client subscription — plaintext sub_tokens, not hashed api_tokens.
+	// Outbound client subscription. The token in the URL is random; the database
+	// stores AES-GCM ciphertext plus a hash. The key is sub_token.key or
+	// NFT_SUB_TOKEN_KEY, not a column in panel.db.
 	r.Group(func(r chi.Router) {
 		r.Use(s.requireSubTokenAuth)
 		r.Get("/api/v1/sub", s.apiPublicSub)

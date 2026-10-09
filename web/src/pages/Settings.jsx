@@ -5,6 +5,7 @@ import { Loading, useConfirm } from '../components/ui'
 import { PageHeader } from '../components/page'
 import { BrandBadge } from '../components/BrandMark'
 import { applySkin, normalizeSkin } from '../lib/theme'
+import { fmtDate } from '../lib/fmt'
 
 const SKINS = [
   {
@@ -574,10 +575,71 @@ export default function Settings() {
   )
 }
 
+function backupKeySource(src, file) {
+  if (src === 'env') return '环境变量 NFT_SUB_TOKEN_KEY。它优先于文件；搬家之后要保持同一把密钥，或取消这个变量。'
+  if (src === 'file') return `数据目录里的 ${file || 'sub_token.key'}。每天的数据库快照不含这把密钥，搬家包会带上。`
+  if (src === 'ephemeral') return '仅本次进程内存。'
+  return '尚未初始化。'
+}
+
 function MigratePanel({ busy, confirmText, setConfirmText, fileRef, onExport, onImport }) {
+  const [backup, setBackup] = useState(null)
+  const [backupErr, setBackupErr] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    api.get('/settings/backup').then((d) => {
+      if (!cancelled) setBackup(d)
+    }).catch((err) => {
+      if (!cancelled) setBackupErr(err.message || '读取备份状态失败')
+    })
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <div className="space-y-8">
       <div>
+        <h3 className="text-[15px] font-semibold text-ink m-0 mb-1.5">本地备份</h3>
+        <p className="text-[13px] text-ink-mut m-0 mb-4 leading-relaxed">
+          面板定时把数据库留在本机 backups 目录。这里只说明怎么恢复，不会在页面里覆盖正在使用的库。
+        </p>
+        {backupErr && <p className="text-[13px] text-rose-700 dark:text-rose-300 m-0 mb-3">{backupErr}</p>}
+        {backup && (
+          <dl className="m-0 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
+            <div>
+              <dt className="text-ink-mut">最近一份</dt>
+              <dd className="m-0 mt-0.5 text-ink">
+                {backup.latest_name
+                  ? `${backup.latest_name} · ${fmtDate(backup.latest_unix)}`
+                  : '还没有'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-mut">份数</dt>
+              <dd className="m-0 mt-0.5 text-ink">
+                {backup.count ?? 0}{backup.keep ? `，保留最近 ${backup.keep} 份` : ''}
+                {backup.interval_seconds >= 3600
+                  ? `，约每 ${Math.round(backup.interval_seconds / 3600)} 小时一次`
+                  : backup.interval_seconds > 0
+                    ? `，约每 ${Math.max(1, Math.round(backup.interval_seconds / 60))} 分钟一次`
+                    : ''}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-mut">上次错误</dt>
+              <dd className="m-0 mt-0.5 text-ink">{backup.last_error || '无'}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-mut">订阅密钥</dt>
+              <dd className="m-0 mt-0.5 text-ink">{backupKeySource(backup.key_source, backup.key_file)}</dd>
+            </div>
+          </dl>
+        )}
+        {backup?.restore && (
+          <p className="text-[13px] text-ink-soft m-0 mt-4 leading-relaxed">{backup.restore}</p>
+        )}
+      </div>
+      <div className="border-t border-line-soft pt-8">
         <h3 className="text-[15px] font-semibold text-ink m-0 mb-1.5">导出全部数据</h3>
         <p className="text-[13px] text-ink-mut m-0 mb-4 leading-relaxed">
           打一份完整搬家包：用户、节点、规则、流量、订阅口令、落地库、公告、文档、Logo、设置。节点机器不用动。包里有密钥，按机密文件保存。

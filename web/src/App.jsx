@@ -20,7 +20,6 @@ const Audit = lazy(() => import('./pages/Audit'))
 const NodeRepo = lazy(() => import('./pages/NodeRepo'))
 const Docs = lazy(() => import('./pages/Docs'))
 const MySubscribe = lazy(() => import('./pages/my/Subscribe'))
-const Proxies = lazy(() => import('./pages/Proxies'))
 
 // ErrorBoundary: catches render errors in any child component and shows a
 // friendly fallback instead of letting the whole page go white.
@@ -93,14 +92,6 @@ function UserRoute({ children }) {
   return children
 }
 
-function UserProxiesGate({ children }) {
-  const { user } = useUser()
-  if (user === undefined) return <Loading />
-  if (user === null) return <Navigate to="/login" replace />
-  if (user.role !== 'admin') return <Navigate to="/my" replace />
-  return children
-}
-
 function RootRedirect() {
   const { user } = useUser()
   if (user === undefined) return <Loading />
@@ -154,8 +145,6 @@ export default function App() {
           <Route path="/my/landing" element={<UserRoute><Navigate to="/my" replace /></UserRoute>} />
           <Route path="/my/docs" element={<UserRoute><Navigate to="/my" replace /></UserRoute>} />
 
-          {/* Shared routes */}
-          <Route path="/proxies" element={<UserProxiesGate><Proxies /></UserProxiesGate>} />
           <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
 
           <Route path="*" element={<NotFound />} />

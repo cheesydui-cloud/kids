@@ -294,6 +294,47 @@ func TotalBillableUserTrafficBytes(d *sql.DB) (int64, error) {
 	return total, err
 }
 
+// DayTraffic is one Asia/Shanghai calendar day's raw final-hop bytes.
+type DayTraffic struct {
+	Day      string `json:"day"`
+	RawBytes int64  `json:"raw_bytes"`
+}
+
+// UserTrafficLastDays returns the last n calendar days ending today, oldest
+// first. Days with no row are 0. n < 1 yields an empty slice.
+func UserTrafficLastDays(d *sql.DB, userID int64, n int) ([]DayTraffic, error) {
+	if n < 1 {
+		return []DayTraffic{}, nil
+	}
+	now := time.Now().In(panelBusinessLocation)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, panelBusinessLocation).AddDate(0, 0, -(n - 1))
+	out := make([]DayTraffic, n)
+	index := map[string]int{}
+	for i := 0; i < n; i++ {
+		day := start.AddDate(0, 0, i).Format("2006-01-02")
+		out[i] = DayTraffic{Day: day}
+		index[day] = i
+	}
+	rows, err := d.Query(
+		`SELECT day, raw_bytes FROM daily_user_traffic WHERE user_id=? AND day>=? AND day<=?`,
+		userID, out[0].Day, out[n-1].Day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var day string
+		var raw int64
+		if err := rows.Scan(&day, &raw); err != nil {
+			return nil, err
+		}
+		if i, ok := index[day]; ok {
+			out[i].RawBytes = raw
+		}
+	}
+	return out, rows.Err()
+}
+
 // YesterdayUserTrafficBytes returns one user's raw traffic for the previous
 // Asia/Shanghai calendar day. Missing rows are 0.
 func YesterdayUserTrafficBytes(d *sql.DB, userID int64) (int64, error) {

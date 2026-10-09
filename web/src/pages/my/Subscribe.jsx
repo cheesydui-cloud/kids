@@ -21,6 +21,8 @@ export default function MySubscribe() {
   const [copied, setCopied] = useState('')
   const [latency, setLatency] = useState({})
   const [latLoading, setLatLoading] = useState(false)
+  const [note, setNote] = useState('')
+  const [reqBusy, setReqBusy] = useState('')
 
   const load = () => api.get('/my/subscribe')
     .then(setData)
@@ -141,6 +143,21 @@ export default function MySubscribe() {
     }
   }
 
+  const submitRequest = async (kind) => {
+    if (reqBusy) return
+    setReqBusy(kind)
+    try {
+      const d = await api.post('/my/requests', { kind, note: note.trim() })
+      toast(d?.already ? '已经提交过，等管理员处理即可' : (kind === 'renew' ? '已提交续期申请' : '已提交加量申请'))
+      setNote('')
+      await load()
+    } catch (e) {
+      toast(e.message || '提交失败', 'error')
+    } finally {
+      setReqBusy('')
+    }
+  }
+
   const toggleRule = async (rule) => {
     if (ruleBusy) return
     const nextOff = !rule.disabled
@@ -176,6 +193,14 @@ export default function MySubscribe() {
     : (quota > 0 && quotaPct >= 80
       ? { tone: 'warn', text: `流量已使用 ${quotaPct}%，还剩 ${fmtBytes(Math.max(quota - used, 0))}。` }
       : null)
+  const nowSec = Math.floor(Date.now() / 1000)
+  const expiringSoon = !!(expiresAt && !expired && expiresAt - nowSec <= 7 * 86400)
+  const showRenew = expired || expiringSoon
+  const showQuota = quotaOut || (quota > 0 && quotaPct >= 80)
+  const openRequests = (data?.requests || []).filter((r) => r.status === 'open')
+  const openRenew = openRequests.find((r) => r.kind === 'renew')
+  const openQuota = openRequests.find((r) => r.kind === 'quota')
+  const displayRate = rate > 0 ? rate : 1
   const importBlocked = !!account.disabled || expired || quotaOut
   const blockReason = account.disabled
     ? (`账号已被禁用：${nullStr(account.disable_reason) || '请联系管理员'}`)
@@ -254,6 +279,49 @@ export default function MySubscribe() {
             </strong>
           </div>
         </section>
+
+        <WeekTraffic daily={data?.daily} rate={displayRate} />
+
+        {(showRenew || showQuota || openRequests.length > 0) && (
+          <section className="sub-request" aria-label="续期与加量">
+            <div className="sub-nodes-head">
+              <h2>联系管理员</h2>
+            </div>
+            {openRequests.length > 0 && (
+              <ul className="sub-request-list">
+                {openRequests.map((r) => (
+                  <li key={r.id}>
+                    <Badge color="amber">{r.kind === 'quota' ? '加量' : '续期'}</Badge>
+                    <span>已提交，等待处理{r.note ? ` · ${r.note}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(showRenew && !openRenew) || (showQuota && !openQuota) ? (
+              <>
+                <textarea
+                  className="input-field w-full min-h-[72px] text-[13px]"
+                  maxLength={200}
+                  placeholder="补充说明，选填，最多 200 字"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {showRenew && !openRenew && (
+                    <button type="button" className="btn-secondary" disabled={!!reqBusy} onClick={() => submitRequest('renew')}>
+                      {reqBusy === 'renew' ? '提交中…' : '申请续期'}
+                    </button>
+                  )}
+                  {showQuota && !openQuota && (
+                    <button type="button" className="btn-secondary" disabled={!!reqBusy} onClick={() => submitRequest('quota')}>
+                      {reqBusy === 'quota' ? '提交中…' : '申请加量'}
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </section>
+        )}
 
         {empty && (
           <div className="sub-empty">
@@ -430,6 +498,34 @@ export default function MySubscribe() {
         </section>
       </div>
     </Layout>
+  )
+}
+
+function WeekTraffic({ daily, rate }) {
+  const rows = Array.isArray(daily) ? daily : []
+  if (rows.length === 0) return null
+  const shown = rows.map((d) => Math.round((d.raw_bytes || 0) * (rate > 0 ? rate : 1)))
+  const max = Math.max(1, ...shown)
+  const rateNote = rate > 0 && rate !== 1
+  const rateLabel = Number.isInteger(rate) ? String(rate) : String(rate)
+  return (
+    <section className="sub-week" aria-label="近 7 天用量">
+      <div className="sub-nodes-head">
+        <h2>近 7 天</h2>
+        {rateNote && <span className="text-[12px] text-ink-mut">显示用量，已按倍率 ×{rateLabel}</span>}
+      </div>
+      <div className="sub-week-bars">
+        {rows.map((d, i) => (
+          <div key={d.day || i} className="sub-week-col" title={`${d.day || ''} ${fmtBytes(shown[i])}`}>
+            <div className="sub-week-track">
+              <div className="sub-week-fill" style={{ height: shown[i] > 0 ? `${Math.max(8, (shown[i] / max) * 100)}%` : '0%' }} />
+            </div>
+            <span className="sub-week-day">{String(d.day || '').slice(5)}</span>
+            <span className="sub-week-val">{fmtBytes(shown[i])}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

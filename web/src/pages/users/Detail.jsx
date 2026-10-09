@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtBytes, fmtTrafficGB, pct, fmtDate, expiryBadge } from '../../lib/fmt'
+import { fmtBytes, fmtTrafficGB, pct, fmtDate, fmtTime, expiryBadge } from '../../lib/fmt'
 import { Layout, useToast, useBlur, useCopyFmt } from '../../components/Layout'
 import { Loading, Empty, Badge, Modal, useConfirm, ProbeChainButton, SensText } from '../../components/ui'
 import { IdentityBar, DetailTabs, StatTile, SectionCard, TableBox } from '../../components/page'
@@ -103,6 +103,13 @@ export default function UserDetail() {
     if (!(await confirm({ title: '删除用户', message: `删除用户「${user.username}」？关联的转发将被一并清除。`, confirmText: '删除', danger: true }))) return
     try { await api.del(`/users/${id}`); toast('已删除'); navigate('/users') } catch (err) { toast(err.message, 'error') }
   }
+  const closeRequest = async (req) => {
+    try {
+      await api.post(`/users/${id}/requests/${req.id}/done`)
+      toast('已标记处理')
+      load()
+    } catch (err) { toast(err.message, 'error') }
+  }
   const resetPassword = async () => {
     if (!(await confirm({ title: '重置密码', message: `重置用户「${user.username}」的密码？新密码只显示一次，请及时复制保存。`, confirmText: '重置', danger: true }))) return
     try {
@@ -123,6 +130,7 @@ export default function UserDetail() {
   const yesterdayRaw = data?.yesterday_raw_bytes || 0
   const yesterdayBillable = yesterdayRaw * rate
   const yesterdayDay = data?.yesterday_day || ''
+  const requests = Array.isArray(data?.requests) ? data.requests : []
 
   const chips = isRegularUser ? [
     {
@@ -208,6 +216,32 @@ export default function UserDetail() {
               <span className="text-[11px] text-ink-mut tabular-nums">{yesterdayDay || '上一自然日'}</span>
             </div>
             <div className="text-[18px] font-bold tabular-nums text-ink leading-tight">{fmtBytes(yesterdayBillable)}</div>
+          </div>
+        </div>
+      )}
+
+      {requests.length > 0 && (
+        <div className="card mb-4">
+          <div className="card-header justify-between">
+            <h3 className="text-[15px] font-bold">用户申请</h3>
+            <span className="text-[12.5px] text-ink-mut">{requests.filter(r => r.status === 'open').length} 条待处理</span>
+          </div>
+          <div className="divide-y divide-line-soft">
+            {requests.map(req => (
+              <div key={req.id} className="flex items-start justify-between gap-3 px-5 py-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge color={req.kind === 'quota' ? 'blue' : 'amber'}>{req.kind === 'quota' ? '加量' : '续期'}</Badge>
+                    <Badge color={req.status === 'open' ? 'amber' : 'green'}>{req.status === 'open' ? '待处理' : '已处理'}</Badge>
+                    <span className="text-[12px] text-ink-mut">{fmtTime(req.created_at)}</span>
+                  </div>
+                  {req.note && <p className="mt-1 text-[13px] text-ink-soft break-words">{req.note}</p>}
+                </div>
+                {req.status === 'open' && (
+                  <button type="button" className="btn-secondary text-xs shrink-0" onClick={() => closeRequest(req)}>标为已处理</button>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

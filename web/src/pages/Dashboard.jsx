@@ -65,6 +65,7 @@ export default function Dashboard() {
     [users],
   )
   const attention = useMemo(() => buildAttention(visibleData, tenantUsers), [visibleData, tenantUsers])
+  const attentionGroups = useMemo(() => groupAttention(attention), [attention])
   const expiryCalendar = useMemo(
     () => buildExpiryCalendar(tenantUsers, data?.landing_expiring || []),
     [tenantUsers, data?.landing_expiring],
@@ -119,24 +120,32 @@ export default function Dashboard() {
 
       <HourlyTrafficChart series={data.hourly_raw || []} />
 
-      {attention.length > 0 && (
+      {attentionGroups.length > 0 && (
         <div className="card mb-5">
           <div className="card-header justify-between">
             <h3 className="text-[15px] font-bold">需关注</h3>
             <span className="text-[12.5px] text-ink-mut">{attention.length} 项</span>
           </div>
-          <div className="attention-list">
-            {attention.map(item => (
-              <Link key={item.key} to={item.to} className="attention-item">
-                <span className={`attention-dot ${item.tone}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-semibold text-ink truncate">{item.title}</div>
-                  <div className="text-[12.5px] text-ink-mut mt-0.5 truncate">{item.desc}</div>
-                </div>
-                <Badge color={item.tone === 'danger' ? 'red' : item.tone === 'warn' ? 'amber' : 'blue'}>{item.tag}</Badge>
-              </Link>
-            ))}
-          </div>
+          {attentionGroups.map(group => (
+            <section key={group.id}>
+              <div className="attention-group-head">
+                <span>{group.label}</span>
+                <span className="tabular-nums">{group.items.length}</span>
+              </div>
+              <div className="attention-list attention-scroll">
+                {group.items.map(item => (
+                  <Link key={item.key} to={item.to} className="attention-item">
+                    <span className={`attention-dot ${item.tone}`} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13.5px] font-semibold text-ink truncate">{item.title}</div>
+                      <div className="text-[12.5px] text-ink-mut mt-0.5 truncate">{item.desc}</div>
+                    </div>
+                    <Badge color={item.tone === 'danger' ? 'red' : item.tone === 'warn' ? 'amber' : 'blue'}>{item.tag}</Badge>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 
@@ -198,16 +207,48 @@ export default function Dashboard() {
   )
 }
 
+const ATTENTION_GROUPS = [
+  { id: 'offline', label: '离线' },
+  { id: 'error', label: '错误' },
+  { id: 'expired', label: '已到期' },
+  { id: 'quota', label: '流量用尽' },
+  { id: 'disabled', label: '禁用' },
+  { id: 'version', label: '版本落后' },
+  { id: 'soon', label: '即将到期' },
+  { id: 'quota-high', label: '流量将尽' },
+]
+
+function groupAttention(items) {
+  const by = new Map()
+  for (const item of items) {
+    if (!by.has(item.group)) by.set(item.group, [])
+    by.get(item.group).push(item)
+  }
+  return ATTENTION_GROUPS.filter(g => by.has(g.id)).map(g => ({ ...g, items: by.get(g.id) }))
+}
+
+// Same rule as the node list: composite / self / disabled are skipped, a
+// matching agent SHA is current, and the literal version "latest" is not lag.
+function agentOutdated(n, latestVer, latestSHA) {
+  if (!n || n.node_type === 'composite' || n.node_type === 'self' || n.disabled) return false
+  if (n.agent_sha && latestSHA && n.agent_sha === latestSHA) return false
+  if (n.agent_version === 'latest') return false
+  return !!(n.agent_version && n.agent_version !== latestVer)
+}
+
 function buildAttention(data, users) {
   if (!data) return []
   const items = []
   const now = Math.floor(Date.now() / 1000)
   const nodes = data.nodes || []
+  const latestVer = data.latest_agent_version || ''
+  const latestSHA = data.latest_agent_sha || ''
 
   for (const n of nodes) {
     if (n.disabled) {
       items.push({
         key: `node-dis-${n.id}`,
+        group: 'disabled',
         to: `/nodes/${n.id}`,
         tone: 'warn',
         tag: '禁用',
@@ -220,6 +261,7 @@ function buildAttention(data, users) {
     if (n.node_type !== 'composite' && lastErr) {
       items.push({
         key: `node-err-${n.id}`,
+        group: 'error',
         to: `/nodes/${n.id}`,
         tone: 'danger',
         tag: '错误',
@@ -231,6 +273,7 @@ function buildAttention(data, users) {
     if (n.online !== 1) {
       items.push({
         key: `node-off-${n.id}`,
+        group: 'offline',
         to: `/nodes/${n.id}`,
         tone: 'danger',
         tag: '离线',
@@ -238,6 +281,18 @@ function buildAttention(data, users) {
         desc: n.last_seen ? `最后心跳 ${fmtTime(n.last_seen)}` : '暂无心跳',
       })
     }
+  }
+  for (const n of nodes) {
+    if (!agentOutdated(n, latestVer, latestSHA)) continue
+    items.push({
+      key: `node-ver-${n.id}`,
+      group: 'version',
+      to: `/nodes/${n.id}`,
+      tone: 'warn',
+      tag: '版本落后',
+      title: n.name,
+      desc: `当前 ${n.agent_version}${latestVer ? `，面板 ${latestVer}` : ''}`,
+    })
   }
 
   if (Array.isArray(users)) {
@@ -248,6 +303,7 @@ function buildAttention(data, users) {
         if (exp <= now) {
           items.push({
             key: `user-exp-${u.id}`,
+            group: 'expired',
             to: `/users/${u.id}`,
             tone: 'danger',
             tag: '已到期',
@@ -258,6 +314,7 @@ function buildAttention(data, users) {
           const days = Math.max(1, Math.ceil((exp - now) / DAY))
           items.push({
             key: `user-soon-${u.id}`,
+            group: 'soon',
             to: `/users/${u.id}`,
             tone: 'warn',
             tag: `${days} 天内到期`,
@@ -273,6 +330,7 @@ function buildAttention(data, users) {
         if (ratio >= 1) {
           items.push({
             key: `user-quota-${u.id}`,
+            group: 'quota',
             to: `/users/${u.id}`,
             tone: 'danger',
             tag: '流量用尽',
@@ -282,6 +340,7 @@ function buildAttention(data, users) {
         } else if (ratio >= 0.9) {
           items.push({
             key: `user-quota-high-${u.id}`,
+            group: 'quota-high',
             to: `/users/${u.id}`,
             tone: 'warn',
             tag: '流量将尽',
@@ -293,9 +352,7 @@ function buildAttention(data, users) {
     }
   }
 
-  const rank = { danger: 0, warn: 1, info: 2 }
-  items.sort((a, b) => (rank[a.tone] ?? 9) - (rank[b.tone] ?? 9))
-  return items.slice(0, 8)
+  return items
 }
 
 /** Merge account + landing exits due within 7 days. Hidden when empty. */

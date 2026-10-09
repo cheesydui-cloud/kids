@@ -298,7 +298,7 @@ export function RulesTable({ rules, nodeMap, blurred, variant = 'my', onDelete, 
               <td className="text-right whitespace-nowrap">
                 <div className="inline-flex gap-2 justify-end items-center" onClick={e => e.stopPropagation()}>
                   <ProbeIconButton ruleId={r.id} seed={probeSeeds[r.id]} />
-                  {/* QR lives on「我的代理」for users; admin list keeps one-tap scan. */}
+                  {/* Users import a subscription. The admin list keeps one-tap scan. */}
                   {isAdmin && <QRCodeButton text={ruleQRText(r)} toast={toast} />}
                   <MoreMenu items={[
                     onEdit && { label: '编辑', onClick: () => onEdit(r) },

@@ -50,6 +50,14 @@ func Open(path string) (*sql.DB, error) {
 		d.Close()
 		return nil, err
 	}
+	if err := InitSubTokenKey(d, path); err != nil {
+		d.Close()
+		return nil, err
+	}
+	if err := MigratePlainSubTokens(d); err != nil {
+		d.Close()
+		return nil, err
+	}
 	if err := hashLegacyAPITokens(d); err != nil {
 		d.Close()
 		return nil, err

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,6 +49,96 @@ func ValidateBackup(path string) error {
 	return nil
 }
 
+// backupRun is the most recent automatic backup attempt in this process.
+var backupRun struct {
+	mu       sync.Mutex
+	dir      string
+	keep     int
+	interval time.Duration
+	lastErr  string
+	lastFile string
+	lastAt   time.Time
+}
+
+func noteBackupConfig(dir string, keep int, interval time.Duration) {
+	backupRun.mu.Lock()
+	backupRun.dir = dir
+	backupRun.keep = keep
+	backupRun.interval = interval
+	backupRun.mu.Unlock()
+}
+
+func noteBackup(dir string, keep int, interval time.Duration, file string, err error) {
+	backupRun.mu.Lock()
+	defer backupRun.mu.Unlock()
+	backupRun.dir = dir
+	backupRun.keep = keep
+	backupRun.interval = interval
+	if err != nil {
+		backupRun.lastErr = err.Error()
+		return
+	}
+	backupRun.lastErr = ""
+	backupRun.lastFile = file
+	backupRun.lastAt = time.Now()
+}
+
+// BackupStatus describes local panel-*.db snapshots beside the database.
+type BackupStatus struct {
+	Dir             string `json:"dir"`
+	Count           int    `json:"count"`
+	LatestName      string `json:"latest_name"`
+	LatestUnix      int64  `json:"latest_unix"`
+	LastError       string `json:"last_error"`
+	Keep            int    `json:"keep"`
+	IntervalSeconds int    `json:"interval_seconds"`
+}
+
+// ReadBackupStatus lists snapshots in dir and overlays the latest in-process
+// error. dir is typically <data-dir>/backups.
+func ReadBackupStatus(dir string) BackupStatus {
+	st := BackupStatus{Dir: dir}
+	backupRun.mu.Lock()
+	if backupRun.dir == dir || backupRun.dir == "" {
+		st.Keep = backupRun.keep
+		st.IntervalSeconds = int(backupRun.interval / time.Second)
+		st.LastError = backupRun.lastErr
+	}
+	backupRun.mu.Unlock()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return st
+		}
+		if st.LastError == "" {
+			st.LastError = err.Error()
+		}
+		return st
+	}
+	var newest string
+	var newestMod time.Time
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "panel-") || !strings.HasSuffix(name, ".db") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		st.Count++
+		if newest == "" || info.ModTime().After(newestMod) {
+			newest = name
+			newestMod = info.ModTime()
+		}
+	}
+	st.LatestName = newest
+	if !newestMod.IsZero() {
+		st.LatestUnix = newestMod.Unix()
+	}
+	return st
+}
+
 // StartBackups runs a periodic local backup of the panel DB into a "backups"
 // directory next to it, retaining the most recent `keep` snapshots. It takes one
 // backup immediately, then every `interval`. interval<=0 or keep<=0 disables it.
@@ -59,9 +150,11 @@ func StartBackups(d *sql.DB, dbPath string, interval time.Duration, keep int) fu
 		return func() {}
 	}
 	dir := filepath.Join(filepath.Dir(dbPath), "backups")
+	noteBackupConfig(dir, keep, interval)
 	stop := make(chan struct{})
 	run := func() {
 		if err := ensureDir(dir); err != nil {
+			noteBackup(dir, keep, interval, "", err)
 			log.Printf("backup: ensure dir %s: %v", dir, err)
 			return
 		}
@@ -74,9 +167,11 @@ func StartBackups(d *sql.DB, dbPath string, interval time.Duration, keep int) fu
 			return
 		}
 		if err := Backup(d, dest); err != nil {
+			noteBackup(dir, keep, interval, "", err)
 			log.Printf("backup: %v", err)
 			return
 		}
+		noteBackup(dir, keep, interval, filepath.Base(dest), nil)
 		pruneBackups(dir, keep)
 	}
 	go func() {
