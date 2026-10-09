@@ -26,6 +26,12 @@ const SKINS = [
     desc: '硬边釉面，无模糊',
     swatch: { app: '#f3eee6', surface: '#fffaf3', line: '#c4b49f', brand: '#9a4a28' },
   },
+  {
+    id: 'hud',
+    name: '航电',
+    desc: '深空坐标网，整站锁定暗色',
+    swatch: { app: '#070b12', surface: '#0d1520', line: '#3ef0ff', brand: '#3ef0ff' },
+  },
 ]
 
 const TABS = [
@@ -483,7 +489,7 @@ export default function Settings() {
                         )
                       })}
                     </div>
-                    <p className="text-[12px] text-ink-mut mt-2 m-0">全局皮肤，登录页和所有用户一起换。顶栏深色/浅色仍是个人的。点选可预览，保存后才对别人生效。</p>
+                    <p className="text-[12px] text-ink-mut mt-2 m-0">全局皮肤，登录页和所有用户一起换。点选可预览，保存后才对别人生效。航电会锁定深色，浅色/深色开关先让开；换回其他皮肤后，原来的深浅色还在。</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-6">

@@ -136,14 +136,23 @@ export function UserProvider({ children }) {
 
 /* ---------- Layout (sidebar + content) ---------- */
 export function Layout({ children }) {
-  const { user, panelName, logoUrl, version, monitorUrl } = useUser()
+  const { user, panelName, logoUrl, version, monitorUrl, panelSkin } = useUser()
   const [sideOpen, setSideOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('nf-sidebar') === '1')
   const { blurred, toggleBlur } = useContext(BlurCtx)
   const { copyFmt, toggleCopyFmt } = useContext(CopyFmtCtx)
   const [theme, setThemeState] = useState(getStoredTheme())
   const [pageTitle, setPageTitle] = useState('')
+  const [liveSkin, setLiveSkin] = useState(panelSkin)
   const isDark = resolvedDark(theme)
+  const hudLocked = liveSkin === 'hud'
+
+  useEffect(() => { setLiveSkin(panelSkin) }, [panelSkin])
+  useEffect(() => {
+    const onSkin = (e) => setLiveSkin(normalizeSkin(e.detail))
+    window.addEventListener('nf-skin', onSkin)
+    return () => window.removeEventListener('nf-skin', onSkin)
+  }, [])
 
   // The landing-nodes entry shows when the user has an admin-assigned source or
   // their own browser-local URIs. Local URIs change in the same tab, which the
@@ -161,6 +170,7 @@ export function Layout({ children }) {
   }
 
   const toggleTheme = () => {
+    if (hudLocked) return
     const next = isDark ? 'light' : 'dark'
     setStoredTheme(next)
     setThemeState(next)
@@ -292,6 +302,7 @@ export function Layout({ children }) {
               {pageTitle || '\u00a0'}
             </h1>
             <div className="topbar-toggles" role="group" aria-label="显示选项">
+              {!hudLocked && (
               <button type="button" onClick={toggleTheme} title={isDark ? '切换到浅色' : '切换到深色'}
                 className="topbar-toggle">
                 {isDark ? (
@@ -301,6 +312,7 @@ export function Layout({ children }) {
                 )}
                 <span className="hidden sm:inline">{isDark ? '浅色' : '深色'}</span>
               </button>
+              )}
               <button type="button" onClick={toggleCopyFmt} title="切换复制代理连接的格式（URI / YAML）"
                 className={`topbar-toggle ${copyFmt === 'yaml' ? 'is-active' : ''}`}>
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></svg>

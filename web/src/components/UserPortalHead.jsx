@@ -6,7 +6,7 @@ import { BrandBadge } from './BrandMark'
 import { Badge, Modal, activateProps } from './ui'
 import { useUser } from './Layout'
 import { clearLoginAnnouncementSession } from './LoginAnnouncementModal'
-import { getStoredTheme, resolvedDark, setStoredTheme } from '../lib/theme'
+import { getStoredTheme, normalizeSkin, resolvedDark, setStoredTheme } from '../lib/theme'
 
 const annColorMeta = {
   red: { badge: 'red', label: '紧急', bar: 'border-l-rose-500' },
@@ -16,18 +16,31 @@ const annColorMeta = {
 }
 
 export function UserPortalHead({ title = '我的订阅', extra = null }) {
-  const { logoUrl } = useUser()
+  const { logoUrl, panelSkin } = useUser()
   const [annOpen, setAnnOpen] = useState(false)
   // Regular users get the same light/dark control as the admin topbar. While no
-  // explicit choice is stored we keep following the OS preference.
+  // explicit choice is stored we keep following the OS preference. 航电 locks dark
+  // and hides this chip; leaving that skin restores the stored choice.
   const [dark, setDark] = useState(() => resolvedDark(getStoredTheme()))
+  const [liveSkin, setLiveSkin] = useState(panelSkin)
+  const hudLocked = liveSkin === 'hud'
+  useEffect(() => { setLiveSkin(panelSkin) }, [panelSkin])
+  useEffect(() => {
+    const onSkin = (e) => setLiveSkin(normalizeSkin(e.detail))
+    window.addEventListener('nf-skin', onSkin)
+    return () => window.removeEventListener('nf-skin', onSkin)
+  }, [])
+  useEffect(() => {
+    if (!hudLocked) setDark(resolvedDark(getStoredTheme()))
+  }, [hudLocked])
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const sync = () => { if (getStoredTheme() == null) setDark(resolvedDark(null)) }
+    const sync = () => { if (!hudLocked && getStoredTheme() == null) setDark(resolvedDark(null)) }
     mq.addEventListener('change', sync)
     return () => mq.removeEventListener('change', sync)
-  }, [])
+  }, [hudLocked])
   const toggleTheme = () => {
+    if (hudLocked) return
     const next = dark ? 'light' : 'dark'
     setStoredTheme(next)
     setDark(next === 'dark')
@@ -111,9 +124,11 @@ export function UserPortalHead({ title = '我的订阅', extra = null }) {
 	              <span className="sub-chip-dot" aria-label={`${unread} 条未读`}>{unread > 9 ? '9+' : unread}</span>
 	            )}
 	          </button>
+          {!hudLocked && (
           <button type="button" className="sub-chip" onClick={toggleTheme} title={dark ? '切换到浅色' : '切换到深色'}>
             {dark ? '浅色' : '深色'}
           </button>
+          )}
           <NavLink to="/change-password" className="sub-chip">账户设置</NavLink>
           <button type="button" className="sub-chip" onClick={handleLogout}>退出账号</button>
         </div>

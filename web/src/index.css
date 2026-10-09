@@ -1786,3 +1786,358 @@ input[type="radio"] {
 @media (prefers-reduced-motion: reduce) {
   .sub-card:hover, .sub-chip:hover, .sub-node-card:hover { transform: none; }
 }
+
+/* 航电: dark avionics lock. Tokens sit on html[data-skin="hud"] so they beat
+   .dark. --color-app is transparent so layout wrappers show the grid painted
+   on <html>. Corner ticks are background gradients — no clip-path, so menus
+   inside cards stay visible. Scanlines stay under the sidebar (z-40) and
+   modals (z-80+). */
+html[data-skin="hud"] {
+  color-scheme: dark;
+  --color-app: transparent;
+  --color-surface: rgba(13, 21, 32, 0.92);
+  --color-raised: #121c28;
+  --color-line: rgba(62, 240, 255, 0.28);
+  --color-line-soft: rgba(62, 240, 255, 0.14);
+  --color-ink: #e8f4ff;
+  --color-ink-soft: #b7d4e4;
+  --color-ink-mut: #7f9aab;
+  --brand-from: #3ef0ff;
+  --brand-to: #7aa2ff;
+  --sidebar-bg: #05080e;
+  --sidebar-border: rgba(62, 240, 255, 0.28);
+  --sidebar-text: #e8f4ff;
+  --sidebar-text-soft: #b7d4e4;
+  --sidebar-text-mut: #7f9aab;
+  --sidebar-active-bg: rgba(62, 240, 255, 0.08);
+  --sidebar-active-border: #3ef0ff;
+  --sidebar-active-text: #3ef0ff;
+  --sidebar-hover-bg: rgba(62, 240, 255, 0.06);
+  --sidebar-hover-text: #e8f4ff;
+  --sidebar-group-label: #9aebff;
+  --sidebar-btn-bg: transparent;
+  --sidebar-btn-border: rgba(62, 240, 255, 0.35);
+  --sidebar-btn-text: #b7d4e4;
+  --sidebar-avatar-bg: #07343c;
+  --sidebar-avatar-border: #3ef0ff;
+  --sidebar-avatar-text: #e8f4ff;
+  --shadow-card: none;
+  --shadow-float: 0 0 18px rgba(62, 240, 255, 0.12);
+  background-color: #070b12;
+  color: #e8f4ff;
+  background-image:
+    radial-gradient(520px 380px at 0% 0%, rgba(62, 240, 255, 0.12), transparent 70%),
+    radial-gradient(480px 360px at 100% 100%, rgba(122, 162, 255, 0.12), transparent 72%),
+    linear-gradient(rgba(62, 240, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(62, 240, 255, 0.06) 1px, transparent 1px);
+  background-size: auto, auto, 32px 32px, 32px 32px;
+  background-attachment: fixed;
+}
+html[data-skin="hud"] body {
+  background: transparent;
+  background-image: none;
+}
+html[data-skin="hud"]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.45) 0 1px, transparent 1px 4px);
+  opacity: 0.07;
+}
+
+html[data-skin="hud"] .card,
+html[data-skin="hud"] .soft-panel,
+html[data-skin="hud"] .login-card,
+html[data-skin="hud"] .sub-card,
+html[data-skin="hud"] .sub-account,
+html[data-skin="hud"] .sub-empty,
+html[data-skin="hud"] .sub-node-card,
+html[data-skin="hud"] .sub-import,
+html[data-skin="hud"] .mobile-card,
+html[data-skin="hud"] .identity-bar-inner,
+html[data-skin="hud"] .animate-modal-in,
+html[data-skin="hud"] .stat-card,
+html[data-skin="hud"] .sub-week,
+html[data-skin="hud"] .sub-request,
+html[data-skin="hud"] .nf-modal-panel {
+  background-color: rgba(13, 21, 32, 0.92);
+  background-image:
+    linear-gradient(#3ef0ff, #3ef0ff),
+    linear-gradient(#3ef0ff, #3ef0ff),
+    linear-gradient(#3ef0ff, #3ef0ff),
+    linear-gradient(#3ef0ff, #3ef0ff),
+    linear-gradient(#3ef0ff, #3ef0ff),
+    linear-gradient(#3ef0ff, #3ef0ff),
+    linear-gradient(#3ef0ff, #3ef0ff),
+    linear-gradient(#3ef0ff, #3ef0ff);
+  background-size: 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px;
+  background-position: left top, left top, right top, right top, left bottom, left bottom, right bottom, right bottom;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(62, 240, 255, 0.45);
+  box-shadow: none;
+  backdrop-filter: blur(12px);
+}
+html[data-skin="hud"] .card-header {
+  background: transparent;
+}
+html[data-skin="hud"] .card:hover,
+html[data-skin="hud"] .stat-card:hover,
+html[data-skin="hud"] .sub-card:hover,
+html[data-skin="hud"] .mobile-card:hover,
+html[data-skin="hud"] .sub-node-card:hover,
+html[data-skin="hud"] .soft-panel:hover {
+  border-color: rgba(62, 240, 255, 0.9);
+  transform: none;
+  box-shadow: 0 0 16px rgba(62, 240, 255, 0.16);
+}
+html[data-skin="hud"] .login-card {
+  box-shadow:
+    0 0 0 1px rgba(62, 240, 255, 0.35),
+    0 0 32px rgba(62, 240, 255, 0.16);
+}
+html[data-skin="hud"] .login-shell::before,
+html[data-skin="hud"] .login-shell::after {
+  display: none;
+}
+
+html[data-skin="hud"] .app-topbar {
+  z-index: 35;
+  background: rgba(7, 11, 18, 0.82);
+  backdrop-filter: blur(12px);
+  border-bottom-color: rgba(62, 240, 255, 0.28);
+}
+@media (min-width: 1024px) {
+  /* Desktop sidebar is in normal flow (lg:static), so a positive z-index is
+     ignored until it is positioned. Lift it above the scanline film. */
+  html[data-skin="hud"] .sb-aside {
+    position: relative;
+    z-index: 40;
+  }
+}
+html[data-skin="hud"] .app-topbar h1,
+html[data-skin="hud"] .sub-title,
+html[data-skin="hud"] .login-brand {
+  font-weight: 600;
+  text-shadow: 0 0 12px rgba(62, 240, 255, 0.45);
+}
+html[data-skin="hud"] .login-brand {
+  animation: hud-glitch 400ms steps(2, end) 1;
+}
+html[data-skin="hud"] .sb-group-label,
+html[data-skin="hud"] .card-header h3,
+html[data-skin="hud"] .sub-nodes-head h2,
+html[data-skin="hud"] .attention-group-head {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #9aebff;
+  font-weight: 600;
+}
+html[data-skin="hud"] .font-mono {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  text-shadow: 0 0 8px rgba(62, 240, 255, 0.28);
+}
+html[data-skin="hud"] .sb-link-active::before {
+  width: 2px;
+  background: #3ef0ff;
+  box-shadow: 0 0 8px #3ef0ff;
+}
+html[data-skin="hud"] .sb-btn:hover {
+  transform: none;
+}
+
+html[data-skin="hud"] .btn-primary,
+html[data-skin="hud"] .login-submit {
+  background: #07343c;
+  border: 1px solid #3ef0ff;
+  color: #3ef0ff;
+  box-shadow: 0 0 18px rgba(62, 240, 255, 0.45);
+}
+html[data-skin="hud"] .btn-primary:hover,
+html[data-skin="hud"] .login-submit:hover {
+  transform: none;
+  background: #0a4650;
+  border-color: #3ef0ff;
+  color: #e8f4ff;
+  box-shadow: 0 0 22px rgba(62, 240, 255, 0.6);
+}
+html[data-skin="hud"] .btn-primary:active,
+html[data-skin="hud"] .login-submit:active {
+  transform: scale(0.98);
+}
+html[data-skin="hud"] .btn-secondary:hover,
+html[data-skin="hud"] .icon-btn:hover,
+html[data-skin="hud"] .topbar-toggle:hover {
+  transform: none;
+}
+
+html[data-skin="hud"] .input-field,
+html[data-skin="hud"] .search-field,
+html[data-skin="hud"] textarea.input-field {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(62, 240, 255, 0.45);
+  border-radius: 0;
+  caret-color: #3ef0ff;
+  box-shadow: none;
+}
+html[data-skin="hud"] .input-field:hover,
+html[data-skin="hud"] .search-field:hover,
+html[data-skin="hud"] .input-field:focus,
+html[data-skin="hud"] .search-field:focus {
+  border-color: #3ef0ff;
+  box-shadow: 0 1px 0 0 #3ef0ff;
+}
+
+html[data-skin="hud"] .btn-danger,
+html[data-skin="hud"] .btn-danger-sm,
+html[data-skin="hud"] .icon-btn-danger,
+html[data-skin="hud"] .link-danger,
+html[data-skin="hud"] .sub-import-block,
+html[data-skin="hud"] .sub-status.is-off {
+  color: #ff8d8d;
+}
+html[data-skin="hud"] .btn-danger,
+html[data-skin="hud"] .btn-danger-sm,
+html[data-skin="hud"] .icon-btn-danger {
+  border-color: rgba(255, 120, 120, 0.65);
+  background: transparent;
+  box-shadow: 0 0 12px rgba(255, 80, 80, 0.28);
+}
+html[data-skin="hud"] .btn-danger:hover,
+html[data-skin="hud"] .btn-danger-sm:hover,
+html[data-skin="hud"] .icon-btn-danger:hover {
+  transform: none;
+  color: #ffb4b4;
+  background: rgba(180, 40, 40, 0.18);
+  border-color: #ff8d8d;
+}
+html[data-skin="hud"] .sub-status.is-on {
+  color: #3ddc97;
+  text-shadow: 0 0 8px rgba(61, 220, 151, 0.35);
+}
+html[data-skin="hud"] .sub-status.is-direct {
+  color: #ffb020;
+  text-shadow: 0 0 8px rgba(255, 176, 32, 0.3);
+}
+
+html[data-skin="hud"] .tbl th {
+  color: #9aebff;
+  background: rgba(62, 240, 255, 0.08);
+}
+html[data-skin="hud"] .tbl tbody tr:hover {
+  background: linear-gradient(90deg, rgba(62, 240, 255, 0.1), transparent 72%);
+}
+
+html[data-skin="hud"] .sub-qr {
+  background: #fff;
+  border: 1px solid #3ef0ff;
+  box-shadow: 0 0 16px rgba(62, 240, 255, 0.35);
+}
+html[data-skin="hud"] .sub-import-btn {
+  background: #07343c;
+  border: 1px solid rgba(62, 240, 255, 0.55);
+  color: #9aebff;
+  box-shadow: 0 0 12px rgba(62, 240, 255, 0.25);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+html[data-skin="hud"] .sub-import-btn:hover {
+  transform: none;
+  border-color: #3ef0ff;
+  color: #e8f4ff;
+  box-shadow: 0 0 16px rgba(62, 240, 255, 0.4);
+}
+html[data-skin="hud"] .sub-week-fill {
+  background: #3ef0ff;
+  box-shadow: 0 0 10px rgba(62, 240, 255, 0.65);
+}
+html[data-skin="hud"] .sub-field-box {
+  background: rgba(7, 11, 18, 0.55);
+  border-color: rgba(62, 240, 255, 0.28);
+}
+
+.speed-band { display: none; }
+html[data-skin="hud"] .speed-readout {
+  color: #3ef0ff;
+  text-shadow: 0 0 10px rgba(62, 240, 255, 0.55);
+  overflow: hidden;
+}
+html[data-skin="hud"] .speed-band {
+  display: block;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42%;
+  left: -42%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  mix-blend-mode: screen;
+  animation: speed-flow 2.8s linear infinite;
+}
+
+html[data-skin="hud"] .health-dot.is-live,
+html[data-skin="hud"] .node-presence.is-live {
+  animation: hud-ping 2.4s ease-out infinite;
+}
+
+@keyframes hud-glitch {
+  0% { transform: none; text-shadow: 0 0 12px rgba(62, 240, 255, 0.45); }
+  20% { transform: translate(-1px, 0); text-shadow: 2px 0 #7aa2ff, -2px 0 #3ef0ff; }
+  40% { transform: translate(1px, 0); text-shadow: -2px 0 #3ef0ff, 2px 0 #7aa2ff; }
+  60% { transform: translate(-1px, 1px); text-shadow: 1px 0 #3ef0ff, -1px 0 #7aa2ff; }
+  100% { transform: none; text-shadow: 0 0 12px rgba(62, 240, 255, 0.45); }
+}
+@keyframes hud-ping {
+  0% { box-shadow: 0 0 0 0 rgba(62, 240, 255, 0.55); }
+  70% { box-shadow: 0 0 0 6px rgba(62, 240, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(62, 240, 255, 0); }
+}
+@keyframes speed-flow {
+  from { transform: translateX(0); }
+  to { transform: translateX(340%); }
+}
+
+@media (max-width: 760px) {
+  html[data-skin="hud"] {
+    background-size: auto, auto, 48px 48px, 48px 48px;
+  }
+  html[data-skin="hud"] .card,
+  html[data-skin="hud"] .soft-panel,
+  html[data-skin="hud"] .login-card,
+  html[data-skin="hud"] .sub-card,
+  html[data-skin="hud"] .sub-account,
+  html[data-skin="hud"] .sub-empty,
+  html[data-skin="hud"] .sub-node-card,
+  html[data-skin="hud"] .sub-import,
+  html[data-skin="hud"] .mobile-card,
+  html[data-skin="hud"] .identity-bar-inner,
+  html[data-skin="hud"] .animate-modal-in,
+  html[data-skin="hud"] .stat-card,
+  html[data-skin="hud"] .sub-week,
+  html[data-skin="hud"] .sub-request,
+  html[data-skin="hud"] .nf-modal-panel,
+  html[data-skin="hud"] .app-topbar {
+    backdrop-filter: none;
+    background-color: #0d1520;
+  }
+  html[data-skin="hud"] .app-topbar {
+    background-color: #070b12;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="hud"] .login-brand,
+  html[data-skin="hud"] .health-dot.is-live,
+  html[data-skin="hud"] .node-presence.is-live,
+  html[data-skin="hud"] .speed-band {
+    animation: none;
+  }
+  html[data-skin="hud"] .btn-primary:active,
+  html[data-skin="hud"] .login-submit:active {
+    transform: none;
+  }
+}

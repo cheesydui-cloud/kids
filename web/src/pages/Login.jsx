@@ -84,7 +84,7 @@ export default function Login() {
       <div className="login-card">
         <div className="flex items-center gap-3.5 mb-8">
           <BrandBadge src={logoUrl} size={46} markClassName="w-[28px] h-[28px]" />
-          <div className="text-[17px] font-bold tracking-tight text-ink">{panelName || 'nft'}</div>
+          <div className="login-brand text-[17px] font-bold tracking-tight text-ink">{panelName || 'nft'}</div>
         </div>
 
         {error && (

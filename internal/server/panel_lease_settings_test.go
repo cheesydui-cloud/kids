@@ -209,6 +209,10 @@ func TestNormalizePanelSkin(t *testing.T) {
 	if err != nil || ok != "pixel" {
 		t.Fatalf("glaze: %q %v", ok, err)
 	}
+	ok, err = normalizePanelSkin(" hud ")
+	if err != nil || ok != "hud" {
+		t.Fatalf("hud: %q %v", ok, err)
+	}
 	if _, err := normalizePanelSkin("snow"); err == nil {
 		t.Fatal("unknown skin must fail")
 	}

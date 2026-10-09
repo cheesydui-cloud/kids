@@ -324,7 +324,7 @@ export default function NodeList() {
                   </td>
                   <td>
                     <span className="inline-flex items-center gap-2 font-semibold text-[color:var(--brand-from)]">
-                      <span className={`w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.18)]' : 'bg-gray-400 shadow-[0_0_0_3px_rgba(154,163,176,0.16)]'}`} />
+                      <span className={`node-presence w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'is-live bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.18)]' : 'bg-gray-400 shadow-[0_0_0_3px_rgba(154,163,176,0.16)]'}`} />
                       {n.name}
                       {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
                       {n.group_name && <Badge color="blue" title="分组">{n.group_name}</Badge>}
@@ -386,7 +386,7 @@ export default function NodeList() {
               <Link key={n.id} to={`/nodes/${n.id}`} className="mobile-card block no-underline text-ink">
                 <div className="flex items-center justify-between mb-1">
                   <span className="inline-flex items-center gap-2 font-semibold text-[color:var(--brand-from)] flex-wrap">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <span className={`node-presence w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'is-live bg-green-500' : 'bg-gray-400'}`} />
                     {n.name}
                     {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
                     {n.group_name && <Badge color="blue">{n.group_name}</Badge>}

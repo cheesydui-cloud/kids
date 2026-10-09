@@ -24,9 +24,10 @@ function LiveSpeed({ value }) {
 
 function SpeedLine({ arrow, bps }) {
   return (
-    <span className="relative inline-block whitespace-nowrap text-emerald-600">
+    <span className="speed-readout relative inline-block whitespace-nowrap text-emerald-600">
       <span className="invisible select-none" aria-hidden="true">{SPEED_SLOT}</span>
       <span className="absolute inset-0">{arrow}{fmtSpeed(bps)}</span>
+      <span className="speed-band" aria-hidden="true" />
     </span>
   )
 }

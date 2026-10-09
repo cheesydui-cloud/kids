@@ -2039,7 +2039,7 @@ func (s *Server) panelSkin() string {
 }
 
 // normalizePanelSkin: xuan = cream paper (default), porcelain = white card,
-// pixel = hard-edge glaze on the same cream paper.
+// pixel = hard-edge glaze on the same cream paper, hud = dark avionics lock.
 func normalizePanelSkin(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "xuan", "paper", "cream":
@@ -2048,8 +2048,10 @@ func normalizePanelSkin(raw string) (string, error) {
 		return "porcelain", nil
 	case "pixel", "dot", "glaze":
 		return "pixel", nil
+	case "hud":
+		return "hud", nil
 	default:
-		return "", errors.New("面板外观只支持宣纸、瓷白或点阵")
+		return "", errors.New("面板外观只支持宣纸、瓷白、点阵或航电")
 	}
 }
 
