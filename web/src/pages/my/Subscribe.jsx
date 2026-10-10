@@ -7,15 +7,16 @@ import { Layout, useToast } from '../../components/Layout'
 import { UserPortalHead } from '../../components/UserPortalHead'
 import { Badge, Loading, useConfirm } from '../../components/ui'
 
-const LAT_CACHE_KEY = 'nf.sub.latency.v1'
 const LAT_TTL_MS = 45_000
 
 export default function MySubscribe() {
   const toast = useToast()
   const confirm = useConfirm()
   const [data, setData] = useState(null)
+  const [loadError, setLoadError] = useState('')
   const [ruleBusy, setRuleBusy] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [addrOpen, setAddrOpen] = useState(false)
   const [qr, setQr] = useState('')
   const [qrErr, setQrErr] = useState('')
   const [copied, setCopied] = useState('')
@@ -24,10 +25,18 @@ export default function MySubscribe() {
   const [note, setNote] = useState('')
   const [reqBusy, setReqBusy] = useState('')
 
-  const load = () => api.get('/my/subscribe')
-    .then(setData)
-    .catch((e) => { console.error(e); toast(e.message || '加载失败', 'error') })
-    .finally(() => setLoading(false))
+  const load = () => {
+    setLoadError('')
+    return api.get('/my/subscribe')
+      .then((d) => { setData(d); return d })
+      .catch((e) => {
+        const msg = e.message || '加载失败'
+        setLoadError(msg)
+        toast(msg, 'error')
+        return null
+      })
+      .finally(() => setLoading(false))
+  }
 
   useEffect(() => { load() }, [])
 
@@ -52,41 +61,22 @@ export default function MySubscribe() {
   const skipped = data?.skipped || []
   const subRules = data?.rules || []
   const account = data?.account || {}
+  const profileName = account.username || ''
   const v2rayLines = useMemo(
     () => items.map((it) => it.uri).filter(Boolean).join('\n'),
     [items],
   )
-  const profileName = account.username || 'kids'
 
   const applyLatency = (d) => {
     const map = {}
-    for (const it of d?.items || []) {
-      map[latencyKey(it)] = it
-    }
+    for (const it of d?.items || []) map[latencyKey(it)] = it
     setLatency(map)
-  }
-
-  const fetchLatency = (force) => {
-    if (!data) return Promise.resolve()
-    const cached = force ? null : readLatCache()
-    if (cached) {
-      applyLatency(cached)
-      return Promise.resolve()
-    }
-    setLatLoading(true)
-    const q = force ? '?refresh=1' : ''
-    return api.get(`/my/subscribe/latency${q}`).then((d) => {
-      applyLatency(d)
-      writeLatCache(d)
-    }).catch(() => {
-      if (force) setLatency({})
-    }).finally(() => setLatLoading(false))
   }
 
   useEffect(() => {
     if (!data) return
     let cancelled = false
-    const cached = readLatCache()
+    const cached = readLatCache(profileName)
     if (cached) {
       applyLatency(cached)
       return
@@ -95,7 +85,7 @@ export default function MySubscribe() {
     api.get('/my/subscribe/latency').then((d) => {
       if (cancelled) return
       applyLatency(d)
-      writeLatCache(d)
+      writeLatCache(profileName, d)
     }).catch(() => {
       if (!cancelled) setLatency({})
     }).finally(() => {
@@ -103,6 +93,22 @@ export default function MySubscribe() {
     })
     return () => { cancelled = true }
   }, [data])
+
+  const refreshLatency = async () => {
+    clearLatCache(profileName)
+    setLatLoading(true)
+    try {
+      const d = await api.get('/my/subscribe/latency?refresh=1')
+      applyLatency(d)
+      writeLatCache(profileName, d)
+      toast('已刷新延迟')
+    } catch (e) {
+      setLatency({})
+      toast(e.message || '延迟刷新失败', 'error')
+    } finally {
+      setLatLoading(false)
+    }
+  }
 
   const copy = async (text, key, ok = '已复制') => {
     if (!text) { toast('暂无可复制内容', 'error'); return }
@@ -120,7 +126,7 @@ export default function MySubscribe() {
     if (!data?.mihomo_url) return
     const a = document.createElement('a')
     a.href = data.mihomo_url + (data.mihomo_url.includes('?') ? '&' : '?') + 'download=1'
-    a.download = `${profileName}.yaml`
+    a.download = `${profileName || 'kids'}.yaml`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -136,6 +142,7 @@ export default function MySubscribe() {
     }))) return
     try {
       const d = await api.post('/my/subscribe/rotate')
+      clearLatCache(profileName)
       setData((prev) => prev ? { ...prev, ...d } : prev)
       toast('订阅链接已重置，请重新导入客户端')
     } catch (e) {
@@ -169,6 +176,7 @@ export default function MySubscribe() {
     setRuleBusy(rule.id)
     try {
       await api.post(`/my/rules/${rule.id}/toggle`)
+      clearLatCache(profileName)
       toast(nextOff ? '已停用' : '已启用')
       await load()
     } catch (e) {
@@ -178,7 +186,22 @@ export default function MySubscribe() {
     }
   }
 
-  if (loading) return <Layout><Loading /></Layout>
+  if (loading && !data) return <Layout><Loading /></Layout>
+
+  if (!data) {
+    return (
+      <Layout>
+        <div className="sub-page">
+          <UserPortalHead title="我的订阅" />
+          <div className="sub-empty">
+            <h2>订阅没有加载出来</h2>
+            <p>{loadError || '请再试一次'}</p>
+            <button type="button" className="btn-secondary mt-3" onClick={() => { setLoading(true); load() }}>重试</button>
+          </div>
+        </div>
+      </Layout>
+    )
+  }
 
   const expiresAt = account.expires_at && account.expires_at > 0 ? account.expires_at : null
   const rate = Number(account.billing_rate)
@@ -197,7 +220,9 @@ export default function MySubscribe() {
   const expiringSoon = !!(expiresAt && !expired && expiresAt - nowSec <= 7 * 86400)
   const showRenew = expired || expiringSoon
   const showQuota = quotaOut || (quota > 0 && quotaPct >= 80)
-  const openRequests = (data?.requests || []).filter((r) => r.status === 'open')
+  const requests = Array.isArray(data.requests) ? data.requests : []
+  const openRequests = requests.filter((r) => r.status === 'open')
+  const doneRequests = requests.filter((r) => r.status !== 'open').slice(0, 3)
   const openRenew = openRequests.find((r) => r.kind === 'renew')
   const openQuota = openRequests.find((r) => r.kind === 'quota')
   const displayRate = rate > 0 ? rate : 1
@@ -209,40 +234,50 @@ export default function MySubscribe() {
       : quotaOut
         ? '流量已用完，无法导入客户端'
         : ''
-  const imports = importHrefs(uriURL, data?.clash_url, data?.mihomo_url, profileName)
+  const imports = importHrefs(uriURL, data?.clash_url, data?.mihomo_url, profileName || 'kids')
+  const seenRules = new Set()
+  const nodeRows = items.map((it) => {
+    const rule = subRules.find((r) => r.id === it.rule_id)
+    const showToggle = !!(rule && !seenRules.has(rule.id))
+    if (rule) seenRules.add(rule.id)
+    return { item: it, rule: showToggle ? rule : null }
+  })
+  const hiddenRules = subRules.filter((r) => !seenRules.has(r.id))
+  const skipShown = skipped.filter((sk) => sk.reason !== 'disabled')
+  const showRequest = showRenew || showQuota || openRequests.length > 0 || doneRequests.length > 0
+  const canSubmit = (showRenew && !openRenew) || (showQuota && !openQuota)
 
   const openImport = (href, fallback, opened) => {
     if (importBlocked) { toast(blockReason, 'error'); return }
-    if (!href && !fallback) { toast('暂无订阅地址', 'error'); return }
-    if (href) {
-      const a = document.createElement('a')
-      a.href = href
-      a.rel = 'noreferrer'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      toast(opened || '已唤起客户端')
+    if (!href) {
+      copy(fallback, 'import', opened || '已复制订阅地址')
       return
     }
-    copy(fallback, 'import', opened || '已复制订阅地址')
+    let hidden = false
+    const mark = () => { if (document.hidden) hidden = true }
+    document.addEventListener('visibilitychange', mark)
+    window.addEventListener('pagehide', mark)
+    const a = document.createElement('a')
+    a.href = href
+    a.rel = 'noreferrer'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.setTimeout(() => {
+      document.removeEventListener('visibilitychange', mark)
+      window.removeEventListener('pagehide', mark)
+      if (hidden || document.hidden) {
+        toast(opened || '已唤起客户端')
+        return
+      }
+      copy(fallback, 'import', '没有打开客户端，已复制订阅地址')
+    }, 1200)
   }
 
   return (
     <Layout>
       <div className="sub-page">
-        <UserPortalHead
-          title="我的订阅"
-          extra={(
-            <button
-              type="button"
-              className="sub-reset-link"
-              onClick={rotateSub}
-              title="链接泄漏或换设备时用。旧地址立刻失效。"
-            >
-              重置订阅链接
-            </button>
-          )}
-        />
+        <UserPortalHead title="我的订阅" />
 
         {account.disabled && (
           <div className="mb-4 px-4 py-3 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl text-rose-700 dark:text-rose-300 text-sm font-medium">
@@ -259,219 +294,7 @@ export default function MySubscribe() {
           </div>
         )}
 
-        <section className="sub-account" aria-label="账户概览">
-          <div>
-            <span className="sub-account-k">账户</span>
-            <strong>{account.username || '—'}</strong>
-          </div>
-          <div>
-            <span className="sub-account-k">流量</span>
-            <strong className="font-mono">
-              {fmtTrafficGB(used, quota)}
-              {quota > 0 && <span className="text-ink-mut font-sans font-medium"> · {pct(used, quota)}%</span>}
-            </strong>
-          </div>
-          <div>
-            <span className="sub-account-k">到期</span>
-            <strong>
-              {expiresAt ? fmtDate(expiresAt) : '永不过期'}
-              {expired && <Badge color="red" className="ml-2">已过期</Badge>}
-            </strong>
-          </div>
-        </section>
-
-        <WeekTraffic daily={data?.daily} rate={displayRate} />
-
-        {(showRenew || showQuota || openRequests.length > 0) && (
-          <section className="sub-request" aria-label="续期与加量">
-            <div className="sub-nodes-head">
-              <h2>联系管理员</h2>
-            </div>
-            {openRequests.length > 0 && (
-              <ul className="sub-request-list">
-                {openRequests.map((r) => (
-                  <li key={r.id}>
-                    <Badge color="amber">{r.kind === 'quota' ? '加量' : '续期'}</Badge>
-                    <span>已提交，等待处理{r.note ? ` · ${r.note}` : ''}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {(showRenew && !openRenew) || (showQuota && !openQuota) ? (
-              <>
-                <textarea
-                  className="input-field w-full min-h-[72px] text-[13px]"
-                  maxLength={200}
-                  placeholder="补充说明，选填，最多 200 字"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {showRenew && !openRenew && (
-                    <button type="button" className="btn-secondary" disabled={!!reqBusy} onClick={() => submitRequest('renew')}>
-                      {reqBusy === 'renew' ? '提交中…' : '申请续期'}
-                    </button>
-                  )}
-                  {showQuota && !openQuota && (
-                    <button type="button" className="btn-secondary" disabled={!!reqBusy} onClick={() => submitRequest('quota')}>
-                      {reqBusy === 'quota' ? '提交中…' : '申请加量'}
-                    </button>
-                  )}
-                </div>
-              </>
-            ) : null}
-          </section>
-        )}
-
-        {empty && (
-          <div className="sub-empty">
-            <h2>还没有可导入的节点</h2>
-            {skipped.length > 0 && (
-              <ul>
-                {skipped.map((sk, i) => (
-                  <li key={i}>{skipLabel(sk)}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        <section className="sub-grid">
-          <article className="sub-card sub-card-qr">
-            <div className="sub-card-head">
-              <span className="sub-idx">01</span>
-              <h3>小火箭</h3>
-            </div>
-            <div className="sub-qr-wrap">
-              {qr ? (
-                <img src={qr} alt="订阅二维码" className="sub-qr" />
-              ) : (
-                <div className="sub-qr sub-qr-ph">{qrErr || (empty ? '暂无节点' : '生成中…')}</div>
-              )}
-            </div>
-            <div className="sub-card-actions">
-              <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" disabled={!uriURL || importBlocked}
-                onClick={() => copy(uriURL, 'qr', '已复制小火箭订阅地址')}>
-                {copied === 'qr' ? '已复制' : '复制订阅地址'}
-              </button>
-            </div>
-          </article>
-
-          <article className="sub-card">
-            <div className="sub-card-head">
-              <span className="sub-idx">02</span>
-              <h3>V2rayN</h3>
-            </div>
-            <FieldRow label="订阅地址" value={uriURL} disabled={importBlocked} onCopy={() => copy(uriURL, 'v2sub', '已复制 V2rayN 订阅')} copied={copied === 'v2sub'} />
-            <FieldRow
-              label="节点链接"
-              value={v2rayLines}
-              multiline
-              disabled={importBlocked}
-              placeholder={empty ? '暂无节点链接' : ''}
-              onCopy={() => copy(v2rayLines, 'v2uri', '已复制全部节点链接')}
-              copied={copied === 'v2uri'}
-            />
-          </article>
-
-          <article className="sub-card">
-            <div className="sub-card-head">
-              <span className="sub-idx">03</span>
-              <h3>Clash Verge</h3>
-            </div>
-            <FieldRow label="订阅地址" value={data?.clash_url} disabled={importBlocked} onCopy={() => copy(data?.clash_url, 'clash', '已复制 Clash 订阅')} copied={copied === 'clash'} />
-            <p className="sub-card-hint">复制地址后在 Clash Verge 订阅里添加，或用下方一键导入。</p>
-          </article>
-
-          <article className="sub-card">
-            <div className="sub-card-head">
-              <span className="sub-idx">04</span>
-              <h3>Mihomo</h3>
-            </div>
-            <FieldRow label="订阅地址" value={data?.mihomo_url} disabled={importBlocked} onCopy={() => copy(data?.mihomo_url, 'mihomo', '已复制 Mihomo 订阅')} copied={copied === 'mihomo'} />
-            <div className="flex flex-wrap gap-2 mt-3">
-              <button type="button" className="btn-secondary" disabled={empty || importBlocked} onClick={downloadYaml}>下载 YAML</button>
-            </div>
-          </article>
-        </section>
-
-        <section className="sub-nodes">
-          <div className="sub-nodes-head">
-            <h2>节点清单</h2>
-            <button
-              type="button"
-              className="btn-secondary h-[32px] px-3 text-[12px]"
-              disabled={latLoading || items.length === 0}
-              onClick={() => fetchLatency(true).then(() => toast('已刷新延迟'))}
-            >
-              {latLoading ? '测速中…' : '刷新延迟'}
-            </button>
-          </div>
-          {items.length > 0 && (
-            <div className="sub-node-grid">
-              {items.map((it) => (
-                <NodeCard
-                  key={`${it.kind}-${it.rule_id}-${it.family}-${it.name}`}
-                  item={it}
-                  probe={latency[latencyKey(it)]}
-                />
-              ))}
-            </div>
-          )}
-
-          {skipped.length > 0 && items.length > 0 && (
-            <div className="sub-skip">
-              <h3>未纳入订阅</h3>
-              <ul>
-                {skipped.map((sk, i) => <li key={i}>{skipLabel(sk)}</li>)}
-              </ul>
-            </div>
-          )}
-        </section>
-
-        {subRules.length > 0 && (
-          <section className="sub-nodes">
-            <div className="sub-nodes-head">
-              <h2>我的规则</h2>
-            </div>
-            <div className="flex flex-col gap-2">
-              {subRules.map((rule) => (
-                <div key={rule.id} className="flex items-start justify-between gap-3 px-3 py-2.5 rounded-xl border-[1.5px] border-line bg-surface">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-[14px]">{rule.name}</span>
-                      {rule.disabled
-                        ? <Badge color="amber">已停用</Badge>
-                        : rule.block_reason
-                          ? <Badge color="red">连不上</Badge>
-                          : rule.status === 'online'
-                            ? <Badge color="green">在线</Badge>
-                            : rule.status === 'offline'
-                              ? <Badge color="gray">离线</Badge>
-                              : null}
-                    </div>
-                    <p className="mt-1 text-[12px] text-ink-soft">
-                      {rule.disabled
-                        ? '已停用，入口不再转发。配置还在，启用即可恢复。'
-                        : (rule.block_text || (rule.status === 'offline' ? '入口节点离线或已禁用' : (rule.landing ? `落地 ${rule.landing}` : '运行中')))}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-secondary h-[32px] px-3 text-[12px] shrink-0"
-                    disabled={ruleBusy === rule.id}
-                    onClick={() => toggleRule(rule)}
-                  >
-                    {ruleBusy === rule.id ? '…' : (rule.disabled ? '启用' : '停用')}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section className="sub-import">
-          <h2>一键导入客户端</h2>
+        <section className="sub-primary" aria-label="导入订阅">
           {importBlocked && <p className="sub-import-block">{blockReason}</p>}
           <div className="sub-import-grid">
             <button type="button" className="sub-import-btn" disabled={!uriURL || importBlocked}
@@ -495,6 +318,172 @@ export default function MySubscribe() {
               <span>Mihomo</span>
             </button>
           </div>
+
+          <section className="sub-account" aria-label="账户概览">
+            <div>
+              <span className="sub-account-k">账户</span>
+              <strong>{account.username || '—'}</strong>
+            </div>
+            <div>
+              <span className="sub-account-k">流量</span>
+              <strong className="font-mono">
+                {fmtTrafficGB(used, quota)}
+                {quota > 0 && <span className="text-ink-mut font-sans font-medium"> · {pct(used, quota)}%</span>}
+                {displayRate !== 1 && <span className="sub-rate-note">已按倍率 ×{rateLabel(displayRate)}</span>}
+              </strong>
+            </div>
+            <div>
+              <span className="sub-account-k">到期</span>
+              <strong>
+                {expiryText(expiresAt, expired, nowSec)}
+                {expired && <Badge color="red" className="ml-2">已过期</Badge>}
+              </strong>
+            </div>
+          </section>
+
+          <WeekTraffic daily={data?.daily} rate={displayRate} />
+        </section>
+
+        {showRequest && (
+          <section className="sub-request" aria-label="续期与加量">
+            <div className="sub-nodes-head">
+              <h2>联系管理员</h2>
+            </div>
+            {openRequests.length > 0 && (
+              <ul className="sub-request-list">
+                {openRequests.map((r) => (
+                  <li key={r.id}>
+                    <Badge color="amber">{r.kind === 'quota' ? '加量' : '续期'}</Badge>
+                    <span>已提交，等待处理{r.note ? ` · ${r.note}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {doneRequests.length > 0 && (
+              <ul className="sub-request-list">
+                {doneRequests.map((r) => (
+                  <li key={r.id}>
+                    <Badge color="green">已处理</Badge>
+                    <span>{r.kind === 'quota' ? '加量' : '续期'}{r.note ? ` · ${r.note}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canSubmit && (
+              <>
+                <textarea
+                  className="input-field w-full min-h-[72px] text-[13px]"
+                  maxLength={200}
+                  placeholder="补充说明，选填，最多 200 字"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+                <div className="sub-note-count">{[...note].length}/200</div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {showRenew && !openRenew && (
+                    <button type="button" className="btn-secondary" disabled={!!reqBusy} onClick={() => submitRequest('renew')}>
+                      {reqBusy === 'renew' ? '提交中…' : '申请续期'}
+                    </button>
+                  )}
+                  {showQuota && !openQuota && (
+                    <button type="button" className="btn-secondary" disabled={!!reqBusy} onClick={() => submitRequest('quota')}>
+                      {reqBusy === 'quota' ? '提交中…' : '申请加量'}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        <section className="sub-address">
+          <button
+            type="button"
+            className="sub-address-toggle"
+            aria-expanded={addrOpen}
+            onClick={() => setAddrOpen((v) => !v)}
+          >
+            <span>复制地址</span>
+            <span className="sub-address-hint">{addrOpen ? '收起' : '二维码和订阅链接'}</span>
+          </button>
+          {addrOpen && (
+            <div className="sub-address-body">
+              <div className="sub-qr-wrap">
+                {qr ? (
+                  <img src={qr} alt="订阅二维码" className="sub-qr" />
+                ) : (
+                  <div className="sub-qr sub-qr-ph">{qrErr || (empty ? '暂无节点' : '生成中…')}</div>
+                )}
+              </div>
+              <FieldRow label="订阅地址" value={uriURL} onCopy={() => copy(uriURL, 'uri', '已复制订阅地址')} copied={copied === 'uri'} />
+              <FieldRow label="Clash Verge" value={data?.clash_url} onCopy={() => copy(data?.clash_url, 'clash', '已复制 Clash 订阅')} copied={copied === 'clash'} />
+              <FieldRow label="Mihomo" value={data?.mihomo_url} onCopy={() => copy(data?.mihomo_url, 'mihomo', '已复制 Mihomo 订阅')} copied={copied === 'mihomo'} />
+              <FieldRow
+                label="节点链接"
+                value={v2rayLines}
+                multiline
+                placeholder={empty ? '暂无节点链接' : ''}
+                onCopy={() => copy(v2rayLines, 'v2uri', '已复制全部节点链接')}
+                copied={copied === 'v2uri'}
+              />
+              <div className="sub-address-actions">
+                <button type="button" className="btn-secondary" disabled={empty || importBlocked || !data?.mihomo_url} onClick={downloadYaml}>下载 YAML</button>
+                <button type="button" className="sub-reset-link" onClick={rotateSub} title="链接泄漏或换设备时用。旧地址立刻失效。">重置订阅链接</button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="sub-nodes">
+          <div className="sub-nodes-head">
+            <h2>节点</h2>
+            <button
+              type="button"
+              className="btn-secondary h-[32px] px-3 text-[12px]"
+              disabled={latLoading || items.length === 0}
+              onClick={refreshLatency}
+            >
+              {latLoading ? '测速中…' : '刷新延迟'}
+            </button>
+          </div>
+          {empty && (
+            <div className="sub-empty">
+              <h2>还没有可导入的节点</h2>
+              {skipShown.length > 0 && (
+                <ul>
+                  {skipShown.map((sk, i) => <li key={i}>{skipLabel(sk)}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+          {(nodeRows.length > 0 || hiddenRules.length > 0) && (
+            <div className="sub-node-list">
+              {nodeRows.map(({ item, rule }) => (
+                <NodeRow
+                  key={`${item.kind}-${item.rule_id}-${item.family}-${item.name}`}
+                  item={item}
+                  probe={latency[latencyKey(item)]}
+                  latLoading={latLoading}
+                  copied={copied === `node-${latencyKey(item)}`}
+                  onCopy={() => copy(item.uri, `node-${latencyKey(item)}`, '已复制节点链接')}
+                  rule={rule}
+                  ruleBusy={ruleBusy}
+                  onToggle={toggleRule}
+                />
+              ))}
+              {hiddenRules.map((rule) => (
+                <RuleOnlyRow key={rule.id} rule={rule} ruleBusy={ruleBusy} onToggle={toggleRule} />
+              ))}
+            </div>
+          )}
+          {skipShown.length > 0 && items.length > 0 && (
+            <div className="sub-skip">
+              <h3>未纳入订阅</h3>
+              <ul>
+                {skipShown.map((sk, i) => <li key={i}>{skipLabel(sk)}</li>)}
+              </ul>
+            </div>
+          )}
         </section>
       </div>
     </Layout>
@@ -506,32 +495,65 @@ function WeekTraffic({ daily, rate }) {
   if (rows.length === 0) return null
   const shown = rows.map((d) => Math.round((d.raw_bytes || 0) * (rate > 0 ? rate : 1)))
   const max = Math.max(1, ...shown)
+  const total = shown.reduce((sum, n) => sum + n, 0)
+  const today = shanghaiDay()
   const rateNote = rate > 0 && rate !== 1
-  const rateLabel = Number.isInteger(rate) ? String(rate) : String(rate)
   return (
     <section className="sub-week" aria-label="近 7 天用量">
       <div className="sub-nodes-head">
         <h2>近 7 天</h2>
-        {rateNote && <span className="text-[12px] text-ink-mut">显示用量，已按倍率 ×{rateLabel}</span>}
+        <span className="text-[12px] text-ink-mut">
+          合计 {fmtBytes(total)}
+          {rateNote ? ` · 已按倍率 ×${rateLabel(rate)}` : ''}
+        </span>
       </div>
       <div className="sub-week-bars">
-        {rows.map((d, i) => (
-          <div key={d.day || i} className="sub-week-col" title={`${d.day || ''} ${fmtBytes(shown[i])}`}>
-            <div className="sub-week-track">
-              <div className="sub-week-fill" style={{ height: shown[i] > 0 ? `${Math.max(8, (shown[i] / max) * 100)}%` : '0%' }} />
+        {rows.map((d, i) => {
+          const isToday = d.day === today
+          return (
+            <div key={d.day || i} className={`sub-week-col${isToday ? ' is-today' : ''}`} title={`${d.day || ''} ${fmtBytes(shown[i])}`}>
+              <div className="sub-week-track">
+                <div className="sub-week-fill" style={{ height: shown[i] > 0 ? `${Math.max(8, (shown[i] / max) * 100)}%` : '0%' }} />
+              </div>
+              <span className="sub-week-day">{isToday ? '今天' : String(d.day || '').slice(5)}</span>
+              <span className="sub-week-val">{fmtBytes(shown[i])}</span>
             </div>
-            <span className="sub-week-day">{String(d.day || '').slice(5)}</span>
-            <span className="sub-week-val">{fmtBytes(shown[i])}</span>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </section>
   )
 }
 
-function readLatCache() {
+function shanghaiDay(date = new Date()) {
   try {
-    const raw = sessionStorage.getItem(LAT_CACHE_KEY)
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+  } catch {
+    const d = date
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+}
+
+function rateLabel(rate) {
+  return Number.isInteger(rate) ? String(rate) : String(rate)
+}
+
+function expiryText(expiresAt, expired, nowSec) {
+  if (!expiresAt) return '永不过期'
+  const date = fmtDate(expiresAt)
+  if (expired) return date
+  const days = Math.ceil((expiresAt - nowSec) / 86400)
+  if (days <= 1) return `${date} · 今天到期`
+  return `${date} · 还剩 ${days} 天`
+}
+
+function latKey(name) {
+  return `nf.sub.latency.v2:${name || '_'}`
+}
+
+function readLatCache(name) {
+  try {
+    const raw = sessionStorage.getItem(latKey(name))
     if (!raw) return null
     const d = JSON.parse(raw)
     if (!d || !d.at || !Array.isArray(d.items)) return null
@@ -542,13 +564,17 @@ function readLatCache() {
   }
 }
 
-function writeLatCache(d) {
+function writeLatCache(name, d) {
   try {
-    sessionStorage.setItem(LAT_CACHE_KEY, JSON.stringify({
+    sessionStorage.setItem(latKey(name), JSON.stringify({
       at: Date.now(),
       items: d?.items || [],
     }))
-  } catch {}
+  } catch { /* ignore quota */ }
+}
+
+function clearLatCache(name) {
+  try { sessionStorage.removeItem(latKey(name)) } catch { /* ignore */ }
 }
 
 function latencyKey(it) {
@@ -559,8 +585,6 @@ function importHrefs(uriURL, clashURL, mihomoURL, name) {
   const label = encodeURIComponent(name || 'kids')
   const enc = (u) => encodeURIComponent(u)
   return {
-    // One scheme only: firing two in a row makes Verge import once then the
-    // page thinks the app failed and toasts a copy error.
     shadowrocket: uriURL ? `shadowrocket://add/sub://${btoaUtf8(uriURL)}?remark=${label}` : '',
     clash: clashURL ? `clash://install-config?name=${label}&url=${enc(clashURL)}` : '',
     mihomo: mihomoURL ? `clash://install-config?name=${label}&url=${enc(mihomoURL)}` : '',
@@ -574,13 +598,13 @@ function btoaUtf8(text) {
   return btoa(bin)
 }
 
-function FieldRow({ label, value, onCopy, copied, multiline, placeholder, disabled }) {
+function FieldRow({ label, value, onCopy, copied, multiline, placeholder }) {
   return (
     <div className="sub-field">
       <div className="sub-field-label">{label}</div>
       <div className={`sub-field-box ${multiline ? 'is-multi' : ''}`}>
         <code>{value || placeholder || '—'}</code>
-        <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" disabled={!value || disabled} onClick={onCopy}>
+        <button type="button" className="btn-secondary h-[34px] px-3 text-[12px]" disabled={!value} onClick={onCopy}>
           {copied ? '已复制' : '复制'}
         </button>
       </div>
@@ -588,27 +612,64 @@ function FieldRow({ label, value, onCopy, copied, multiline, placeholder, disabl
   )
 }
 
-function NodeCard({ item, probe }) {
+function nodeMeta(item) {
+  const bits = []
+  if (item.protocol) bits.push(item.protocol)
+  if (item.family === 'v6') bits.push('IPv6')
+  else if (item.family === 'v4') bits.push('IPv4')
+  if (item.rule_name && item.rule_name !== item.name) bits.push(item.rule_name)
+  return bits.join(' · ')
+}
+
+function NodeRow({ item, probe, latLoading, copied, onCopy, rule, ruleBusy, onToggle }) {
   const st = statusView(item)
   return (
-    <article className="sub-node-card">
-      <div className="sub-node-card-top">
-        <div className={`sub-status is-${st.tone}`}>
-          <i />
-          {st.label}
+    <div className="sub-node-row">
+      <div className="sub-node-main">
+        <span className={`sub-status is-${st.tone}`}><i />{st.label}</span>
+        <div className="min-w-0">
+          <div className="sub-node-name">{item.name}</div>
+          {nodeMeta(item) && <div className="sub-node-meta">{nodeMeta(item)}</div>}
+          {item.block_text && <div className="sub-node-meta">{item.block_text}</div>}
         </div>
-        <div className="sub-latency">{item.block_reason ? '' : latencyLabel(probe)}</div>
       </div>
-      <h3>{item.name}</h3>
-      {item.block_text && (
-        <p className="mt-1.5 text-[12px] text-ink-soft leading-snug">{item.block_text}</p>
-      )}
-    </article>
+      <div className="sub-node-side">
+        <span className="sub-latency">{item.block_reason ? '' : latencyLabel(probe, latLoading)}</span>
+        <button type="button" className="btn-secondary h-[32px] px-3 text-[12px]" disabled={!item.uri} onClick={onCopy}>
+          {copied ? '已复制' : '复制'}
+        </button>
+        {rule && (
+          <button type="button" className="btn-secondary h-[32px] px-3 text-[12px]" disabled={ruleBusy === rule.id} onClick={() => onToggle(rule)}>
+            {ruleBusy === rule.id ? '…' : (rule.disabled ? '启用' : '停用')}
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 
-function latencyLabel(probe) {
-  if (!probe) return '测速中…'
+function RuleOnlyRow({ rule, ruleBusy, onToggle }) {
+  const off = !!rule.disabled
+  return (
+    <div className="sub-node-row">
+      <div className="sub-node-main">
+        <span className={`sub-status ${off ? 'is-off' : 'is-unk'}`}><i />{off ? '已停用' : '未纳入'}</span>
+        <div className="min-w-0">
+          <div className="sub-node-name">{rule.name}</div>
+          <div className="sub-node-meta">{rule.block_text || (off ? '已停用，入口不再转发。启用即可恢复。' : '这条规则没有可导入的节点')}</div>
+        </div>
+      </div>
+      <div className="sub-node-side">
+        <button type="button" className="btn-secondary h-[32px] px-3 text-[12px]" disabled={ruleBusy === rule.id} onClick={() => onToggle(rule)}>
+          {ruleBusy === rule.id ? '…' : (off ? '启用' : '停用')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function latencyLabel(probe, loading) {
+  if (!probe) return loading ? '测速中…' : '—'
   if (probe.ok) return `${probe.latency_ms || 0} ms`
   if (probe.kind === 'direct' || (probe.error || '').includes('直连')) return '—'
   return '超时'

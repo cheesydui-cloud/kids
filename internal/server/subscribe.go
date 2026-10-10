@@ -535,12 +535,6 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "读取申请失败")
 		return
 	}
-	openReqs := make([]db.UserRequest, 0)
-	for _, row := range requests {
-		if row.Status == "open" {
-			openReqs = append(openReqs, row)
-		}
-	}
 	var expires any
 	if u.ExpiresAt.Valid && u.ExpiresAt.Int64 != 0 {
 		expires = u.ExpiresAt.Int64
@@ -558,7 +552,7 @@ func (s *Server) apiMySubscribe(w http.ResponseWriter, r *http.Request) {
 		"skipped":    p.Skipped,
 		"rules":      s.userSubRules(u, p),
 		"daily":      daily,
-		"requests":   openReqs,
+		"requests":   requests,
 		"account": map[string]any{
 			"username":                 u.Username,
 			"disabled":                 u.Disabled,

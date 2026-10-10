@@ -118,12 +118,9 @@ export function UserPortalHead({ title = '我的订阅', extra = null }) {
           {extra}
         </div>
         <div className="sub-hero-meta">
-	          <button type="button" className="sub-chip" onClick={() => setAnnOpen(true)}>
-	            公告
-	            {unread > 0 && (
-	              <span className="sub-chip-dot" aria-label={`${unread} 条未读`}>{unread > 9 ? '9+' : unread}</span>
-	            )}
-	          </button>
+          <button type="button" className="sub-chip" onClick={() => setAnnOpen(true)}>
+            公告{unread > 0 ? ` ${unread > 9 ? '9+' : unread}` : ''}
+          </button>
           {!hudLocked && (
           <button type="button" className="sub-chip" onClick={toggleTheme} title={dark ? '切换到浅色' : '切换到深色'}>
             {dark ? '浅色' : '深色'}

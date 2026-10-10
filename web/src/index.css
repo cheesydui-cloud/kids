@@ -189,6 +189,9 @@ html[data-skin="pixel"] .sub-account,
 html[data-skin="pixel"] .sub-empty,
 html[data-skin="pixel"] .sub-node-card,
 html[data-skin="pixel"] .sub-import,
+html[data-skin="pixel"] .sub-primary,
+html[data-skin="pixel"] .sub-address,
+html[data-skin="pixel"] .sub-node-list,
 html[data-skin="pixel"] .mobile-card,
 html[data-skin="pixel"] .identity-bar-inner,
 html[data-skin="pixel"] .animate-modal-in {
@@ -239,7 +242,6 @@ html[data-skin="pixel"] .btn-danger-sm:hover,
 html[data-skin="pixel"] .icon-btn:hover,
 html[data-skin="pixel"] .icon-btn-danger:hover,
 html[data-skin="pixel"] .login-submit:hover,
-html[data-skin="pixel"] .sub-chip:hover,
 html[data-skin="pixel"] .sub-card:hover,
 html[data-skin="pixel"] .sub-node-card:hover {
   transform: translate(1px, 1px);
@@ -1343,18 +1345,17 @@ input[type="radio"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 88px;
-  height: 40px;
-  padding: 0 14px;
-  border: 1.5px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-size: 13.5px;
-  font-weight: 650;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--color-ink-mut);
+  font-size: 13px;
+  font-weight: 600;
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease;
 }
 .sub-chip-dot {
   position: absolute;
@@ -1372,8 +1373,7 @@ input[type="radio"] {
   text-align: center;
 }
 .sub-chip:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--brand-from) 45%, var(--color-line));
+  color: var(--brand-from);
 }
 .sub-account {
   display: grid;
@@ -1403,6 +1403,121 @@ input[type="radio"] {
   font-size: 15px;
   color: var(--color-ink);
   word-break: break-word;
+}
+.sub-rate-note {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-ink-mut);
+}
+.sub-note-count {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--color-ink-mut);
+  font-variant-numeric: tabular-nums;
+}
+.sub-primary {
+  margin-bottom: 16px;
+  padding: 18px 18px 8px;
+  border: 1.5px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--color-surface);
+}
+.sub-primary .sub-import-block { margin: 0 0 12px; }
+.sub-primary .sub-import-btn { min-height: 108px; }
+.sub-primary .sub-import-btn img { width: 44px; height: 44px; }
+.sub-primary .sub-account {
+  margin: 16px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 1.5px solid var(--color-line-soft);
+}
+.sub-primary .sub-week {
+  margin: 0;
+  padding: 14px 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.sub-week-col.is-today .sub-week-day {
+  color: var(--brand-from);
+  font-weight: 700;
+}
+.sub-address {
+  margin-bottom: 16px;
+  border: 1.5px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+.sub-address-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 0;
+  background: none;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.sub-address-hint {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-mut);
+}
+.sub-address-body { padding: 0 16px 16px; }
+.sub-address-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.sub-node-list {
+  border: 1.5px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.sub-node-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.sub-node-row + .sub-node-row { border-top: 1.5px solid var(--color-line-soft); }
+.sub-node-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.sub-node-name {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.sub-node-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-ink-mut);
+  line-height: 1.4;
+}
+.sub-node-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
 }
 .sub-week, .sub-request {
   margin-bottom: 22px;
@@ -1710,27 +1825,25 @@ input[type="radio"] {
     padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   }
   .sub-hero {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     margin-bottom: 14px;
   }
   .sub-title { font-size: 18px; }
   .sub-title-row { flex-wrap: wrap; row-gap: 4px; }
-  .sub-reset-link { margin-left: 46px; }
+  .sub-reset-link { margin-left: 0; }
   .sub-hero-meta {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    width: 100%;
+    display: flex;
+    width: auto;
+    margin-left: auto;
+    gap: 12px;
   }
   .sub-chip {
-    min-width: 0;
-    width: 100%;
-    height: 38px;
-    padding: 0 8px;
+    width: auto;
+    height: auto;
+    padding: 0;
     font-size: 12.5px;
-    border-radius: 12px;
   }
   .sub-grid, .sub-import-grid, .sub-node-grid { grid-template-columns: 1fr; }
   .sub-account {
@@ -1772,8 +1885,12 @@ input[type="radio"] {
     max-height: 72px;
     font-size: 11.5px;
   }
-  .sub-field-box { flex-direction: row; align-items: center; }
-  .sub-field-box .btn-secondary { width: auto; flex: none; }
+  .sub-field-box .btn-secondary { width: 100%; }
+  .sub-node-row { align-items: flex-start; flex-wrap: wrap; }
+  .sub-node-side { width: 100%; justify-content: flex-end; }
+  .sub-primary { padding: 14px 14px 4px; }
+  .sub-primary .sub-import-btn { min-height: 92px; }
+  .sub-primary .sub-import-btn img { width: 36px; height: 36px; }
   .sub-nodes { margin-top: 16px; }
   .sub-node-card { min-height: 0; }
   .sub-import { margin-top: 16px; padding: 14px; }
@@ -1855,6 +1972,9 @@ html[data-skin="hud"] .sub-account,
 html[data-skin="hud"] .sub-empty,
 html[data-skin="hud"] .sub-node-card,
 html[data-skin="hud"] .sub-import,
+html[data-skin="hud"] .sub-primary,
+html[data-skin="hud"] .sub-address,
+html[data-skin="hud"] .sub-node-list,
 html[data-skin="hud"] .mobile-card,
 html[data-skin="hud"] .identity-bar-inner,
 html[data-skin="hud"] .animate-modal-in,
@@ -2114,6 +2234,9 @@ html[data-skin="hud"] .node-presence.is-live {
   html[data-skin="hud"] .sub-empty,
   html[data-skin="hud"] .sub-node-card,
   html[data-skin="hud"] .sub-import,
+  html[data-skin="hud"] .sub-primary,
+  html[data-skin="hud"] .sub-address,
+  html[data-skin="hud"] .sub-node-list,
   html[data-skin="hud"] .mobile-card,
   html[data-skin="hud"] .identity-bar-inner,
   html[data-skin="hud"] .animate-modal-in,
@@ -2140,4 +2263,25 @@ html[data-skin="hud"] .node-presence.is-live {
   html[data-skin="hud"] .login-submit:active {
     transform: none;
   }
+}
+
+/* Account and the 7-day chart sit inside the import panel. Skin frames on
+   .sub-account / .sub-week would draw a second box. */
+html[data-skin="pixel"] .sub-primary .sub-account,
+html[data-skin="pixel"] .sub-primary .sub-week,
+html[data-skin="hud"] .sub-primary .sub-account,
+html[data-skin="hud"] .sub-primary .sub-week {
+  background-color: transparent;
+  background-image: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+html[data-skin="pixel"] .sub-primary .sub-account,
+html[data-skin="hud"] .sub-primary .sub-account {
+  border-top: 1px solid var(--color-line-soft);
+}
+html[data-skin="pixel"] .sub-chip:hover {
+  transform: none;
+  box-shadow: none;
 }
