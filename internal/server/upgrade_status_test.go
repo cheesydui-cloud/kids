@@ -36,6 +36,8 @@ func TestDeriveUpgradeStatus(t *testing.T) {
 		{"newer than server hides stale", mk(base.Unix(), "v0.32.2", "acked", "", "v0.33.0", ""), "v0.32.4", latestSHA, base, "none"},
 		{"latest label with matching sha hides error", mk(base.Unix(), "v1.0.2", "error", "连接断开", "latest", latestSHA), "v1.0.2", latestSHA, base, "none"},
 		{"latest label with mismatched sha shows error", mk(base.Unix(), "v1.0.2", "error", "连接断开", "latest", "oldsha"), "v1.0.2", latestSHA, base, "error"},
+		{"rolled back stays visible past grace", mk(base.Unix(), "v0.32.2", "rolled_back", "新版本未能启动，已退回上一版", "v0.32.1", ""), "v0.32.4", latestSHA, base.Add(5 * time.Minute), "rolled_back"},
+		{"later upgrade hides rollback", mk(base.Unix(), "v0.32.2", "rolled_back", "新版本未能启动，已退回上一版", "v0.32.4", ""), "v0.32.4", latestSHA, base, "none"},
 	}
 	for _, tc := range cases {
 		got := deriveUpgradeStatus(tc.node, tc.server, tc.latestSHA, tc.now)

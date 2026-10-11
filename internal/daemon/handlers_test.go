@@ -97,11 +97,12 @@ func TestHandler_Health(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
-	var got map[string]bool
+	var got map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if !got["ok"] {
+	ok, _ := got["ok"].(bool)
+	if !ok {
 		t.Fatalf("expected ok=true, got %v", got)
 	}
 }

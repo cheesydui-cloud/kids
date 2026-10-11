@@ -106,6 +106,14 @@ type DialerConfig struct {
 	// panel lease, either via HelloAck on connect or via a config_update
 	// frame at runtime. lease==0 means leave the current lease alone.
 	OnConfigUpdate func(poolSize int, lease time.Duration)
+
+	// DisconnectPath is where the last real drop is stored for the next
+	// hello. Empty skips persistence (tests).
+	DisconnectPath string
+
+	// ResourceWarning is sampled on each periodic ping. Nil sends an empty
+	// warning so the panel can still clear a stale one.
+	ResourceWarning func() string
 }
 
 type upgradeResult struct {
@@ -284,6 +292,9 @@ func (d *Dialer) Run(ctx context.Context) {
 		sessionStart := time.Now()
 		helloAcked, err := d.runOnceSafe(ctx)
 		reason := classifyDialerEnd(err, helloAcked, time.Since(sessionStart))
+		if shouldPersistDisconnect(reason) {
+			saveDisconnect(d.cfg.DisconnectPath, reason, time.Now().Unix())
+		}
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("dialer: reconnect reason=%s duration=%s hello_acked=%v err=%v",
 				reason, time.Since(sessionStart).Round(time.Millisecond), helloAcked, err)
@@ -396,18 +407,22 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 
 	_, currentMeta := d.cfg.GetState()
 	probedV4, probedV6 := probeOutboundIPs()
+	discReason, discAt := loadDisconnect(d.cfg.DisconnectPath)
 	helloPayload, err := json.Marshal(wsproto.Hello{
-		NodeToken:           d.cfg.Token,
-		AgentVersion:        d.cfg.AgentVersion,
-		AgentSHA:            d.cfg.AgentSHA,
-		OS:                  runtime.GOOS,
-		Arch:                runtime.GOARCH,
-		LastAppliedRev:      currentMeta.LastAppliedRev,
-		PortRange:           d.cfg.PortRange,
-		ProbedV4:            probedV4,
-		ProbedV6:            probedV6,
-		DeclaredRelayHost:   d.cfg.DeclaredRelayHost,
-		DeclaredRelayHostV6: d.cfg.DeclaredRelayHostV6,
+		NodeToken:            d.cfg.Token,
+		AgentVersion:         d.cfg.AgentVersion,
+		AgentSHA:             d.cfg.AgentSHA,
+		OS:                   runtime.GOOS,
+		Arch:                 runtime.GOARCH,
+		LastAppliedRev:       currentMeta.LastAppliedRev,
+		PortRange:            d.cfg.PortRange,
+		ProbedV4:             probedV4,
+		ProbedV6:             probedV6,
+		DeclaredRelayHost:    d.cfg.DeclaredRelayHost,
+		DeclaredRelayHostV6:  d.cfg.DeclaredRelayHostV6,
+		LastDisconnectReason: discReason,
+		LastDisconnectAt:     discAt,
+		UpgradeRolledBack:    upgradeRolledBack(),
 	})
 	if err != nil {
 		return false, fmt.Errorf("marshal hello: %w", err)
@@ -627,6 +642,18 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 					default:
 					}
 				})
+			case wsproto.TypePullLogs:
+				id := env.ID
+				raw, err := json.Marshal(wsproto.Logs{Lines: RecentLogs()})
+				if err != nil {
+					log.Printf("dialer: marshal %s: %v", wsproto.TypeLogs, err)
+					continue
+				}
+				select {
+				case d.cmdCh <- wsproto.Envelope{Type: wsproto.TypeLogs, ID: id, Payload: raw}:
+				default:
+					log.Printf("dialer: pull_logs reply dropped")
+				}
 			case wsproto.TypePong:
 				// reset is implicit; readOne uses fresh deadline each call
 			case wsproto.TypeError:
@@ -662,7 +689,11 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 				return helloAcked, fmt.Errorf("watchdog: no read for %v (stale threshold %v)", time.Since(lastRead).Round(time.Second), dialerWatchdogStale)
 			}
 		case <-pingT.C:
-			pp, err := json.Marshal(wsproto.Ping{TS: time.Now().UnixMilli()})
+			warn := ""
+			if d.cfg.ResourceWarning != nil {
+				warn = d.cfg.ResourceWarning()
+			}
+			pp, err := json.Marshal(wsproto.Ping{TS: time.Now().UnixMilli(), ResourceWarning: &warn})
 			if err != nil {
 				log.Printf("dialer: marshal %s: %v", wsproto.TypePing, err)
 				continue

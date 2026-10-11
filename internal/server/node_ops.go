@@ -11,11 +11,15 @@ import (
 // keeps hidden (json:"-") so it can never leak to tenant responses.
 type adminNodeView struct {
 	*db.Node
-	GroupID          int64  `json:"group_id"`
-	GroupName        string `json:"group_name"`
-	Remark           string `json:"remark"`
-	ExpiresAt        int64  `json:"expires_at"`
-	MonthlyCostCents int64  `json:"monthly_cost_cents"`
+	GroupID              int64  `json:"group_id"`
+	GroupName            string `json:"group_name"`
+	Remark               string `json:"remark"`
+	ExpiresAt            int64  `json:"expires_at"`
+	MonthlyCostCents     int64  `json:"monthly_cost_cents"`
+	LastDisconnectReason string `json:"last_disconnect_reason"`
+	LastDisconnectAt     int64  `json:"last_disconnect_at"`
+	EgressNote           string `json:"egress_note"`
+	ResourceWarning      string `json:"resource_warning"`
 }
 
 func nodeAdminView(n *db.Node) adminNodeView {
@@ -23,12 +27,16 @@ func nodeAdminView(n *db.Node) adminNodeView {
 		return adminNodeView{}
 	}
 	return adminNodeView{
-		Node:             n,
-		GroupID:          n.GroupID,
-		GroupName:        n.GroupName,
-		Remark:           n.Remark,
-		ExpiresAt:        n.ExpiresAt,
-		MonthlyCostCents: n.MonthlyCostCents,
+		Node:                 n,
+		GroupID:              n.GroupID,
+		GroupName:            n.GroupName,
+		Remark:               n.Remark,
+		ExpiresAt:            n.ExpiresAt,
+		MonthlyCostCents:     n.MonthlyCostCents,
+		LastDisconnectReason: n.LastDisconnectReason,
+		LastDisconnectAt:     n.LastDisconnectAt,
+		EgressNote:           n.EgressNote,
+		ResourceWarning:      n.ResourceWarning,
 	}
 }
 

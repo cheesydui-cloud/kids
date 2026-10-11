@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtTime, fmtBytes, nullStr, fmtDateInput, unixFromDateInput } from '../../lib/fmt'
+import { fmtTime, fmtBytes, nullStr, fmtDateInput, unixFromDateInput, disconnectReasonLabel } from '../../lib/fmt'
 import { Layout, useToast, useBlur } from '../../components/Layout'
 import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText, Spinner, DateInput } from '../../components/ui'
 import { TableBox, TopbarTitle } from '../../components/page'
@@ -62,6 +62,9 @@ export default function NodeDetail() {
   const [nodeCost, setNodeCost] = useState('')
   const [opsBusy, setOpsBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [logs, setLogs] = useState(null)
+  const [logsErr, setLogsErr] = useState('')
   // revealedSecret holds the one-time plaintext token returned by a reset; it
   // is never persisted server-side and is cleared when the reveal modal closes.
   const [revealedSecret, setRevealedSecret] = useState('')
@@ -261,6 +264,17 @@ export default function NodeDetail() {
   const resync = async () => {
     try { await api.post(`/nodes/${id}/resync`); toast('已发起同步') } catch (err) { toast(err.message, 'error') }
   }
+  const pullLogs = async () => {
+    setLogsOpen(true)
+    setLogs(null)
+    setLogsErr('')
+    try {
+      const d = await api.get(`/nodes/${id}/logs`)
+      setLogs(d?.lines || [])
+    } catch (err) {
+      setLogsErr(err.message || '拉取失败')
+    }
+  }
   const upgrade = async () => {
     if (!(await confirm({ title: '升级节点', message: '推送 agent 二进制到此节点并重启？', confirmText: '升级' }))) return
     try {
@@ -270,10 +284,12 @@ export default function NodeDetail() {
         try {
           const d = await api.get(`/nodes/${id}`)
           const st = d?.upgrade?.status
-          if (st === 'ok' || st === 'error') {
+          if (st === 'ok' || st === 'error' || st === 'rolled_back') {
             clearInterval(poll)
             upgradePollRef.current = null
-            toast(st === 'ok' ? '升级成功' : '升级失败: ' + (d.upgrade.error || ''), st === 'ok' ? undefined : 'error')
+            const ok = st === 'ok'
+            const msg = st === 'rolled_back' ? '升级已回滚' : (ok ? '升级成功' : '升级失败: ' + (d.upgrade.error || ''))
+            toast(msg, ok ? undefined : 'error')
             load()
           }
         } catch { clearInterval(poll); upgradePollRef.current = null }
@@ -375,6 +391,9 @@ export default function NodeDetail() {
               <button onClick={resync} className="btn-secondary text-xs">重新同步</button>
             )}
             <button onClick={remove} className="hidden md:inline-flex btn-danger text-xs">删除节点</button>
+            {!isComposite && (
+              <button onClick={pullLogs} className="btn-secondary text-xs">拉取最近日志</button>
+            )}
             {!isComposite && agentOutdated && (
               <button onClick={upgrade} title={`推送升级到 ${latest_agent_version}`} className="hidden md:inline-flex btn-secondary text-xs max-w-[280px] truncate">⤴ 推送升级到 {latest_agent_version}</button>
             )}
@@ -423,19 +442,31 @@ export default function NodeDetail() {
                 {fmtTime(node.last_seen ?? null)}
                 <span className={`ml-1.5 font-semibold ${node.online === 1 ? 'text-[#0a8a4f]' : 'text-[#c2520a]'}`}>{node.online === 1 ? '在线' : '离线'}</span>
               </InfoRow>
-              <InfoRow label="Agent 版本" mono valueClass="text-[12.5px]" last={!showUpgrade}>
+              <InfoRow label="Agent 版本" mono valueClass="text-[12.5px]">
                 {node.agent_version
                   ? <>{displayAgentVersion(node, latest_agent_version, latest_agent_sha)} {agentOutdated ? <Badge color="amber">非最新</Badge> : <Badge color="green">最新</Badge>}</>
                   : <span className="text-ink-mut">未知</span>}
               </InfoRow>
               {showUpgrade && (
-                <InfoRow label="升级状态" valueClass="text-[12.5px]" last>
+                <InfoRow label="升级状态" valueClass="text-[12.5px]">
                   {up.status === 'ok' && <><Badge color="green">升级成功</Badge> <span className="ml-1 text-ink-mut">{up.version} · {fmtTime(up.at)}</span></>}
                   {up.status === 'error' && <><Badge color="red">升级失败</Badge> <span className="ml-1 text-ink-mut break-all">{up.error}</span></>}
                   {up.status === 'pending' && <><Badge color="blue">升级中</Badge> <span className="ml-1 text-ink-mut">已推送 {up.version} · {fmtTime(up.at)}</span></>}
                   {up.status === 'stuck' && <><Badge color="amber">可能未生效</Badge> <span className="ml-1 text-ink-mut">已推送 {up.version}（{fmtTime(up.at)}），当前仍为 {displayAgentVersion(node, latest_agent_version, latest_agent_sha)}。国内机可 SSH 执行 nft-upgrade，或再点一次推送升级</span></>}
+                  {up.status === 'rolled_back' && <><Badge color="amber">升级已回滚</Badge> <span className="ml-1 text-ink-mut break-all">{up.error || '新版本未能启动，已退回上一版'}</span></>}
                 </InfoRow>
               )}
+              <InfoRow label="上次断开">
+                {node.last_disconnect_reason
+                  ? <>{disconnectReasonLabel(node.last_disconnect_reason)} <span className="text-ink-mut">{fmtTime(node.last_disconnect_at)}</span></>
+                  : <span className="text-ink-mut">无记录</span>}
+              </InfoRow>
+              <InfoRow label="出口变化">
+                {node.egress_note ? <span className="text-amber-800 dark:text-amber-300 break-all">{node.egress_note}</span> : <span className="text-ink-mut">无</span>}
+              </InfoRow>
+              <InfoRow label="资源警告" last>
+                {node.resource_warning ? <span className="text-amber-800 dark:text-amber-300 break-all">{node.resource_warning}</span> : <span className="text-ink-mut">无</span>}
+              </InfoRow>
             </div>
             {nullStr(node.last_error) && (
               <div className="mt-2 text-[12.5px] text-rose-700 dark:text-rose-300 bg-transparent border-[1.5px] border-rose-500/40 rounded-xl px-3 py-2 break-all">
@@ -710,6 +741,20 @@ export default function NodeDetail() {
         </div>
       </Modal>
 
+      <Modal open={logsOpen} onClose={() => setLogsOpen(false)} title="最近日志" wide>
+        <div className="text-[12.5px] text-ink-mut mb-3">只含升级、拨号、同步、计数、域名和资源水位。节点上的完整日志仍在 journalctl。</div>
+        {logsErr && <div className="text-[13px] text-rose-700 dark:text-rose-300 break-all">{logsErr}</div>}
+        {!logsErr && logs == null && <div className="text-[13px] text-ink-mut">正在拉取…</div>}
+        {!logsErr && logs && logs.length === 0 && <div className="text-[13px] text-ink-mut">最近没有这类日志</div>}
+        {!logsErr && logs && logs.length > 0 && (
+          <pre className="m-0 max-h-[420px] overflow-auto rounded-[10px] border border-line bg-surface px-3 py-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-all">{logs.join('\n')}</pre>
+        )}
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={pullLogs} className="btn-secondary">再拉一次</button>
+          <button onClick={() => setLogsOpen(false)} className="btn-primary px-5">关闭</button>
+        </div>
+      </Modal>
+
       <Modal open={changeIPOpen} onClose={() => !cfBusy && setChangeIPOpen(false)} title={`改 IP · ${node.name}`}>
         <form onSubmit={submitChangeIP} className="space-y-4">
           <div className="text-[13px] text-ink-soft">
@@ -765,7 +810,7 @@ function HeaderStatus({ node }) {
     text = '已禁用'; cls = 'text-amber-700 dark:text-amber-300 border-amber-500/55'; dot = '#e0892f'
   } else if (nullStr(node.last_error)) {
     text = '错误'; cls = 'text-rose-700 dark:text-rose-300 border-rose-500/55'; dot = '#e5484d'
-  } else if (node.last_warning) {
+  } else if (node.last_warning || node.resource_warning || node.egress_note) {
     text = '警告'; cls = 'text-amber-700 dark:text-amber-300 border-amber-500/55'; dot = '#e0892f'
   } else if (node.online === 1) {
     text = node.last_apply_at?.Valid ? '在线 · 已同步' : '在线 · 待同步'

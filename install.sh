@@ -58,6 +58,7 @@ RestartSec=3
 # WatchdogSec/2. A deadlocked process that never exits is killed and restarted.
 WatchdogSec=60
 NotifyAccess=main
+LimitNOFILE=1048576
 RuntimeDirectory=nft
 RuntimeDirectoryMode=0750
 StateDirectory=nft

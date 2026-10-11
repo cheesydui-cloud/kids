@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"strings"
@@ -44,10 +45,16 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
 		os.Exit(runDaemon(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "status" {
+		os.Exit(runStatus())
+	}
 	os.Exit(runTUI())
 }
 
 func runDaemon(args []string) int {
+	daemon.InstallLogRing()
+	daemon.RaiseNOFILE()
+	rolledBack := daemon.RollbackIfUpgradeUnhealthy()
 	if os.Geteuid() != 0 {
 		fmt.Fprintln(os.Stderr, "nft-agent daemon 必须以 root 身份运行")
 		return 1
@@ -96,6 +103,10 @@ func runDaemon(args []string) int {
 		return 1
 	}
 	if err := nft.Probe(); err != nil {
+		if rolledBack {
+			log.Printf("upgrade: nft probe failed after rollback, restarting into previous binary")
+			daemon.RestartForRollback()
+		}
 		fmt.Fprintln(os.Stderr, "nft 检测失败:", err)
 		return 1
 	}

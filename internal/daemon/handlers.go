@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,6 +51,7 @@ type Daemon struct {
 	portRange           string
 	declaredRelayHost   string
 	declaredRelayHostV6 string
+	tcIface             string
 	dialer              atomic.Pointer[Dialer]
 
 	// reconcileMu serializes the data-plane reconcile/close calls against the
@@ -71,6 +73,9 @@ type Daemon struct {
 	// segment when the panel stays gone past panelLease.
 	panelSeen  atomic.Int64
 	panelLease time.Duration // 0 = use panelLease(); tests inject a short value
+
+	// unresolvedHosts is the last reconcile's held-back targets, for status.
+	unresolvedHosts []string
 }
 
 // applySerialized runs dp.Reconcile under reconcileMu so concurrent callers
@@ -158,6 +163,7 @@ func (d *Daemon) reconcileOwners(
 	// if never resolved). Hold back the still-unresolved ones instead of
 	// failing the whole apply, so one bad target can't red the whole node.
 	applyable, unresolved := partitionResolved(resolved)
+	d.noteUnresolved(unresolved)
 	if len(unresolved) > 0 {
 		log.Printf("reconcile: holding back %d rule(s) with unresolved target (retry in refresh loop): %v", len(unresolved), rerr)
 	}
@@ -219,7 +225,15 @@ func (d *Daemon) Handler() http.Handler {
 }
 
 func (d *Daemon) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	snap := d.statusSnapshot()
+	// ok stays true whenever the daemon process is answering. A down panel
+	// must not make the TUI refuse to start.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"connected":        snap.Connected,
+		"version":          snap.Version,
+		"resource_warning": snap.ResourceWarning,
+	})
 }
 
 // handleApplyRuleset accepts a full ruleset push from the server's self-node
@@ -247,9 +261,23 @@ func (d *Daemon) handleApplyRuleset(w http.ResponseWriter, r *http.Request) {
 
 // statusResp is returned by GET /v1/status.
 type statusResp struct {
-	Connected bool   `json:"connected"`
-	NodeName  string `json:"node_name,omitempty"`
-	NodeID    int64  `json:"node_id,omitempty"`
+	Connected        bool   `json:"connected"`
+	NodeName         string `json:"node_name,omitempty"`
+	NodeID           int64  `json:"node_id,omitempty"`
+	Version          string `json:"version,omitempty"`
+	LastDisconnect   string `json:"last_disconnect,omitempty"`
+	LastDisconnectAt int64  `json:"last_disconnect_at,omitempty"`
+	LastSyncRev      string `json:"last_sync_rev,omitempty"`
+	Unresolved       string `json:"unresolved,omitempty"`
+	NftAvailable     bool   `json:"nft_available"`
+	TCIface          string `json:"tc_iface,omitempty"`
+	ResourceWarning  string `json:"resource_warning,omitempty"`
+	RelayConns       int64  `json:"relay_conns"`
+	Conntrack        string `json:"conntrack,omitempty"`
+	FDs              string `json:"fds,omitempty"`
+	ProbedV4         string `json:"probed_v4,omitempty"`
+	ProbedV6         string `json:"probed_v6,omitempty"`
+	UpgradePending   bool   `json:"upgrade_pending"`
 }
 
 func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -257,13 +285,52 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	resp := statusResp{}
+	writeJSON(w, http.StatusOK, d.statusSnapshot())
+}
+
+func (d *Daemon) statusSnapshot() statusResp {
+	resp := statusResp{
+		Version:         agentVersion(),
+		NftAvailable:    nft.Available(),
+		TCIface:         d.tcIface,
+		ResourceWarning: resourceWarning(),
+		RelayConns:      forward.RelayConns(),
+		Conntrack:       conntrackText(),
+		FDs:             fdText(),
+		UpgradePending:  upgradePendingFile(),
+	}
 	if dl := d.Dialer(); dl != nil && dl.IsConnected() {
 		resp.Connected = true
 		resp.NodeName = dl.NodeName()
 		resp.NodeID = dl.NodeID()
 	}
-	writeJSON(w, http.StatusOK, resp)
+	d.mu.Lock()
+	resp.LastSyncRev = d.meta.LastAppliedRev
+	if len(d.unresolvedHosts) > 0 {
+		resp.Unresolved = strings.Join(d.unresolvedHosts, ", ")
+	}
+	statePath := d.statePath
+	d.mu.Unlock()
+	reason, at := loadDisconnect(filepath.Join(filepath.Dir(statePath), "disconnect.json"))
+	resp.LastDisconnect = reason
+	resp.LastDisconnectAt = at
+	resp.ProbedV4, resp.ProbedV6 = probeOutboundIPs()
+	return resp
+}
+
+func (d *Daemon) noteUnresolved(rules []nft.Rule) {
+	hosts := make([]string, 0, len(rules))
+	seen := map[string]bool{}
+	for _, r := range rules {
+		if r.DestHost == "" || seen[r.DestHost] {
+			continue
+		}
+		seen[r.DestHost] = true
+		hosts = append(hosts, r.DestHost)
+	}
+	d.mu.Lock()
+	d.unresolvedHosts = hosts
+	d.mu.Unlock()
 }
 
 // handleRules dispatches GET /v1/rules (list) and POST /v1/rules (create).

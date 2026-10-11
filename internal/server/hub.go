@@ -85,6 +85,10 @@ type agentConn struct {
 	counterIndex   map[string]int
 	// lastSeenUnix is the last TouchNodeLastSeen attempt, in Unix nanoseconds.
 	lastSeenUnix atomic.Int64
+	// lastResourceWarning is the last watermark written for this session.
+	// resourceSeen distinguishes "never written" from "written empty".
+	lastResourceWarning atomic.Value
+	resourceSeen        atomic.Bool
 
 	// closeOnce guards closed so the multiple close paths (a displaced
 	// conn in registerConn, unregisterConn on disconnect, and Hub.Close
@@ -209,11 +213,32 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	connectIP := extractIP(r)
+	prevAddress := node.Address
 	if err := db.MarkNodeOnline(h.DB, node.ID, hello.AgentVersion, hello.AgentSHA, connectIP); err != nil {
 		log.Printf("hub: MarkNodeOnline: %v", err)
 	}
+	// Old agents omit the disconnect fields. Do not clear a stored reason.
+	if hello.LastDisconnectReason != "" {
+		if err := db.SetNodeDisconnect(h.DB, node.ID, hello.LastDisconnectReason, hello.LastDisconnectAt); err != nil {
+			log.Printf("hub: SetNodeDisconnect: %v", err)
+		}
+	}
+	if hello.UpgradeRolledBack {
+		if err := db.MarkNodeUpgradeRolledBack(h.DB, node.ID); err != nil {
+			log.Printf("hub: MarkNodeUpgradeRolledBack: %v", err)
+		}
+	}
 	applyDeclaredRelayHosts(h.DB, node, hello.DeclaredRelayHost, hello.DeclaredRelayHostV6)
 	fillNodeRelayHosts(h.DB, node, connectIP, hello.ProbedV4, hello.ProbedV6, hello.DeclaredRelayHost, hello.DeclaredRelayHostV6)
+	// After fill, so a first seed of an empty relay does not look like a change.
+	// node.Address is still the previous connect IP; MarkNodeOnline does not
+	// mutate the in-memory struct.
+	note := egressChangeNote(prevAddress, connectIP, node.RelayHost, hello.DeclaredRelayHost, node.RelayHostDeclared)
+	if note != node.EgressNote {
+		if err := db.SetNodeEgressNote(h.DB, node.ID, note); err != nil {
+			log.Printf("hub: SetNodeEgressNote: %v", err)
+		}
+	}
 	if hello.PortRange != "" {
 		if err := db.ValidatePortRange(hello.PortRange); err == nil {
 			_ = db.UpdateNodePortRange(h.DB, node.ID, hello.PortRange)
@@ -344,6 +369,7 @@ func (h *Hub) readerLoop(parent context.Context, ac *agentConn) {
 			// Heartbeat writes are throttled. Agents ping ~10s; one UPDATE
 			// every 20s still lands inside the 45s stale-online window.
 			ac.maybeTouchLastSeen(h.DB)
+			h.noteResourceWarning(ac, env.Payload)
 		case wsproto.TypeCounters:
 			var co wsproto.Counters
 			if err := json.Unmarshal(env.Payload, &co); err != nil {
@@ -383,7 +409,7 @@ func (h *Hub) readerLoop(parent context.Context, ac *agentConn) {
 			}
 			ackP, _ := json.Marshal(ack)
 			ac.enqueueWrite(wsproto.Envelope{Type: wsproto.TypeRuleCmdAck, ID: env.ID, Payload: ackP})
-		case wsproto.TypeApplyAck, wsproto.TypeHelloAck, wsproto.TypeUpgradeAck, wsproto.TypeProbeAck:
+		case wsproto.TypeApplyAck, wsproto.TypeHelloAck, wsproto.TypeUpgradeAck, wsproto.TypeProbeAck, wsproto.TypeLogs:
 			ac.dispatchAck(env)
 		default:
 			log.Printf("hub: node %d unknown frame type %q", ac.nodeID, env.Type)
@@ -454,6 +480,36 @@ func (h *Hub) SendApplyRuleset(nodeID int64, rules []nft.Rule, rev string) (stri
 	}
 }
 
+// noteResourceWarning writes the watermark only when the ping JSON contains
+// the key. Apply keepalive pings and old agents omit it and must not clear
+// a warning the periodic ping already stored.
+func (h *Hub) noteResourceWarning(ac *agentConn, payload json.RawMessage) {
+	if len(payload) == 0 {
+		return
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(payload, &raw) != nil {
+		return
+	}
+	rw, ok := raw["resource_warning"]
+	if !ok {
+		return
+	}
+	var warning string
+	if json.Unmarshal(rw, &warning) != nil {
+		return
+	}
+	prev, _ := ac.lastResourceWarning.Load().(string)
+	if ac.resourceSeen.Load() && prev == warning {
+		return
+	}
+	ac.lastResourceWarning.Store(warning)
+	ac.resourceSeen.Store(true)
+	if err := db.SetNodeResourceWarning(h.DB, ac.nodeID, warning); err != nil {
+		log.Printf("hub: resource warning: %v", err)
+	}
+}
+
 func (h *Hub) SendProbe(nodeID int64, target string) (wsproto.ProbeAck, error) {
 	return h.SendProbeMode(nodeID, target, "")
 }
@@ -490,6 +546,43 @@ func (h *Hub) SendProbeMode(nodeID int64, target, mode string) (wsproto.ProbeAck
 		return wsproto.ProbeAck{}, errors.New("probe timeout")
 	case <-ac.closed:
 		return wsproto.ProbeAck{}, errors.New("connection closed")
+	}
+}
+
+// PullLogs asks the connected agent for its recent filtered log ring.
+func (h *Hub) PullLogs(nodeID int64) ([]string, error) {
+	h.mu.RLock()
+	ac, ok := h.conns[nodeID]
+	h.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("节点未连接")
+	}
+	id := ac.nextID()
+	ch := make(chan json.RawMessage, 1)
+	ac.pendMu.Lock()
+	ac.pending[id] = ch
+	ac.pendMu.Unlock()
+	defer func() {
+		ac.pendMu.Lock()
+		delete(ac.pending, id)
+		ac.pendMu.Unlock()
+	}()
+
+	ac.enqueueWrite(wsproto.Envelope{Type: wsproto.TypePullLogs, ID: id})
+	select {
+	case raw := <-ch:
+		var logs wsproto.Logs
+		if err := json.Unmarshal(raw, &logs); err != nil {
+			return nil, fmt.Errorf("malformed logs: %w", err)
+		}
+		if logs.Lines == nil {
+			logs.Lines = []string{}
+		}
+		return logs.Lines, nil
+	case <-time.After(10 * time.Second):
+		return nil, errors.New("拉取日志超时")
+	case <-ac.closed:
+		return nil, errors.New("节点未连接")
 	}
 }
 

@@ -30,7 +30,7 @@ func (d *Dialer) handleUpgrade(ctx context.Context, u wsproto.Upgrade) wsproto.U
 		if u.SHA256 != "" && u.SHA256 == agentSHA() {
 			writeAgentIdentity(u.Version, u.SHA256)
 			log.Printf("upgrade: already on sha %s, recorded version=%s — restarting to pick up label", u.SHA256, u.Version)
-			go restartSelf()
+			go restartFn()
 			return wsproto.UpgradeAck{OK: true}
 		}
 		return wsproto.UpgradeAck{Error: "binary sha mismatch; full push required"}
@@ -51,7 +51,11 @@ func (d *Dialer) handleUpgrade(ctx context.Context, u wsproto.Upgrade) wsproto.U
 		return wsproto.UpgradeAck{Error: "resolve symlink: " + err.Error()}
 	}
 
+	if err := stageUpgradeBackup(exePath, u.Version); err != nil {
+		return wsproto.UpgradeAck{Error: "backup binary: " + err.Error()}
+	}
 	if err := atomicReplace(exePath, binary); err != nil {
+		clearUpgradePending()
 		return wsproto.UpgradeAck{Error: "replace binary: " + err.Error()}
 	}
 	// Persist the new identity before restart so the relaunched (reproducible)
@@ -59,7 +63,7 @@ func (d *Dialer) handleUpgrade(ctx context.Context, u wsproto.Upgrade) wsproto.U
 	writeAgentIdentity(u.Version, u.SHA256)
 	log.Printf("upgrade: binary replaced at %s (%d bytes), scheduling restart", exePath, len(binary))
 
-	go restartSelf()
+	go restartFn()
 
 	return wsproto.UpgradeAck{OK: true}
 }

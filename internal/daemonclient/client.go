@@ -140,11 +140,26 @@ func (c *Client) Health() error {
 	return nil
 }
 
-// StatusResp holds the daemon's connection status.
+// StatusResp holds the daemon's connection status and the operator snapshot
+// printed by `nft-agent status`.
 type StatusResp struct {
-	Connected bool   `json:"connected"`
-	NodeName  string `json:"node_name,omitempty"`
-	NodeID    int64  `json:"node_id,omitempty"`
+	Connected        bool   `json:"connected"`
+	NodeName         string `json:"node_name,omitempty"`
+	NodeID           int64  `json:"node_id,omitempty"`
+	Version          string `json:"version,omitempty"`
+	LastDisconnect   string `json:"last_disconnect,omitempty"`
+	LastDisconnectAt int64  `json:"last_disconnect_at,omitempty"`
+	LastSyncRev      string `json:"last_sync_rev,omitempty"`
+	Unresolved       string `json:"unresolved,omitempty"`
+	NftAvailable     bool   `json:"nft_available"`
+	TCIface          string `json:"tc_iface,omitempty"`
+	ResourceWarning  string `json:"resource_warning,omitempty"`
+	RelayConns       int64  `json:"relay_conns"`
+	Conntrack        string `json:"conntrack,omitempty"`
+	FDs              string `json:"fds,omitempty"`
+	ProbedV4         string `json:"probed_v4,omitempty"`
+	ProbedV6         string `json:"probed_v6,omitempty"`
+	UpgradePending   bool   `json:"upgrade_pending"`
 }
 
 // Status returns the daemon's connection status and node identity.

@@ -20,6 +20,48 @@ import (
 // Bound per-port goroutine fan-out so a connection flood cannot exhaust memory.
 const maxConnsPerPort = 1024
 
+// UserspaceConnCap is the per-listener accepted-connection ceiling the
+// resource watermark compares against.
+func UserspaceConnCap() int { return maxConnsPerPort }
+
+var (
+	relayConns  atomic.Int64
+	relayLiveMu sync.Mutex
+	relayLive   = map[*listener]struct{}{}
+)
+
+func trackListener(l *listener) {
+	relayLiveMu.Lock()
+	relayLive[l] = struct{}{}
+	relayLiveMu.Unlock()
+}
+
+func untrackListener(l *listener) {
+	relayLiveMu.Lock()
+	delete(relayLive, l)
+	relayLiveMu.Unlock()
+}
+
+// RelayConns is the number of accepted client connections currently inside
+// a userspace handler.
+func RelayConns() int64 { return relayConns.Load() }
+
+// RelayPressure reports the busiest listener. hot is the current accepted
+// count on that port, not a high-water mark.
+func RelayPressure() (total int64, hotPort int, hot int64) {
+	relayLiveMu.Lock()
+	defer relayLiveMu.Unlock()
+	for l := range relayLive {
+		n := l.live.Load()
+		total += n
+		if n > hot {
+			hot = n
+			hotPort = l.port
+		}
+	}
+	return total, hotPort, hot
+}
+
 // Upper bound for the pre-connect pool size. The panel pushes this value over
 // the wire, so clamp it to keep a bogus/malicious value from allocating a
 // giant channel and dialing storms per listener.
@@ -38,6 +80,7 @@ type listener struct {
 	limDown   atomic.Pointer[rate.Limiter]
 	bytesUp   atomic.Int64
 	bytesDown atomic.Int64
+	live      atomic.Int64
 	pool      atomic.Pointer[connPool]
 	poolSize  int
 
@@ -89,6 +132,7 @@ func openListener(r nft.Rule, poolSize int) (*listener, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	addr := targetAddr(r)
 	l := &listener{port: r.SrcPort, ln: ln, ctx: ctx, cancel: cancel, sem: make(chan struct{}, maxConnsPerPort), poolSize: poolSize}
+	trackListener(l)
 	l.tgt.Store(&target{addr: addr})
 	if poolSize > 0 {
 		l.pool.Store(newConnPool(addr, poolSize))
@@ -146,6 +190,12 @@ func (l *listener) acceptLoop() {
 }
 
 func (l *listener) handle(client net.Conn) {
+	relayConns.Add(1)
+	l.live.Add(1)
+	defer func() {
+		l.live.Add(-1)
+		relayConns.Add(-1)
+	}()
 	l.conns.Store(client, struct{}{})
 	defer func() { l.conns.Delete(client); client.Close() }()
 
@@ -196,6 +246,7 @@ func (l *listener) handle(client net.Conn) {
 // close stops accepting, force-closes in-flight connections, and waits for all
 // goroutines. No graceful drain — the forwarding layer is intentionally thin.
 func (l *listener) close() {
+	untrackListener(l)
 	l.cancel()
 	_ = l.ln.Close()
 	if p := l.pool.Load(); p != nil {

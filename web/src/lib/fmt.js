@@ -32,6 +32,32 @@ export function fmtTrafficGB(used, quota) {
   return `${u} / ${fmtAdaptive(quota)}`
 }
 
+/** Chinese label for a stable agent disconnect code. Unknown codes pass through. */
+export function disconnectReasonLabel(code) {
+  if (!code) return ''
+  const labels = {
+    watchdog_stale: '看门狗超时',
+    dial_fail: '拨号失败',
+    hello_rejected: '面板拒绝',
+    hello_timeout: '握手超时',
+    dial_or_hello_timeout: '握手超时',
+    hello_write_fail: '握手发送失败',
+    connection_drop: '连接中断',
+    dial_drop: '拨号中断',
+    panel_going_away: '面板重启',
+    panel_close: '面板关闭',
+    panel_policy: '面板拒绝策略',
+    read_timeout: '读超时',
+    short_session: '刚连上就断开',
+    session_panic: '会话异常',
+    session_error: '会话错误',
+    pre_hello_fail: '握手前失败',
+    agent_stop: '主动停止',
+    context_canceled: '进程退出',
+  }
+  return labels[code] || code
+}
+
 export function fmtTime(unix) {
   if (!unix) return '--'
   const diff = Math.floor(Date.now() / 1000) - unix

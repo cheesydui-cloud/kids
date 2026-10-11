@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -124,6 +125,7 @@ func New(cfg Config) (*Daemon, error) {
 		portRange:           cfg.PortRange,
 		declaredRelayHost:   cfg.DeclaredRelayHost,
 		declaredRelayHostV6: cfg.DeclaredRelayHostV6,
+		tcIface:             iface,
 	}, nil
 }
 
@@ -271,11 +273,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 			DeclaredRelayHostV6: d.declaredRelayHostV6,
 			GetState:            d.SnapshotForDialer,
 			OnApply:             d.SetPanelRuleset,
-			OnSession:           d.markPanelSeen,
-			OnHelloRejected:     func() { d.dropPanelRuleset("hello rejected") },
-			OnMigrated:          d.clearTuiSegment,
-			CountersFn:          d.counterSamples,
-			CountersReadd:       d.reAddCounters,
+			OnSession: func() {
+				d.markPanelSeen()
+				NoteUpgradeHealthy()
+			},
+			DisconnectPath:  filepath.Join(filepath.Dir(d.statePath), "disconnect.json"),
+			ResourceWarning: resourceWarning,
+			OnHelloRejected: func() { d.dropPanelRuleset("hello rejected") },
+			OnMigrated:      d.clearTuiSegment,
+			CountersFn:      d.counterSamples,
+			CountersReadd:   d.reAddCounters,
 			OnConfigUpdate: func(poolSize int, lease time.Duration) {
 				if lease > 0 {
 					d.panelLease = lease

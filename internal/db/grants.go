@@ -143,6 +143,7 @@ func ListNodesForUser(d *sql.DB, userID int64) ([]*Node, []*UserNode, error) {
 			&n.BackendIP, &cfSync, &n.CFZoneID, &n.CFRecordName,
 			&n.CFLastSyncAt, &n.CFLastError, &n.CFLastIP,
 			&n.GroupID, &n.GroupName, &n.Remark, &n.ExpiresAt, &n.MonthlyCostCents,
+			&n.LastDisconnectReason, &n.LastDisconnectAt, &n.EgressNote, &n.ResourceWarning,
 			&g.MaxForwards, &g.TrafficQuotaBytes, &g.TrafficUsedBytes, &g.RateLimitMBytes, &g.GrantedAt,
 		); err != nil {
 			return nil, nil, err

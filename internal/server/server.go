@@ -639,6 +639,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/nodes", s.apiListNodes)
 			r.Post("/nodes", s.apiCreateNode)
 			r.Get("/nodes/{id}", s.apiGetNode)
+			r.Get("/nodes/{id}/logs", s.apiNodeLogs)
 			r.Post("/nodes/{id}/rename", s.apiRenameNode)
 			r.Post("/nodes/{id}/relay-host", s.apiSetNodeRelayHost)
 			r.Post("/nodes/{id}/relay-host-v6", s.apiSetNodeRelayHostV6)

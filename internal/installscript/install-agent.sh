@@ -223,6 +223,7 @@ Restart=always
 RestartSec=3
 WatchdogSec=60
 NotifyAccess=main
+LimitNOFILE=1048576
 RuntimeDirectory=nft
 RuntimeDirectoryMode=0750
 StateDirectory=nft

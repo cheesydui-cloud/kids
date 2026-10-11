@@ -1,13 +1,30 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtTime, fmtBytes, fmtDate, nullStr, expiryBadge } from '../../lib/fmt'
+import { fmtTime, fmtBytes, fmtDate, nullStr, expiryBadge, disconnectReasonLabel } from '../../lib/fmt'
 import { useSpeed, useNodeSpeedValue, fmtSpeed } from '../../lib/useSpeed'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { Layout, useToast } from '../../components/Layout'
 import { Loading, Empty, Badge, Modal, Confirm, NodeStackBadge, NodeBillingBadges, useConfirm, Select, CopyText, activateProps } from '../../components/ui'
 import { PageHeader, Panel, PanelToolbar, SearchInput, ToolbarButton, ToolbarActions, TableScroll } from '../../components/page'
 import FolderBar from '../../components/FolderBar'
+
+function agentHintText(n) {
+  if (!n) return ''
+  const parts = []
+  if (n.egress_note) parts.push(n.egress_note)
+  if (n.resource_warning) parts.push(n.resource_warning)
+  if (n.online !== 1 && n.last_disconnect_reason) {
+    parts.push('上次断开：' + disconnectReasonLabel(n.last_disconnect_reason))
+  }
+  return parts.join(' · ')
+}
+
+function AgentHint({ n }) {
+  const text = agentHintText(n)
+  if (!text) return null
+  return <div className="text-[11.5px] text-amber-700 dark:text-amber-300 mt-0.5 max-w-[280px] truncate" title={text}>{text}</div>
+}
 
 export default function NodeList() {
   const [data, setData] = useState(null)
@@ -333,6 +350,7 @@ export default function NodeList() {
                     {n.remark && (
                       <div className="text-[11.5px] text-ink-mut mt-0.5 max-w-[220px] truncate" title={n.remark}>{n.remark}</div>
                     )}
+                    <AgentHint n={n} />
                   </td>
                   <td>
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -395,6 +413,7 @@ export default function NodeList() {
                   <NodeStatus node={n} />
                 </div>
                 {n.remark && <div className="text-[11.5px] text-ink-mut mb-1 truncate" title={n.remark}>{n.remark}</div>}
+                <AgentHint n={n} />
                 <div className="text-[11.5px] text-ink-mut mb-1"><NodeOpsCell node={n} /></div>
                 <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
                   <span className="font-mono text-ink-mut">{fmtBytes(node_traffic[n.id] || 0)}</span>

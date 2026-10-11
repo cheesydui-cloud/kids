@@ -18,7 +18,7 @@ const upgradeGrace = 4 * time.Minute
 type upgradeView struct {
 	At      int64  `json:"at,omitempty"`
 	Version string `json:"version,omitempty"`
-	Status  string `json:"status"` // none | ok | error | pending | stuck
+	Status  string `json:"status"` // none | ok | error | pending | stuck | rolled_back
 	Error   string `json:"error,omitempty"`
 }
 
@@ -41,6 +41,14 @@ func deriveUpgradeStatus(n *db.Node, serverVersion, latestAgentSHA string, now t
 	// any stored failure or attempt is stale (e.g. it was upgraded out of band).
 	if n.AgentVersion != "" && semverGE(n.AgentVersion, serverVersion) {
 		return upgradeView{Status: "none"}
+	}
+	// A rolled-back push stays visible until a later upgrade actually lands.
+	// Checked before the grace window so it is not rewritten as stuck.
+	if n.LastUpgradeStatus == "rolled_back" {
+		return upgradeView{
+			At: n.LastUpgradeAt.Int64, Version: n.LastUpgradeVersion,
+			Status: "rolled_back", Error: n.LastUpgradeError,
+		}
 	}
 	v := upgradeView{At: n.LastUpgradeAt.Int64, Version: n.LastUpgradeVersion, Error: n.LastUpgradeError}
 	switch {

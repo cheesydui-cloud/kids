@@ -29,6 +29,8 @@ const (
 	TypeUpgradeAck   = "upgrade_ack"
 	TypeProbe        = "probe"
 	TypeProbeAck     = "probe_ack"
+	TypePullLogs     = "pull_logs"
+	TypeLogs         = "logs"
 	TypePing         = "ping"
 	TypePong         = "pong"
 	TypeError        = "error"
@@ -95,6 +97,15 @@ type Hello struct {
 	// see hub.go's applyDeclaredRelayHosts.
 	DeclaredRelayHost   string `json:"declared_relay_host,omitempty"`
 	DeclaredRelayHostV6 string `json:"declared_relay_host_v6,omitempty"`
+	// LastDisconnectReason/At are the previous control-channel drop, persisted
+	// by the agent and sent on the next hello. Empty from agents that predate
+	// the field; the panel must not clear a stored reason when they are absent.
+	LastDisconnectReason string `json:"last_disconnect_reason,omitempty"`
+	LastDisconnectAt     int64  `json:"last_disconnect_at,omitempty"`
+	// UpgradeRolledBack is set by a new binary that restored the previous
+	// executable after a crash loop, so the panel can show 「升级已回滚」 before
+	// that process restarts into the restored binary.
+	UpgradeRolledBack bool `json:"upgrade_rolled_back,omitempty"`
 }
 
 // HelloAck is the panel's response to Hello. Error == "" means the
@@ -211,6 +222,15 @@ type ProbeAck struct {
 
 type Ping struct {
 	TS int64 `json:"ts"`
+	// ResourceWarning is set (even to "") on the periodic ping so the panel
+	// can clear a stale watermark. A nil pointer omits the key. Apply-path
+	// keepalive pings leave it nil and must not wipe the stored warning.
+	ResourceWarning *string `json:"resource_warning,omitempty"`
+}
+
+// Logs is the agent's recent filtered journal, answered to pull_logs.
+type Logs struct {
+	Lines []string `json:"lines"`
 }
 
 type Pong struct {
