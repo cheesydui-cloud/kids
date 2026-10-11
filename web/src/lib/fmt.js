@@ -58,6 +58,14 @@ export function disconnectReasonLabel(code) {
   return labels[code] || code
 }
 
+export function fmtDuration(sec) {
+  const n = Math.max(0, Math.floor(sec || 0))
+  if (n < 60) return `${n} 秒`
+  if (n < 3600) return `${Math.floor(n / 60)} 分钟`
+  if (n < 86400) return `${Math.floor(n / 3600)} 小时`
+  return `${Math.floor(n / 86400)} 天`
+}
+
 export function fmtTime(unix) {
   if (!unix) return '--'
   const diff = Math.floor(Date.now() / 1000) - unix

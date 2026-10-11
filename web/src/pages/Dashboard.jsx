@@ -215,6 +215,7 @@ const ATTENTION_GROUPS = [
   { id: 'quota', label: '流量用尽' },
   { id: 'disabled', label: '禁用' },
   { id: 'version', label: '版本落后' },
+  { id: 'upgrade', label: '升级' },
   { id: 'soon', label: '即将到期' },
   { id: 'quota-high', label: '流量将尽' },
 ]
@@ -230,6 +231,13 @@ function groupAttention(items) {
 
 // Same rule as the node list: composite / self / disabled are skipped, a
 // matching agent SHA is current, and the literal version "latest" is not lag.
+function upgradeAttentionLabel(status) {
+  if (status === 'error') return '升级失败'
+  if (status === 'stuck') return '升级可能未生效'
+  if (status === 'rolled_back') return '升级已回滚'
+  return ''
+}
+
 function agentOutdated(n, latestVer, latestSHA) {
   if (!n || n.node_type === 'composite' || n.node_type === 'self' || n.disabled) return false
   if (n.agent_sha && latestSHA && n.agent_sha === latestSHA) return false
@@ -272,6 +280,7 @@ function buildAttention(data, users) {
       continue
     }
     if (n.online !== 1) {
+      const down = Array.isArray(n.down_hops) ? n.down_hops.filter(Boolean) : []
       items.push({
         key: `node-off-${n.id}`,
         group: 'offline',
@@ -279,7 +288,9 @@ function buildAttention(data, users) {
         tone: 'danger',
         tag: '离线',
         title: n.name,
-        desc: n.last_seen ? `最后心跳 ${fmtTime(n.last_seen)}` : '暂无心跳',
+        desc: down.length
+          ? `跳 ${down.join('、')} 离线`
+          : (n.last_seen ? `最后心跳 ${fmtTime(n.last_seen)}` : '暂无心跳'),
       })
     }
   }
@@ -294,6 +305,44 @@ function buildAttention(data, users) {
       title: n.name,
       desc: `当前 ${n.agent_version}${latestVer ? `，面板 ${latestVer}` : ''}`,
     })
+  }
+  for (const n of nodes) {
+    if (n.disabled) continue
+    const exp = n.expires_at || 0
+    if (exp > 0 && exp <= now) {
+      items.push({
+        key: `node-exp-${n.id}`,
+        group: 'expired',
+        to: `/nodes/${n.id}`,
+        tone: 'danger',
+        tag: '已过期',
+        title: n.name,
+        desc: '节点已过期',
+      })
+    } else if (exp > 0 && exp - now <= 7 * DAY) {
+      const days = Math.max(1, Math.ceil((exp - now) / DAY))
+      items.push({
+        key: `node-soon-${n.id}`,
+        group: 'soon',
+        to: `/nodes/${n.id}`,
+        tone: 'warn',
+        tag: `${days} 天内到期`,
+        title: n.name,
+        desc: '节点即将到期',
+      })
+    }
+    const up = upgradeAttentionLabel(n.upgrade_attention)
+    if (up) {
+      items.push({
+        key: `node-up-${n.id}`,
+        group: 'upgrade',
+        to: `/nodes/${n.id}`,
+        tone: 'warn',
+        tag: up,
+        title: n.name,
+        desc: up,
+      })
+    }
   }
 
   if (Array.isArray(users)) {

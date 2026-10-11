@@ -44,7 +44,13 @@ func (s *Server) apiSpeedWS(w http.ResponseWriter, r *http.Request) {
 				snap = s.Hub.speedCache.snapshot()
 				rules = s.Hub.speedCache.snapshotRules()
 			}
-			data, err := json.Marshal(map[string]any{"speeds": snap, "rule_speeds": rules})
+			payload := map[string]any{"speeds": snap, "rule_speeds": rules}
+			// Presence is operator state (errors, heartbeats). Regular users
+			// only receive their own speed share.
+			if !perUser {
+				payload["presence"] = s.nodePresence()
+			}
+			data, err := json.Marshal(payload)
 			if err != nil {
 				continue
 			}

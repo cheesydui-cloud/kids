@@ -39,6 +39,7 @@ type Server struct {
 	stopCycle         chan struct{}
 	stopLandingSync   chan struct{}
 	stopLandingExpiry chan struct{}
+	stopAlerts        chan struct{}
 	enforcerWg        sync.WaitGroup
 	stopAll           chan struct{}
 	stopOnce          sync.Once
@@ -48,6 +49,9 @@ type Server struct {
 	dashMu            sync.Mutex
 	dashBody          []byte
 	dashUntil         time.Time
+	presenceMu        sync.Mutex
+	presenceAt        time.Time
+	presenceSnap      []presenceView
 }
 
 func New(d *sql.DB) (*Server, error) {
@@ -76,6 +80,7 @@ func NewWithDocsDir(d *sql.DB, docsDir string) (*Server, error) {
 		loginLimiter: newLoginLimiter(),
 		stopExpiry:   make(chan struct{}), stopCycle: make(chan struct{}),
 		stopLandingSync: make(chan struct{}), stopLandingExpiry: make(chan struct{}),
+		stopAlerts:  make(chan struct{}),
 		stopAll:     make(chan struct{}),
 		subLatCache: map[int64]subLatSnap{},
 	}
@@ -85,11 +90,12 @@ func NewWithDocsDir(d *sql.DB, docsDir string) (*Server, error) {
 		s.enforceExitQuota(userID)
 	}
 	hub.Redispatch = s.redispatchNodes
-	s.enforcerWg.Add(4)
+	s.enforcerWg.Add(5)
 	safeGo(func() { defer s.enforcerWg.Done(); s.expiryEnforcer() })
 	safeGo(func() { defer s.enforcerWg.Done(); s.cycleResetEnforcer() })
 	safeGo(func() { defer s.enforcerWg.Done(); s.landingSyncEnforcer() })
 	safeGo(func() { defer s.enforcerWg.Done(); s.landingExpiryEnforcer() })
+	safeGo(func() { defer s.enforcerWg.Done(); s.nodeAlertLoop() })
 	return s, nil
 }
 
@@ -263,6 +269,7 @@ func (s *Server) Stop() {
 	close(s.stopCycle)
 	close(s.stopLandingSync)
 	close(s.stopLandingExpiry)
+	close(s.stopAlerts)
 	s.enforcerWg.Wait()
 	s.stopOnce.Do(func() { close(s.stopAll) })
 	s.asyncWg.Wait()
@@ -638,6 +645,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/node-roles", s.apiGetNodeRoles)
 			r.Get("/nodes", s.apiListNodes)
 			r.Post("/nodes", s.apiCreateNode)
+			r.Post("/nodes/probe-latency", s.apiProbeNodeList)
 			r.Get("/nodes/{id}", s.apiGetNode)
 			r.Get("/nodes/{id}/logs", s.apiNodeLogs)
 			r.Post("/nodes/{id}/rename", s.apiRenameNode)

@@ -1,8 +1,10 @@
 package server
 
 import (
+	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"nft/internal/db"
 )
@@ -11,15 +13,39 @@ import (
 // keeps hidden (json:"-") so it can never leak to tenant responses.
 type adminNodeView struct {
 	*db.Node
-	GroupID              int64  `json:"group_id"`
-	GroupName            string `json:"group_name"`
-	Remark               string `json:"remark"`
-	ExpiresAt            int64  `json:"expires_at"`
-	MonthlyCostCents     int64  `json:"monthly_cost_cents"`
-	LastDisconnectReason string `json:"last_disconnect_reason"`
-	LastDisconnectAt     int64  `json:"last_disconnect_at"`
-	EgressNote           string `json:"egress_note"`
-	ResourceWarning      string `json:"resource_warning"`
+	GroupID              int64    `json:"group_id"`
+	GroupName            string   `json:"group_name"`
+	Remark               string   `json:"remark"`
+	ExpiresAt            int64    `json:"expires_at"`
+	MonthlyCostCents     int64    `json:"monthly_cost_cents"`
+	LastDisconnectReason string   `json:"last_disconnect_reason"`
+	LastDisconnectAt     int64    `json:"last_disconnect_at"`
+	EgressNote           string   `json:"egress_note"`
+	ResourceWarning      string   `json:"resource_warning"`
+	UpgradeAttention     string   `json:"upgrade_attention,omitempty"`
+	RuleCount            int      `json:"rule_count"`
+	UserCount            int      `json:"user_count"`
+	DownHops             []string `json:"down_hops,omitempty"`
+}
+
+func (s *Server) adminViews(nodes []*db.Node, lv, sha string, now time.Time) []adminNodeView {
+	impact, err := db.NodeImpactByNode(s.DB)
+	if err != nil {
+		log.Printf("nodes: impact: %v", err)
+		impact = map[int64]db.NodeImpact{}
+	}
+	views := make([]adminNodeView, len(nodes))
+	for i, n := range nodes {
+		v := nodeAdminView(n)
+		if n != nil {
+			v.UpgradeAttention = upgradeAttention(n, lv, sha, now)
+			v.RuleCount = impact[n.ID].Rules
+			v.UserCount = impact[n.ID].Users
+			v.DownHops = downHopNames(n)
+		}
+		views[i] = v
+	}
+	return views
 }
 
 func nodeAdminView(n *db.Node) adminNodeView {

@@ -269,9 +269,9 @@ function InfoRow({ label, accent, mono, children }) {
 
 /* Toolbar action button. Place inside ToolbarActions (or any ml-auto flex group).
    Primary and secondary are both outline; hover lifts and tints terracotta. */
-export function ToolbarButton({ onClick, children, className = '', secondary, type = 'button', disabled }) {
+export function ToolbarButton({ onClick, children, className = '', secondary, type = 'button', disabled, title }) {
   return (
-    <button type={type} onClick={onClick} disabled={disabled}
+    <button type={type} onClick={onClick} disabled={disabled} title={title}
       className={`${secondary ? 'btn-secondary' : 'btn-primary'} !h-[40px] ${className}`}>
       {children}
     </button>

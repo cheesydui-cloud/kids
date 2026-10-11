@@ -3,6 +3,21 @@ import { useState, useEffect, useRef } from 'react'
 // sameSpeeds reports whether two speed maps carry the same up/down values, so
 // the hook can skip a re-render when nothing changed (the server pushes every
 // second even while every node is idle).
+function samePresence(a, b) {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i]
+    if (!y || x.id !== y.id || x.online !== y.online || x.last_seen !== y.last_seen
+      || x.last_apply_at !== y.last_apply_at || x.last_error !== y.last_error
+      || x.last_warning !== y.last_warning || x.last_disconnect_reason !== y.last_disconnect_reason
+      || x.egress_note !== y.egress_note || x.resource_warning !== y.resource_warning
+      || x.agent_version !== y.agent_version || x.agent_sha !== y.agent_sha
+      || x.upgrade_attention !== y.upgrade_attention || x.disabled !== y.disabled
+      || (x.down_hops || []).join('\0') !== (y.down_hops || []).join('\0')) return false
+  }
+  return true
+}
+
 function sameSpeeds(a, b) {
   const ak = Object.keys(a), bk = Object.keys(b)
   if (ak.length !== bk.length) return false
@@ -21,6 +36,7 @@ function ensureShared() {
   const listeners = new Set()
   let speeds = {}
   let ruleSpeeds = {}
+  let presence = []
   let ws = null
   let reconnectTimer = null
   // Faster reconnect so live speeds recover quickly after a brief drop;
@@ -32,7 +48,7 @@ function ensureShared() {
   let refCount = 0
 
   function publish() {
-    for (const fn of listeners) fn({ speeds, ruleSpeeds })
+    for (const fn of listeners) fn({ speeds, ruleSpeeds, presence })
   }
 
   function scheduleReconnect() {
@@ -78,6 +94,10 @@ function ensureShared() {
             changed = true
           }
         }
+        if (Array.isArray(data.presence) && !samePresence(presence, data.presence)) {
+          presence = data.presence
+          changed = true
+        }
         if (changed) publish()
       } catch {}
     }
@@ -105,7 +125,7 @@ function ensureShared() {
         }
         connect()
       }
-      fn({ speeds, ruleSpeeds })
+      fn({ speeds, ruleSpeeds, presence })
       return () => {
         listeners.delete(fn)
         refCount--
@@ -121,6 +141,7 @@ function ensureShared() {
           }
           speeds = {}
           ruleSpeeds = {}
+          presence = []
           shared = null
         }
       }
@@ -132,6 +153,18 @@ function ensureShared() {
 // Node-level live rates. Pass { enabled: false } to skip the subscription
 // entirely — the node table only needs the aggregate map while it is actively
 // sorting by speed; per-row display uses useNodeSpeedValue below.
+// Admin line-list presence (online, error, sync). Empty for a non-admin socket.
+export function usePresence() {
+  const [presence, setPresence] = useState([])
+  useEffect(() => {
+    return ensureShared().subscribe(({ presence: next }) => {
+      const list = next || []
+      setPresence(prev => (prev === list ? prev : list))
+    })
+  }, [])
+  return presence
+}
+
 export function useSpeed({ enabled = true } = {}) {
   const [speeds, setSpeeds] = useState({})
   useEffect(() => {

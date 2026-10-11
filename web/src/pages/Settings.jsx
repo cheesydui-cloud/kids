@@ -48,6 +48,12 @@ export default function Settings() {
     panel_url: '',
     panel_name: '',
     monitor_url: '',
+    alert_webhook_url: '',
+    alert_telegram_token: '',
+    alert_telegram_configured: false,
+    alert_telegram_prefix: '',
+    alert_clear_telegram: false,
+    alert_telegram_chat_id: '',
     panel_skin: 'xuan',
     logo_url: '',
     show_rate_to_user: false,
@@ -83,6 +89,12 @@ export default function Settings() {
         panel_url: data.panel_url || '',
         panel_name: data.panel_name || '',
         monitor_url: data.monitor_url || '',
+        alert_webhook_url: data.alert_webhook_url || '',
+        alert_telegram_token: '',
+        alert_telegram_configured: !!data.alert_telegram_configured,
+        alert_telegram_prefix: data.alert_telegram_prefix || '',
+        alert_clear_telegram: false,
+        alert_telegram_chat_id: data.alert_telegram_chat_id || '',
         panel_skin: normalizeSkin(data.panel_skin),
         logo_url: data.logo_url || '',
         show_rate_to_user: !!data.show_rate_to_user,
@@ -135,6 +147,9 @@ export default function Settings() {
         panel_url: form.panel_url,
         panel_name: form.panel_name,
         monitor_url: form.monitor_url,
+        alert_webhook_url: form.alert_webhook_url,
+        alert_telegram_chat_id: form.alert_telegram_chat_id,
+        alert_clear_telegram: !!form.alert_clear_telegram,
         panel_skin: form.panel_skin,
         show_rate_to_user: form.show_rate_to_user,
         pool_size: ps,
@@ -146,6 +161,9 @@ export default function Settings() {
       if (!form.cf_clear_token && form.cf_api_token.trim()) {
         body.cf_api_token = form.cf_api_token.trim()
       }
+      if (!form.alert_clear_telegram && form.alert_telegram_token.trim()) {
+        body.alert_telegram_token = form.alert_telegram_token.trim()
+      }
       await api.post('/settings', body)
       toast('设置已保存')
       const data = await api.get('/settings')
@@ -153,6 +171,12 @@ export default function Settings() {
       setForm(f => ({
         ...f,
         monitor_url: data.monitor_url || '',
+        alert_webhook_url: data.alert_webhook_url || '',
+        alert_telegram_token: '',
+        alert_telegram_configured: !!data.alert_telegram_configured,
+        alert_telegram_prefix: data.alert_telegram_prefix || '',
+        alert_clear_telegram: false,
+        alert_telegram_chat_id: data.alert_telegram_chat_id || '',
         panel_skin: normalizeSkin(data.panel_skin),
         logo_url: data.logo_url || '',
         cf_token_configured: !!data.cf_token_configured,
@@ -496,7 +520,29 @@ export default function Settings() {
                   <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft">监控地址</label>
                   <div className="flex-1 max-w-[560px]">
                     <input className="input-field w-full" type="text" placeholder="https://monitor.example.com" value={form.monitor_url} onChange={e => set('monitor_url', e.target.value)} />
-                    <p className="text-[12px] text-ink-mut mt-1.5 m-0">填 Komari 等独立监控面板的地址。保存后管理员侧栏会出现「主机监控」，新标签打开。留空则不显示。普通用户看不到。</p>
+                    <p className="text-[12px] text-ink-mut mt-1.5 m-0">填 Komari 等独立监控面板的地址。保存后管理员侧栏会出现「主机监控」，新标签打开。留空则不显示。普通用户看不到。主机 CPU 和磁盘仍看这里，不进线路告警。</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-6 mt-[22px]">
+                  <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-2">线路告警</label>
+                  <div className="flex-1 max-w-[560px] space-y-3">
+                    <input className="input-field w-full" type="text" placeholder="https://hooks.example.com/line" value={form.alert_webhook_url} onChange={e => set('alert_webhook_url', e.target.value)} />
+                    <input
+                      className="input-field w-full font-mono text-sm"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={form.alert_telegram_configured ? `Telegram 已配置（${form.alert_telegram_prefix}）· 留空不修改` : 'Telegram Bot Token'}
+                      value={form.alert_telegram_token}
+                      onChange={e => set('alert_telegram_token', e.target.value)}
+                    />
+                    <input className="input-field w-full font-mono text-sm" type="text" placeholder="Telegram Chat ID" value={form.alert_telegram_chat_id} onChange={e => set('alert_telegram_chat_id', e.target.value)} />
+                    {form.alert_telegram_configured && (
+                      <label className="flex items-center gap-2 text-[13px] text-ink-soft">
+                        <input type="checkbox" checked={!!form.alert_clear_telegram} onChange={e => set('alert_clear_telegram', e.target.checked)} />
+                        清除已保存的 Bot Token
+                      </label>
+                    )}
+                    <p className="text-[12px] text-ink-mut m-0">节点离线超过 1 分钟、恢复在线、同步失败时通知。Webhook 收 JSON，Telegram 收同一句中文。留空则不发。不采集主机 CPU 和磁盘。</p>
                   </div>
                 </div>
               </>

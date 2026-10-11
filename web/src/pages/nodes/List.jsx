@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtTime, fmtBytes, fmtDate, nullStr, expiryBadge, disconnectReasonLabel } from '../../lib/fmt'
-import { useSpeed, useNodeSpeedValue, fmtSpeed } from '../../lib/useSpeed'
+import { fmtTime, fmtBytes, fmtDate, fmtDuration, nullStr, nullInt, expiryBadge, disconnectReasonLabel } from '../../lib/fmt'
+import { useSpeed, usePresence, useNodeSpeedValue, fmtSpeed } from '../../lib/useSpeed'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { Layout, useToast } from '../../components/Layout'
 import { Loading, Empty, Badge, Modal, Confirm, NodeStackBadge, NodeBillingBadges, useConfirm, Select, CopyText, activateProps } from '../../components/ui'
@@ -38,13 +38,18 @@ export default function NodeList() {
   const [dragIndex, setDragIndex] = useState(null)
   const [folders, setFolders] = useState([])
   const [ungrouped, setUngrouped] = useState(0)
-  const [folderFilter, setFolderFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [folderFilter, setFolderFilter] = useState(() => localStorage.getItem('nodes.folder') || '')
+  const [statusFilter, setStatusFilter] = useState(() => loadStatusFilter())
   const isMobile = useIsMobile()
   const toast = useToast()
   const confirm = useConfirm()
   const navigate = useNavigate()
   const [sort, setSort] = useState({ col: null, dir: null })
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
+  const [latency, setLatency] = useState({})
+  const [probing, setProbing] = useState(false)
+  const [probingIds, setProbingIds] = useState(null)
+  const presence = usePresence()
   // The aggregate map is only needed while sorting by speed; the visible cells
   // subscribe per node so the table does not re-render every second.
   const speeds = useSpeed({ enabled: sort.col === 'speed' })
@@ -56,6 +61,24 @@ export default function NodeList() {
 
   useEffect(() => { localStorage.setItem('nodes.tab', tab) }, [tab])
   useEffect(() => { sessionStorage.setItem('nodes.search', search) }, [search])
+  useEffect(() => { localStorage.setItem('nodes.folder', folderFilter) }, [folderFilter])
+  useEffect(() => { localStorage.setItem('nodes.status', statusFilter) }, [statusFilter])
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 30000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    if (!presence.length) return
+    setData(d => {
+      if (!d?.nodes) return d
+      const nodes = mergePresence(d.nodes, presence)
+      return nodes === d.nodes ? d : { ...d, nodes }
+    })
+  }, [presence])
+  useEffect(() => {
+    if (folderFilter === '' || folderFilter === '0' || !folders.length) return
+    if (!folders.some(f => String(f.id) === String(folderFilter))) setFolderFilter('')
+  }, [folders, folderFilter])
 
   const load = () => {
     setLoading(true)
@@ -147,11 +170,12 @@ export default function NodeList() {
   const matchStatus = (n) => {
     if (statusFilter === 'all') return true
     const h = nodeHealth(n)
-    if (statusFilter === 'attention') return h !== 'ok'
+    if (statusFilter === 'attention') return needsAttention(n, latest_agent_version, latest_agent_sha, nowSec)
     return h === statusFilter
   }
   const filtered0 = tabNodes.filter(n => matchSearch(n) && matchFolder(n) && matchStatus(n))
-  const attentionCount = tabNodes.filter(n => nodeHealth(n) !== 'ok').length
+  const attentionNodes = tabNodes.filter(n => needsAttention(n, latest_agent_version, latest_agent_sha, nowSec))
+  const attentionCount = attentionNodes.length
 
   // 「原始流量」列只在单点 tab 渲染：带着它的排序切去组合 tab，排序仍生效却
   // 无处显示、无法取消，还会静默禁用拖拽调序——切走时清掉这个不可见排序。
@@ -239,6 +263,37 @@ export default function NodeList() {
     if (zone) moveToEdge(idx, zone)
   }
 
+  const probeList = async () => {
+    const ids = filtered.map(n => n.id)
+    if (!ids.length) {
+      toast('当前列表没有节点', 'error')
+      return
+    }
+    if (ids.length > 80) {
+      toast('一次最多测 80 个，请先缩小筛选', 'error')
+      return
+    }
+    setProbing(true)
+    setProbingIds(new Set(ids))
+    try {
+      const d = await api.post('/nodes/probe-latency', { ids })
+      const at = Math.floor(Date.now() / 1000)
+      setLatency(prev => {
+        const next = { ...prev }
+        for (const item of d.items || []) next[item.node_id] = { ...item, at }
+        return next
+      })
+      const failed = (d.items || []).filter(item => !item.ok).length
+      toast(failed ? `测完 ${ids.length} 个，${failed} 个不通` : `测完 ${ids.length} 个`)
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setProbing(false)
+      setProbingIds(null)
+    }
+  }
+  const bannerText = attentionBanner(attentionNodes, latest_agent_version, latest_agent_sha, nowSec)
+
   return (
     <Layout>
       <div className="h-full flex flex-col">
@@ -271,9 +326,12 @@ export default function NodeList() {
               { value: 'ok', label: '正常' },
             ]} />
           <ToolbarActions>
-            <span className="hidden md:inline-flex items-center gap-2 flex-wrap">
-              <ToolbarButton onClick={resyncAll} secondary>同步所有</ToolbarButton>
-              <ToolbarButton onClick={upgradeAll} secondary>一键升级全部</ToolbarButton>
+            <ToolbarButton onClick={resyncAll} secondary>同步所有</ToolbarButton>
+            <ToolbarButton onClick={upgradeAll} secondary>一键升级全部</ToolbarButton>
+            <ToolbarButton onClick={probeList} secondary disabled={probing} title="只测当前筛选出的节点，结果 3 分钟后过期">
+              {probing ? '测量中' : '测当前列表'}
+            </ToolbarButton>
+            <span className="hidden md:inline-flex">
               <ToolbarButton onClick={() => setShowComposite(true)} secondary>＋ 组合节点</ToolbarButton>
             </span>
             <ToolbarButton onClick={() => setShowAdd(true)}>＋ 添加节点</ToolbarButton>
@@ -290,7 +348,7 @@ export default function NodeList() {
         {attentionCount > 0 && statusFilter !== 'attention' && (
           <button type="button" onClick={() => setStatusFilter('attention')}
             className="w-full text-left px-5 py-2.5 border-b border-line-soft bg-amber-500/5 text-[12.5px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 transition-colors">
-            ⚠ {attentionCount} 个节点需要处理（错误 / 警告 / 离线 / 待同步），点这里只看这些
+            ⚠ {attentionCount} 个节点需要处理（{bannerText}），点这里只看这些
           </button>
         )}
         <TableScroll>
@@ -323,6 +381,7 @@ export default function NodeList() {
                   速度<SortArrow col="speed" sort={sort} />
                 </button>
               </th>
+              <th className="min-w-[120px]" title="测当前列表后显示，3 分钟过期">延迟</th>
               <th className="text-right">操作</th>
             </tr></thead>
             <tbody>
@@ -347,10 +406,7 @@ export default function NodeList() {
                       {n.group_name && <Badge color="blue" title="分组">{n.group_name}</Badge>}
                       <NodeBillingBadges node={n} />
                     </span>
-                    {n.remark && (
-                      <div className="text-[11.5px] text-ink-mut mt-0.5 max-w-[220px] truncate" title={n.remark}>{n.remark}</div>
-                    )}
-                    <AgentHint n={n} />
+                    <NodeLineMeta n={n} latestVer={latest_agent_version} latestSHA={latest_agent_sha} nowSec={nowSec} />
                   </td>
                   <td>
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -363,12 +419,15 @@ export default function NodeList() {
                   <td className="font-mono text-xs text-ink-soft">
                     {fmtTime(n.last_apply_at?.Valid ? n.last_apply_at.Int64 : null)}
                   </td>
-                  <td><NodeStatus node={n} /></td>
+                  <td><NodeStatus node={n} nowSec={nowSec} /></td>
                   <td><NodeOpsCell node={n} /></td>
                   <td className="font-mono text-xs text-ink-mut">{billedTrafficCell(n, node_traffic, node_raw_traffic)}</td>
                   {tab !== 'composite' && <td className="font-mono text-xs text-ink-mut">{fmtBytes(node_raw_traffic[n.id] || 0)}</td>}
                   <td className="font-mono text-xs whitespace-nowrap min-w-[170px]">
                     <NodeSpeedCell nodeId={n.id} />
+                  </td>
+                  <td className="max-w-[160px]">
+                    <LatencyCell row={latency[n.id]} measuring={!!probingIds?.has(n.id)} nowSec={nowSec} />
                   </td>
                   <td className="text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                     <div className="flex gap-2 justify-end">
@@ -410,12 +469,13 @@ export default function NodeList() {
                     {n.group_name && <Badge color="blue">{n.group_name}</Badge>}
                     <NodeBillingBadges node={n} />
                   </span>
-                  <NodeStatus node={n} />
+                  <NodeStatus node={n} nowSec={nowSec} />
                 </div>
-                {n.remark && <div className="text-[11.5px] text-ink-mut mb-1 truncate" title={n.remark}>{n.remark}</div>}
-                <AgentHint n={n} />
+                <NodeLineMeta n={n} latestVer={latest_agent_version} latestSHA={latest_agent_sha} nowSec={nowSec} />
                 <div className="text-[11.5px] text-ink-mut mb-1"><NodeOpsCell node={n} /></div>
                 <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
+                  <LatencyCell row={latency[n.id]} measuring={!!probingIds?.has(n.id)} nowSec={nowSec} />
+                  <span className="text-ink-mut">·</span>
                   <span className="font-mono text-ink-mut">{fmtBytes(node_traffic[n.id] || 0)}</span>
                   {n.node_type !== 'composite' && <>
                     <span className="text-ink-mut">·</span>
@@ -559,6 +619,213 @@ function AddNodeModal({ open, onClose, onDone }) {
   )
 }
 
+const STATUS_FILTERS = new Set(['all', 'attention', 'error', 'warning', 'offline', 'pending', 'disabled', 'ok'])
+const ATTENTION_WINDOW = 7 * 86400
+const LATENCY_TTL = 180
+
+function loadStatusFilter() {
+  try {
+    const v = localStorage.getItem('nodes.status') || 'all'
+    return STATUS_FILTERS.has(v) ? v : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
+function sameList(a, b) {
+  const x = a || []
+  const y = b || []
+  if (x.length !== y.length) return false
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false
+  return true
+}
+
+function mergePresence(nodes, presence) {
+  if (!nodes?.length || !presence?.length) return nodes
+  const byID = new Map(presence.map(p => [p.id, p]))
+  let changed = false
+  const next = nodes.map(n => {
+    const p = byID.get(n.id)
+    if (!p) return n
+    const applyAt = p.last_apply_at || 0
+    const err = p.last_error || ''
+    const down = p.down_hops || []
+    if (
+      n.online === p.online &&
+      (n.last_seen || 0) === (p.last_seen || 0) &&
+      (nullInt(n.last_apply_at) || 0) === applyAt &&
+      (nullStr(n.last_error) || '') === err &&
+      (n.last_warning || '') === (p.last_warning || '') &&
+      (n.last_disconnect_reason || '') === (p.last_disconnect_reason || '') &&
+      (n.egress_note || '') === (p.egress_note || '') &&
+      (n.resource_warning || '') === (p.resource_warning || '') &&
+      (n.agent_version || '') === (p.agent_version || '') &&
+      (n.agent_sha || '') === (p.agent_sha || '') &&
+      (n.upgrade_attention || '') === (p.upgrade_attention || '') &&
+      !!n.disabled === !!p.disabled &&
+      sameList(n.down_hops, down)
+    ) return n
+    changed = true
+    return {
+      ...n,
+      online: p.online,
+      last_seen: p.last_seen || 0,
+      last_apply_at: applyAt ? { Valid: true, Int64: applyAt } : { Valid: false, Int64: 0 },
+      last_error: err ? { Valid: true, String: err } : { Valid: false, String: '' },
+      last_warning: p.last_warning || '',
+      last_disconnect_reason: p.last_disconnect_reason || '',
+      egress_note: p.egress_note || '',
+      resource_warning: p.resource_warning || '',
+      agent_version: p.agent_version || '',
+      agent_sha: p.agent_sha || '',
+      upgrade_attention: p.upgrade_attention || '',
+      disabled: !!p.disabled,
+      down_hops: down,
+    }
+  })
+  return changed ? next : nodes
+}
+
+function versionLag(n, latestVer, latestSHA) {
+  if (!n || n.node_type === 'composite' || n.node_type === 'self' || n.disabled) return false
+  if (n.agent_sha && latestSHA && n.agent_sha === latestSHA) return false
+  if (n.agent_version === 'latest') return false
+  return !!(n.agent_version && n.agent_version !== latestVer)
+}
+
+function expiryAttention(n, nowSec) {
+  if (!n || n.disabled) return ''
+  const exp = n.expires_at || 0
+  if (exp <= 0) return ''
+  if (exp <= nowSec) return '已过期'
+  if (exp - nowSec <= ATTENTION_WINDOW) return '7 天内到期'
+  return ''
+}
+
+function upgradeLabel(status) {
+  if (status === 'error') return '升级失败'
+  if (status === 'stuck') return '升级可能未生效'
+  if (status === 'rolled_back') return '升级已回滚'
+  return ''
+}
+
+function attentionExtras(n, latestVer, latestSHA, nowSec) {
+  const out = []
+  if (versionLag(n, latestVer, latestSHA)) out.push('版本落后')
+  const exp = expiryAttention(n, nowSec)
+  if (exp) out.push(exp)
+  const up = upgradeLabel(n.upgrade_attention)
+  if (up) out.push(up)
+  return out
+}
+
+function needsAttention(n, latestVer, latestSHA, nowSec) {
+  if (nodeHealth(n) !== 'ok') return true
+  return attentionExtras(n, latestVer, latestSHA, nowSec).length > 0
+}
+
+function firstLine(v) {
+  const t = nullStr(v)
+  if (!t) return ''
+  return String(t).split(/\r?\n/)[0].trim()
+}
+
+function downHopNames(n) {
+  if (Array.isArray(n?.down_hops) && n.down_hops.length) return n.down_hops.filter(Boolean)
+  if (n?.node_type !== 'composite' || !Array.isArray(n.hops)) return []
+  return n.hops.filter(h => h.online !== 1 || h.disabled).map(h => h.name || `#${h.node_id}`)
+}
+
+function offlineReason(n, nowSec) {
+  if (n.node_type === 'composite') {
+    const down = downHopNames(n)
+    if (down.length) return `跳 ${down.join('、')} 离线`
+  }
+  if (n.last_seen) {
+    const age = Math.max(0, nowSec - n.last_seen)
+    return `最后心跳 ${fmtTime(n.last_seen)} · 已离线 ${fmtDuration(age)}`
+  }
+  return '暂无心跳'
+}
+
+function rowReason(n, nowSec) {
+  const h = nodeHealth(n)
+  if (h === 'error') return firstLine(n.last_error)
+  if (h === 'warning') return firstLine(n.last_warning)
+  if (h === 'offline') return offlineReason(n, nowSec)
+  if (h === 'pending') return '尚未同步'
+  return ''
+}
+
+function relayLine(n) {
+  if (!n) return ''
+  if (n.node_type === 'composite') {
+    return n.entry_relay_host || n.relay_host || n.entry_relay_host_v6 || n.relay_host_v6 || ''
+  }
+  return n.relay_host || n.relay_host_v6 || ''
+}
+
+function impactLine(n) {
+  const rules = n?.rule_count || 0
+  const users = n?.user_count || 0
+  if (!rules && !users) return ''
+  return `${rules} 条规则 · ${users} 个用户`
+}
+
+function attentionBanner(nodes, latestVer, latestSHA, nowSec) {
+  const labels = []
+  const seen = new Set()
+  const add = (s) => { if (s && !seen.has(s)) { seen.add(s); labels.push(s) } }
+  for (const n of nodes) {
+    const h = nodeHealth(n)
+    if (h === 'error') add('错误')
+    else if (h === 'warning') add('警告')
+    else if (h === 'offline') add('离线')
+    else if (h === 'pending') add('待同步')
+    else if (h === 'disabled') add('已禁用')
+    for (const extra of attentionExtras(n, latestVer, latestSHA, nowSec)) add(extra)
+  }
+  return labels.join(' / ') || '需处理'
+}
+
+function NodeLineMeta({ n, latestVer, latestSHA, nowSec }) {
+  const relay = relayLine(n)
+  const extras = [...attentionExtras(n, latestVer, latestSHA, nowSec)]
+  const impact = impactLine(n)
+  if (impact) extras.push(impact)
+  const extraLine = extras.join(' · ')
+  const reason = rowReason(n, nowSec)
+  return (
+    <>
+      {relay && <div className="font-mono text-[11.5px] text-ink-mut mt-0.5 max-w-[280px] truncate" title={relay}>{relay}</div>}
+      {extraLine && <div className="text-[11.5px] text-ink-soft mt-0.5 max-w-[280px] truncate" title={extraLine}>{extraLine}</div>}
+      {reason && <div className="text-[11.5px] text-amber-800 dark:text-amber-200 mt-0.5 max-w-[280px] truncate" title={reason}>{reason}</div>}
+      {n.remark && <div className="text-[11.5px] text-ink-mut mt-0.5 max-w-[220px] truncate" title={n.remark}>{n.remark}</div>}
+      <AgentHint n={n} />
+    </>
+  )
+}
+
+function latencyView(row, measuring, nowSec) {
+  if (measuring) return { text: '测量中', title: '正在探测已下发的下一跳' }
+  if (!row) return { text: '—', title: '' }
+  if (nowSec - (row.at || 0) > LATENCY_TTL) return { text: '已过期', title: '点「测当前列表」再测一次' }
+  if (!row.ok) return { text: row.error || '不通', title: row.error || '不通' }
+  const hop = row.hop ? ` · ${row.hop}` : ''
+  return { text: `${row.latency_ms ?? 0} ms${hop}`, title: row.hop || '' }
+}
+
+function LatencyCell({ row, measuring, nowSec }) {
+  const view = latencyView(row, measuring, nowSec)
+  const bad = row && !measuring && !row.ok && view.text !== '已过期'
+  const stale = view.text === '已过期'
+  return (
+    <span className={`font-mono text-xs truncate block max-w-[160px] ${bad ? 'text-red-600' : stale ? 'text-ink-mut' : ''}`} title={view.title || view.text}>
+      {view.text}
+    </span>
+  )
+}
+
 // nodeHealth is the single source of truth for the status badge, the
 // 「需处理」filter and the attention banner, so they can never disagree.
 // Priority: disabled > error > warning > offline > pending > ok.
@@ -577,13 +844,14 @@ function nodeHealth(node) {
   return 'pending'
 }
 
-function NodeStatus({ node }) {
+function NodeStatus({ node, nowSec }) {
   const h = nodeHealth(node)
+  const clock = nowSec || Math.floor(Date.now() / 1000)
   if (h === 'disabled') return <Badge color="amber">禁用</Badge>
-  if (h === 'error') return <Badge color="red" title={nullStr(node.last_error)}>错误</Badge>
-  if (h === 'warning') return <Badge color="amber" title={node.last_warning}>警告</Badge>
-  if (h === 'offline') return <Badge color="gray">离线</Badge>
-  if (h === 'pending') return <Badge color="amber">待同步</Badge>
+  if (h === 'error') return <Badge color="red" title={firstLine(node.last_error)}>错误</Badge>
+  if (h === 'warning') return <Badge color="amber" title={firstLine(node.last_warning)}>警告</Badge>
+  if (h === 'offline') return <Badge color="gray" title={offlineReason(node, clock)}>离线</Badge>
+  if (h === 'pending') return <Badge color="amber" title="尚未同步">待同步</Badge>
   return node.node_type === 'composite' ? <Badge color="green">在线</Badge> : <Badge color="green">已同步</Badge>
 }
 

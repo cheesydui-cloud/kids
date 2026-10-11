@@ -144,6 +144,8 @@ type NodeChildHop struct {
 	Name     string `json:"name"`
 	NodeType string `json:"node_type"`
 	Mode     string `json:"mode"`
+	Online   int    `json:"online"`
+	Disabled bool   `json:"disabled"`
 }
 
 type Rule struct {
@@ -804,6 +806,8 @@ func resolveCompositeHops(nodes []*Node, hops []*NodeHop) {
 			if child := byID[h.HopNodeID]; child != nil {
 				m.Name = child.Name
 				m.NodeType = child.NodeType
+				m.Online = child.Online
+				m.Disabled = child.Disabled
 			}
 			members = append(members, m)
 		}

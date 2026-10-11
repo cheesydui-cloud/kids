@@ -322,7 +322,7 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reconcileNodeOnline(nodes)
-	db.ResolveCompositeOnline(s.DB, nodes)
+	db.ResolveCompositeAll(s.DB, nodes)
 	nodeTraffic, err := db.NodeTrafficSums(s.DB)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "读取节点流量失败: "+err.Error())
@@ -391,7 +391,7 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 		normalizeAgentVersion(n, latestAgentVersion, latestAgentSHA)
 	}
 	payload := map[string]any{
-		"nodes":                nodes,
+		"nodes":                s.adminViews(nodes, latestAgentVersion, latestAgentSHA, now),
 		"node_traffic":         nodeTraffic,
 		"rule_count":           ruleCount,
 		"rule_count_by_node":   ruleCountByNode,
@@ -457,10 +457,7 @@ func (s *Server) apiListNodes(w http.ResponseWriter, r *http.Request) {
 	for _, n := range nodes {
 		normalizeAgentVersion(n, lv, latestAgentSHA)
 	}
-	views := make([]adminNodeView, len(nodes))
-	for i, n := range nodes {
-		views[i] = nodeAdminView(n)
-	}
+	views := s.adminViews(nodes, lv, latestAgentSHA, time.Now())
 	jsonOK(w, map[string]any{
 		"nodes": views, "panel_url": panelURL, "panel_name": panelName,
 		"node_traffic":         nodeTraffic,
@@ -2059,17 +2056,25 @@ func normalizePanelSkin(raw string) (string, error) {
 // absolute http(s) URL. javascript:/data:/relative paths are rejected so the
 // admin sidebar never opens a non-http target.
 func normalizeMonitorURL(raw string) (string, error) {
+	return normalizeHTTPURL(raw, "监控地址")
+}
+
+func normalizeAlertWebhook(raw string) (string, error) {
+	return normalizeHTTPURL(raw, "告警地址")
+}
+
+func normalizeHTTPURL(raw, what string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return "", nil
 	}
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", errors.New("监控地址必须是 http:// 或 https:// 开头的完整 URL")
+		return "", fmt.Errorf("%s必须是 http:// 或 https:// 开头的完整 URL", what)
 	}
 	scheme := strings.ToLower(u.Scheme)
 	if scheme != "http" && scheme != "https" {
-		return "", errors.New("监控地址只支持 http/https")
+		return "", fmt.Errorf("%s只支持 http/https", what)
 	}
 	u.Scheme = scheme
 	return u.String(), nil
@@ -2099,17 +2104,25 @@ func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	logoName, _ := db.GetSetting(s.DB, panelLogoSetting)
+	tgToken, _ := db.GetSetting(s.DB, "alert_telegram_bot_token")
+	tgConfigured, tgPrefix := maskedSecret(tgToken)
+	tgChat, _ := db.GetSetting(s.DB, "alert_telegram_chat_id")
+	webhook, _ := db.GetSetting(s.DB, "alert_webhook_url")
 	jsonOK(w, map[string]any{
 		"panel_url": panelURL, "panel_name": panelName,
 		"logo_url":          logoURLFor(logoName),
 		"show_rate_to_user": showRate == "1", "pool_size": poolSize,
-		"panel_lease_hours":   panelLeaseHoursFromDB(s.DB),
-		"monitor_url":         s.monitorURL(),
-		"panel_skin":          s.panelSkin(),
-		"cf_token_configured": cfConfigured,
-		"cf_token_prefix":     cfPrefix,
-		"cf_zone_name":        cfZone,
-		"cf_ttl":              cfTTL,
+		"panel_lease_hours":         panelLeaseHoursFromDB(s.DB),
+		"monitor_url":               s.monitorURL(),
+		"panel_skin":                s.panelSkin(),
+		"cf_token_configured":       cfConfigured,
+		"cf_token_prefix":           cfPrefix,
+		"cf_zone_name":              cfZone,
+		"cf_ttl":                    cfTTL,
+		"alert_webhook_url":         webhook,
+		"alert_telegram_configured": tgConfigured,
+		"alert_telegram_prefix":     tgPrefix,
+		"alert_telegram_chat_id":    tgChat,
 	})
 }
 
@@ -2124,10 +2137,14 @@ func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 		MonitorURL      *string `json:"monitor_url"`
 		PanelSkin       *string `json:"panel_skin"`
 		// Cloudflare: empty token string means "leave unchanged"; explicit clear via cf_clear_token.
-		CFAPIToken   *string `json:"cf_api_token"`
-		CFClearToken bool    `json:"cf_clear_token"`
-		CFZoneName   *string `json:"cf_zone_name"`
-		CFTTL        *int    `json:"cf_ttl"`
+		CFAPIToken          *string `json:"cf_api_token"`
+		CFClearToken        bool    `json:"cf_clear_token"`
+		CFZoneName          *string `json:"cf_zone_name"`
+		CFTTL               *int    `json:"cf_ttl"`
+		AlertWebhookURL     *string `json:"alert_webhook_url"`
+		AlertTelegramToken  *string `json:"alert_telegram_token"`
+		AlertClearTelegram  bool    `json:"alert_clear_telegram"`
+		AlertTelegramChatID *string `json:"alert_telegram_chat_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "请求格式错误")
@@ -2234,6 +2251,50 @@ func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.WriteAudit(s.DB, u.ID, "settings.cf_zone", z, "")
+	}
+	if body.AlertWebhookURL != nil {
+		hook, err := normalizeAlertWebhook(*body.AlertWebhookURL)
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := db.SetSetting(s.DB, "alert_webhook_url", hook); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		db.WriteAudit(s.DB, u.ID, "settings.alert_webhook", hook, "")
+	}
+	if body.AlertClearTelegram {
+		if err := db.SetSetting(s.DB, "alert_telegram_bot_token", ""); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		db.WriteAudit(s.DB, u.ID, "settings.alert_telegram", "cleared", "")
+	} else if body.AlertTelegramToken != nil {
+		tok, err := normalizeTelegramToken(*body.AlertTelegramToken)
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if tok != "" {
+			if err := db.SetSetting(s.DB, "alert_telegram_bot_token", tok); err != nil {
+				jsonErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			db.WriteAudit(s.DB, u.ID, "settings.alert_telegram", "updated", "")
+		}
+	}
+	if body.AlertTelegramChatID != nil {
+		chat, err := normalizeTelegramChat(*body.AlertTelegramChatID)
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := db.SetSetting(s.DB, "alert_telegram_chat_id", chat); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		db.WriteAudit(s.DB, u.ID, "settings.alert_telegram_chat", chat, "")
 	}
 	if body.CFTTL != nil {
 		ttl := *body.CFTTL
