@@ -465,7 +465,7 @@ function RepoPicker({ userId, existingExits = [], onClose, onDone }) {
     const q = search.trim().toLowerCase()
     if (q) {
       list = list.filter(n =>
-        [n.name, n.protocol, `${n.host}:${n.port}`, n.remark, n.group_name]
+        [n.name, n.protocol, `${n.host}:${n.port}`, n.backend_ip, n.cf_record_name, n.remark, n.group_name]
           .some(v => (v || '').toLowerCase().includes(q)))
     }
     return list

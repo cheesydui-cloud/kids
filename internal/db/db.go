@@ -180,6 +180,9 @@ func migrate(d *sql.DB) error {
 			return err
 		}
 	}
+	if err := BackfillNodeRepoMachines(d); err != nil {
+		return err
+	}
 	return nil
 }
 

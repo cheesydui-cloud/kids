@@ -341,7 +341,7 @@ func TestPropagateRepoExitChangeEndpointAndMetadata(t *testing.T) {
 	if _, err := SetUserLandingExitName(d, uid, "old.exit", 443, "我的落地"); err != nil {
 		t.Fatal(err)
 	}
-	d.Exec(`UPDATE user_landing_exits SET used_bytes=100, quota_bytes=1000 WHERE user_id=? AND host='old.exit'`, uid)
+	d.Exec(`UPDATE user_landing_exits SET used_bytes=100, quota_bytes=1000, expires_at=1600000000 WHERE user_id=? AND host='old.exit'`, uid)
 
 	// Auto-synced exit at same host:port must NOT be rewritten (source!=repo).
 	if _, _, err := SyncUserLandingExits(d, uid, []LandingExitInput{{
@@ -398,7 +398,7 @@ func TestPropagateRepoExitChangeEndpointAndMetadata(t *testing.T) {
 		}
 	}
 	if moved == nil || moved.Port != 8443 || moved.Name != "new-name" || moved.Protocol != "ss" ||
-		moved.URI != "ss://y@new.exit:8443" || moved.ExpiresAt != 1_700_000_000 ||
+		moved.URI != "ss://y@new.exit:8443" || moved.ExpiresAt != 1_600_000_000 ||
 		moved.NameOverride != "我的落地" || moved.UsedBytes != 100 || moved.QuotaBytes != 1000 ||
 		moved.Source != "repo" {
 		t.Fatalf("moved exit wrong: %+v", moved)
@@ -422,7 +422,7 @@ func TestPropagateRepoExitChangeEndpointAndMetadata(t *testing.T) {
 		t.Fatalf("last hop not updated: %+v", hops[1])
 	}
 
-	// Metadata-only: same host:port refreshes name/uri/expires, no redispatch set.
+	// Metadata-only: same host:port refreshes name/uri, leaves the user expiry, no redispatch.
 	prop2, err := PropagateRepoExitChange(d, "new.exit", "new.exit", 8443, 8443,
 		"meta-name", "ss", "ss://z@new.exit:8443", 1_800_000_000)
 	if err != nil {
@@ -434,7 +434,7 @@ func TestPropagateRepoExitChangeEndpointAndMetadata(t *testing.T) {
 	exits, _ = ListUserLandingExits(d, uid)
 	for _, e := range exits {
 		if e.Host == "new.exit" {
-			if e.Name != "meta-name" || e.URI != "ss://z@new.exit:8443" || e.ExpiresAt != 1_800_000_000 || e.NameOverride != "我的落地" {
+			if e.Name != "meta-name" || e.URI != "ss://z@new.exit:8443" || e.ExpiresAt != 1_600_000_000 || e.NameOverride != "我的落地" {
 				t.Fatalf("metadata refresh failed: %+v", e)
 			}
 		}
@@ -489,6 +489,67 @@ func TestPropagateRepoExitChangeMergeConflict(t *testing.T) {
 	got, _ := GetRule(d, id)
 	if got.ExitHost != "new.exit" || got.ExitPort != 443 {
 		t.Fatalf("rule: %+v", got)
+	}
+}
+
+func TestStopRepoExitUseDisablesOnlyRepoRules(t *testing.T) {
+	d := openTestDB(t)
+	uid := createTestUser(t, d)
+	other := createTestUser(t, d)
+	a, _ := CreateNode(d, "entry", "", "")
+	_ = UpdateNodeRelayHost(d, a.ID, "1.1.1.1")
+	if _, err := AppendUserLandingExits(d, uid, []LandingExitInput{{
+		Host: "exit.example", Port: 443, Name: "repo", Protocol: "ss", URI: "ss://x@exit.example:443",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := SyncUserLandingExits(d, other, []LandingExitInput{{
+		Host: "exit.example", Port: 443, Name: "sub", Protocol: "ss", URI: "ss://y@exit.example:443",
+	}}, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	makeRule := func(owner int64, name string) int64 {
+		t.Helper()
+		r := &Rule{NodeID: a.ID, OwnerID: sqlNull(owner), Name: name, Proto: "tcp", ExitHost: "exit.example", ExitPort: 443}
+		tx, _ := d.Begin()
+		id, err := CreateRule(tx, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.ID = id
+		if _, _, _, err := RegenerateRule(tx, r, []HopInput{{NodeID: a.ID, Mode: "userspace", ViaNodeID: a.ID}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	repoRule := makeRule(uid, "repo-rule")
+	subRule := makeRule(other, "sub-rule")
+
+	n, nodes, err := StopRepoExitUse(d, "exit.example", 443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || len(nodes) != 1 || nodes[0] != a.ID {
+		t.Fatalf("stop result rules=%d nodes=%v", n, nodes)
+	}
+	got, _ := GetRule(d, repoRule)
+	if !got.Disabled {
+		t.Fatal("repo user's rule should be disabled")
+	}
+	otherRule, _ := GetRule(d, subRule)
+	if otherRule.Disabled {
+		t.Fatal("subscription rule at the same address must stay enabled")
+	}
+	exits, _ := ListUserLandingExits(d, uid)
+	if len(exits) != 1 || exits[0].Present {
+		t.Fatalf("repo exit should stay in the ledger and be absent: %+v", exits)
+	}
+	subExits, _ := ListUserLandingExits(d, other)
+	if len(subExits) != 1 || !subExits[0].Present || subExits[0].Source == "repo" {
+		t.Fatalf("non-repo exit changed: %+v", subExits)
 	}
 }
 

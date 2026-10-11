@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Layout, useToast } from '../components/Layout'
-import { Loading, Empty, Badge, CopyText, Modal, useConfirm, DateInput } from '../components/ui'
+import { Loading, Empty, Badge, CopyText, Modal, DateInput, Select } from '../components/ui'
 import { PageHeader, Panel, PanelToolbar, ToolbarButton, ToolbarActions, TableScroll, SearchInput } from '../components/page'
 import FolderBar, { MoveToFolderModal } from '../components/FolderBar'
 import { parseURIs, tryParseURI, extractUserPass, tryParseNaiveHTTPS, isAuthFormProtocol, buildSimpleAuthURI, rewriteRepoShareURI, repoShareHost } from '../lib/landing'
@@ -21,7 +21,10 @@ export default function NodeRepo() {
   const [editing, setEditing] = useState(null)
   const [search, setSearch] = useState('')
   const [folderFilter, setFolderFilter] = useState('') // '' all | '0' ungrouped | folder id
+  const [attn, setAttn] = useState('') // '' | soon | expired | used | cf
   const [sel, setSel] = useState(new Set())
+  const [deleteAsk, setDeleteAsk] = useState(null)
+  const [showAssign, setShowAssign] = useState(false)
   const [dragIndex, setDragIndex] = useState(null)
   const [usersFor, setUsersFor] = useState(null) // node entry when modal open
   const [usersList, setUsersList] = useState(null)
@@ -29,7 +32,6 @@ export default function NodeRepo() {
   const [changeIPFor, setChangeIPFor] = useState(null)
   const [busyId, setBusyId] = useState(null) // probe/resync in flight
   const toast = useToast()
-  const confirm = useConfirm()
   const isMobile = useIsMobile()
 
   const loadFolders = () => api.get('/node-repo-folders').then(d => {
@@ -47,17 +49,23 @@ export default function NodeRepo() {
   }
   useEffect(() => { load() }, [])
 
-  const deleteNode = async (n) => {
-    if (!(await confirm({ title: '删除节点', message: `确认删除节点「${n.name}」？`, confirmText: '删除', danger: true }))) return
-    try { await api.del(`/node-repo/${n.id}`); toast('已删除'); load() } catch (err) { toast(err.message, 'error') }
+  const askDelete = (entries) => {
+    if (!entries?.length) { toast('请先勾选要删除的节点', 'error'); return }
+    setDeleteAsk(entries)
   }
 
-  const bulkDelete = async () => {
-    if (sel.size === 0) { toast('请先勾选要删除的节点', 'error'); return }
-    if (!(await confirm({ title: '批量删除', message: `确认删除选中的 ${sel.size} 个节点？`, confirmText: '删除', danger: true }))) return
+  const runDelete = async (cascade) => {
+    const entries = deleteAsk || []
+    setDeleteAsk(null)
+    if (!entries.length) return
     try {
-      const d = await api.post('/node-repo/batch-delete', { ids: [...sel] })
-      toast(`已删除 ${d?.count ?? sel.size} 个节点`)
+      if (entries.length === 1) {
+        await api.del(`/node-repo/${entries[0].id}?cascade=${cascade ? 1 : 0}`)
+        toast(cascade ? '已删除，并停用对应用户规则' : '已从仓库删除')
+      } else {
+        const d = await api.post('/node-repo/batch-delete', { ids: entries.map(n => n.id), cascade })
+        toast(cascade ? `已删除 ${d?.count ?? entries.length} 个，并停用对应用户规则` : `已从仓库删除 ${d?.count ?? entries.length} 个`)
+      }
       setSel(new Set())
       load()
     } catch (err) { toast(err.message, 'error') }
@@ -88,6 +96,13 @@ export default function NodeRepo() {
     setBusyId(n.id)
     try {
       const d = await api.get(`/node-repo/${n.id}/probe-dns`)
+      setList(cur => (cur || []).map(x => x.id === n.id ? {
+        ...x,
+        dns_probe_status: d.status || '',
+        dns_probe_message: d.message || '',
+        dns_probe_ip: d.dns_probe_ip || (d.resolved || [])[0] || '',
+        dns_probe_at: Math.floor(Date.now() / 1000),
+      } : x))
       if (d.status === 'match') toast(d.message || '解析一致')
       else if (d.status === 'mismatch') toast(d.message || '解析不一致', 'error')
       else if (d.status === 'fail') toast(d.message || '解析失败', 'error')
@@ -131,12 +146,15 @@ export default function NodeRepo() {
   if (folderFilter === '0') filtered = filtered.filter(n => !(n.group_id > 0))
   else if (folderFilter) filtered = filtered.filter(n => String(n.group_id) === String(folderFilter))
   if (q) filtered = filtered.filter(n =>
-    [n.name, n.protocol, `${n.host}:${n.port}`, n.backend_ip, n.remark, n.group_name].some(v => (v || '').toLowerCase().includes(q)))
+    [n.name, n.protocol, `${n.host}:${n.port}`, n.backend_ip, n.cf_record_name, n.remark, n.group_name].some(v => (v || '').toLowerCase().includes(q)))
 
-  const machines = groupByMachine(filtered)
+  const searched = filtered
+  const machinesAll = groupByMachine(searched)
+  const machines = attn ? machinesAll.filter(g => g.members.some(n => attnMatch(n, attn))) : machinesAll
+  const visibleRows = machines.flatMap(g => g.members)
 
   const toggleSelAll = () => setSel(s =>
-    s.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(n => n.id)))
+    s.size === visibleRows.length && visibleRows.length > 0 ? new Set() : new Set(visibleRows.map(n => n.id)))
 
   const toggleSelGroup = (members) => {
     const ids = members.map(n => n.id)
@@ -148,8 +166,8 @@ export default function NodeRepo() {
     })
   }
 
-  // 搜索 / 分组过滤时不能拖：saveOrder 以可见行为全量顺序，子集视图会丢掉其它行。
-  const draggable = !q && !folderFilter
+  // 搜索 / 分组 / 状态过滤时不能拖：saveOrder 以可见行为全量顺序，子集视图会丢掉其它行。
+  const draggable = !q && !folderFilter && !attn
   const saveOrder = async (visibleGroups) => {
     const visibleIds = visibleGroups.flatMap(g => g.members.map(n => n.id))
     const hiddenIds = (list || []).filter(n => !visibleIds.includes(n.id)).map(n => n.id)
@@ -167,15 +185,25 @@ export default function NodeRepo() {
     saveOrder(next)
   }
 
+  const machineMembers = (members) => {
+    const id = members[0]?.machine_id
+    if (id > 0) {
+      const all = (list || []).filter(n => n.machine_id === id)
+      if (all.length) return all
+    }
+    return members
+  }
   const changeIPForMachine = (members) => {
-    const lead = members.find(n => looksDomain(n.host) || n.cf_sync || n.cf_record_name) || members[0]
-    setChangeIPFor({ node: lead, siblings: members })
+    const all = machineMembers(members)
+    const lead = all.find(n => looksDomain(n.host) || n.cf_sync || n.cf_record_name) || all[0]
+    setChangeIPFor({ node: lead, siblings: all })
   }
 
   return (
     <Layout>
       <div className="h-full flex flex-col">
       <PageHeader title="落地仓库" count={list?.length || 0} unit="个" />
+      <p className="text-[12.5px] text-ink-mut -mt-2 mb-3">这里是模板。换 IP 只改 Cloudflare。已分配用户的到期不会被覆盖，需要时在编辑里点「同步到期」。改域名或端口才会改用户规则。</p>
       <Panel fill>
         <PanelToolbar>
           <FolderBar
@@ -188,11 +216,18 @@ export default function NodeRepo() {
             onRename={async (id, name) => { await api.patch(`/node-repo-folders/${id}`, { name }); await loadFolders(); load() }}
             onDelete={async (id) => { await api.del(`/node-repo-folders/${id}`); await loadFolders(); load() }}
           />
-          <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、协议、地址…" />
+          <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、协议、地址、记录名…" />
+          <Select
+            value={attn}
+            onChange={v => { setAttn(v); setSel(new Set()) }}
+            options={ATTN_OPTS}
+            className="w-[148px]"
+          />
           {sel.size > 0 && (
             <>
+              <button onClick={() => setShowAssign(true)} className="btn-secondary !h-[30px] text-xs">分配给用户 ({sel.size})</button>
               <button onClick={() => setShowMove(true)} className="btn-secondary !h-[30px] text-xs">移入分组 ({sel.size})</button>
-              <button onClick={bulkDelete} className="btn-danger-sm">删除选中 {sel.size}</button>
+              <button onClick={() => askDelete((list || []).filter(n => sel.has(n.id)))} className="btn-danger-sm">删除选中 {sel.size}</button>
             </>
           )}
           <ToolbarActions>
@@ -208,14 +243,14 @@ export default function NodeRepo() {
           </Empty>
         ) : !list || list.length === 0 ? (
           <Empty title="暂无节点" desc="点击右上角「添加节点」将预先准备好的代理节点录入落地仓库。" />
-        ) : filtered.length === 0 ? (
+        ) : machines.length === 0 ? (
           <Empty title="无匹配节点" desc="试试别的关键词或分组。" />
         ) : (<>
           {!isMobile && <table className="tbl">
             <thead><tr>
               <th className="w-8"><input type="checkbox"
-                checked={filtered.length > 0 && sel.size === filtered.length} onChange={toggleSelAll} /></th>
-              <th>名称</th><th>分组</th><th>协议</th><th>地址</th><th>使用</th><th>到期时间</th><th>备注</th><th>创建时间</th><th className="text-right">操作</th></tr></thead>
+                checked={visibleRows.length > 0 && sel.size === visibleRows.length} onChange={toggleSelAll} /></th>
+              <th>名称</th><th>分组</th><th>协议</th><th>地址</th><th>使用</th><th>到期时间</th><th>备注</th><th className="text-right">操作</th></tr></thead>
             <tbody>
               {machines.map((g, gi) => {
                 const multi = g.members.length > 1
@@ -232,7 +267,7 @@ export default function NodeRepo() {
                         <td>
                           <input type="checkbox" checked={allOn} onChange={() => toggleSelGroup(g.members)} />
                         </td>
-                        <td colSpan={8}>
+                        <td colSpan={7}>
                           <div className="flex items-center gap-2.5 flex-wrap py-0.5">
                             {draggable && <span className="text-ink-mut select-none cursor-move" title="拖拽整台机器"
                               draggable onDragStart={() => setDragIndex(gi)}>⠿</span>}
@@ -240,6 +275,7 @@ export default function NodeRepo() {
                             {g.members[0].group_name ? <Badge color="blue">{g.members[0].group_name}</Badge> : null}
                             {g.ip && <span className="font-mono text-[12px] text-ink-mut">{g.ip}</span>}
                             {cfLead && <CFStatus n={cfLead} onRetry={() => resyncCF(cfLead)} busy={busyId === cfLead.id} />}
+                            <ProbeMark n={cfLead || g.members.find(x => x.dns_probe_at > 0)} />
                             <span className="text-[11.5px] text-ink-mut">{g.members.length} 个协议</span>
                           </div>
                         </td>
@@ -292,7 +328,6 @@ export default function NodeRepo() {
                           ) : <span className="text-ink-mut">—</span>}
                         </td>
                         <td className="text-xs text-ink-soft">{n.remark || '—'}</td>
-                        <td className="text-xs text-ink-mut">{new Date(n.created_at * 1000).toLocaleDateString('zh-CN')}</td>
                         <td className="text-right">
                           <RowActions
                             n={n}
@@ -301,7 +336,7 @@ export default function NodeRepo() {
                             onProbe={() => probeDNS(n)}
                             onChangeIP={() => changeIPForMachine(g.members)}
                             onEdit={() => { setEditing(n); setShowForm(true) }}
-                            onDelete={() => deleteNode(n)}
+                            onDelete={() => askDelete([n])}
                           />
                         </td>
                       </tr>
@@ -335,6 +370,7 @@ export default function NodeRepo() {
                     <div className="flex items-center gap-2 flex-wrap mb-2">
                       {g.ip && <span className="font-mono text-[12px] text-ink-mut">{g.ip}</span>}
                       {cfLead && <CFStatus n={cfLead} onRetry={() => resyncCF(cfLead)} busy={busyId === cfLead.id} />}
+                      <ProbeMark n={cfLead || g.members.find(x => x.dns_probe_at > 0)} />
                     </div>
                   )}
                   {g.members.map(n => (
@@ -351,7 +387,7 @@ export default function NodeRepo() {
                           onProbe={() => probeDNS(n)}
                           onChangeIP={() => changeIPForMachine(g.members)}
                           onEdit={() => { setEditing(n); setShowForm(true) }}
-                          onDelete={() => deleteNode(n)}
+                          onDelete={() => askDelete([n])}
                           compact
                         />
                       </div>
@@ -361,6 +397,7 @@ export default function NodeRepo() {
                           <div className="flex items-center gap-2 flex-wrap">
                             {n.backend_ip && <span className="font-mono text-[12px] text-ink-mut">{n.backend_ip}</span>}
                             <CFStatus n={n} onRetry={() => resyncCF(n)} busy={busyId === n.id} />
+                            <ProbeMark n={n} />
                           </div>
                         )}
                         <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
@@ -479,6 +516,20 @@ export default function NodeRepo() {
           notifyCF={notifyCF}
         />
       )}
+      {deleteAsk && (
+        <DeleteRepoModal
+          entries={deleteAsk}
+          onClose={() => setDeleteAsk(null)}
+          onConfirm={runDelete}
+        />
+      )}
+      {showAssign && (
+        <AssignUsersModal
+          nodeIds={[...sel]}
+          onClose={() => setShowAssign(false)}
+          onDone={() => { setShowAssign(false); setSel(new Set()); load() }}
+        />
+      )}
     </Layout>
   )
 }
@@ -494,6 +545,7 @@ function looksDomain(host) {
 const PROTO_RANK = { ss: 0, vless: 1, vmess: 2, trojan: 3, socks5: 4, naive: 5, mieru: 6, hysteria2: 7, tuic: 8, snell: 9 }
 
 function machineKey(n) {
+  if (n.machine_id > 0) return 'm:' + n.machine_id
   const ip = (n.backend_ip || '').trim()
   if (ip) return 'ip:' + ip
   return 'id:' + n.id
@@ -541,8 +593,39 @@ function groupByMachine(list) {
       g.members = sortProtocols(g.members)
       g.name = machineName(g.members)
     }
+    const ips = [...new Set(g.members.map(n => (n.backend_ip || '').trim()).filter(Boolean))]
+    g.ip = ips.join(' / ')
   }
   return groups
+}
+
+const ATTN_OPTS = [
+  { value: '', label: '全部状态' },
+  { value: 'soon', label: '7 天内到期' },
+  { value: 'expired', label: '已过期' },
+  { value: 'used', label: '有人在用' },
+  { value: 'cf', label: 'CF 失败' },
+]
+
+function attnMatch(n, attn) {
+  const now = Math.floor(Date.now() / 1000)
+  if (attn === 'soon') return n.expires_at > now && n.expires_at <= now + 7 * 86400
+  if (attn === 'expired') return n.expires_at > 0 && n.expires_at <= now
+  if (attn === 'used') return (n.user_count || 0) > 0
+  if (attn === 'cf') return !!n.cf_last_error
+  return true
+}
+
+function ProbeMark({ n }) {
+  if (!n?.dns_probe_at || !n.dns_probe_status || n.dns_probe_status === 'literal_ip') return null
+  const color = n.dns_probe_status === 'match' || n.dns_probe_status === 'ok' ? 'green'
+    : n.dns_probe_status === 'mismatch' || n.dns_probe_status === 'fail' ? 'red' : 'amber'
+  const label = n.dns_probe_status === 'match' ? '解析一致'
+    : n.dns_probe_status === 'mismatch' ? '解析不一致'
+    : n.dns_probe_status === 'fail' ? '解析失败'
+    : '已解析'
+  const when = new Date(n.dns_probe_at * 1000).toLocaleString('zh-CN')
+  return <Badge color={color} title={`${n.dns_probe_message || label} · ${when}`}>{label}</Badge>
 }
 
 function machineCFLead(members) {
@@ -584,10 +667,11 @@ function AddrCell({ n, onRetry, busy }) {
   return (
     <div className="min-w-[11rem] py-0.5">
       <div className="font-mono text-[12.5px] text-ink leading-snug">{n.host}:{n.port}</div>
-      {(n.backend_ip || n.cf_sync) && (
+      {(n.backend_ip || n.cf_sync || n.dns_probe_at > 0) && (
         <div className="mt-1 flex items-center gap-2 flex-wrap">
           {n.backend_ip && <span className="font-mono text-[12px] text-ink-mut leading-none">{n.backend_ip}</span>}
           <CFStatus n={n} onRetry={onRetry} busy={busy} />
+          <ProbeMark n={n} />
         </div>
       )}
     </div>
@@ -642,7 +726,7 @@ function ChangeIPModal({ node, siblings = [], onClose, onDone, notifyCF }) {
       if (looksDomain(node.host) && !node.cf_sync) body.cf_sync = true
       const res = await api.post(`/node-repo/${node.id}/backend-ip`, body)
       const n = res?.updated || peers.length
-      toast(n > 1 ? `已更新 ${n} 条同 IP 落地` : 'IP 已更新')
+      toast(n > 1 ? `已更新 ${n} 条同机器落地` : 'IP 已更新')
       notifyCF?.(res?.cf_sync)
       onDone()
     } catch (err) { toast(err.message, 'error') }
@@ -654,7 +738,7 @@ function ChangeIPModal({ node, siblings = [], onClose, onDone, notifyCF }) {
         <div className="text-[13px] text-ink-soft">
           {peers.length > 1 ? (
             <>
-              同一当前 IP 共 {peers.length} 个协议，会一起改：
+              同一台机器共 {peers.length} 个协议，会一起改：
               <div className="mt-1.5 space-y-0.5 font-mono text-[12.5px] text-ink">
                 {peers.map(p => <div key={p.id}>{p.protocol || '—'} · {p.host}:{p.port}</div>)}
               </div>
@@ -723,6 +807,16 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const authForm = isAuthFormProtocol(form.protocol)
+  const syncExpiry = async () => {
+    const ts = form.expires_at ? unixFromDateInput(form.expires_at) : 0
+    if (form.expires_at && !ts) { toast('日期无效', 'error'); return }
+    setSubmitting(true)
+    try {
+      const d = await api.post(`/node-repo/${node.id}/sync-expiry`, { expires_at: ts })
+      toast((d?.users || 0) > 0 ? `已同步给 ${d.users} 个用户` : '没有已分配用户')
+    } catch (err) { toast(err.message, 'error') }
+    finally { setSubmitting(false) }
+  }
 
   const applyParsed = (parsed, extras = {}) => {
     if (!parsed) return
@@ -985,19 +1079,114 @@ function NodeRepoForm({ node, folders = [], onClose, onDone }) {
             <input className="input-field" value={form.remark} onChange={e => set('remark', e.target.value)} placeholder="备注" />
           </div>
           <div>
-            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">到期时间 <span className="text-ink-mut font-normal text-xs">(可选，留空永不过期)</span></label>
+            <label className="block text-[13px] font-semibold text-ink-soft mb-1.5">到期时间 <span className="text-ink-mut font-normal text-xs">(可选，留空永不过期。只作为新分配的默认值)</span></label>
             <DateInput
               value={form.expires_at}
               onChange={v => set('expires_at', v)}
               className="w-full"
               placeholder="留空永不过期"
             />
+            {isEdit && (node.user_count || 0) > 0 && (
+              <button type="button" onClick={syncExpiry} disabled={submitting}
+                className="btn-secondary text-xs mt-2">
+                同步到期给已分配用户
+              </button>
+            )}
           </div>
+          {isEdit && node.created_at > 0 && (
+            <p className="text-[12px] text-ink-mut m-0">创建时间：{new Date(node.created_at * 1000).toLocaleString('zh-CN')}</p>
+          )}
           <div className="flex gap-2 justify-end pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">取消</button>
             <button type="submit" disabled={submitting} className="btn-primary">{submitting ? '保存中…' : '保存'}</button>
           </div>
         </form>
+    </Modal>
+  )
+}
+
+function DeleteRepoModal({ entries, onClose, onConfirm }) {
+  const used = entries.filter(n => (n.user_count || 0) > 0)
+  const people = used.reduce((sum, n) => sum + (n.user_count || 0), 0)
+  return (
+    <Modal open onClose={onClose} title="删除落地">
+      <div className="space-y-3 text-[13px] text-ink-soft">
+        {used.length > 0 ? (
+          <>
+            <p>选中 {entries.length} 条，其中 {used.length} 条正在被使用（{people} 人次）。</p>
+            <p>只从仓库删除：用户的线继续跑。</p>
+            <p>连规则一起停：这些用户对应的规则会被停用，转发会停。用户以后可以在订阅页重新启用。</p>
+          </>
+        ) : (
+          <p>确认删除选中的 {entries.length} 条？仓库里没有人在用这些落地。</p>
+        )}
+        <div className="flex gap-2 justify-end flex-wrap pt-1">
+          <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          {used.length > 0 ? (
+            <>
+              <button type="button" onClick={() => onConfirm(false)} className="btn-secondary">只从仓库删除</button>
+              <button type="button" onClick={() => onConfirm(true)} className="btn-danger">连规则一起停</button>
+            </>
+          ) : (
+            <button type="button" onClick={() => onConfirm(false)} className="btn-danger">删除</button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function AssignUsersModal({ nodeIds, onClose, onDone }) {
+  const [users, setUsers] = useState([])
+  const [selected, setSelected] = useState(new Set())
+  const [q, setQ] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const toast = useToast()
+  useEffect(() => {
+    api.get('/users').then(d => setUsers((d?.users || []).filter(u => u.role === 'user')))
+      .catch(err => toast(err.message, 'error'))
+      .finally(() => setLoading(false))
+  }, [])
+  const shown = users.filter(u => !q.trim() || (u.username || '').toLowerCase().includes(q.trim().toLowerCase()))
+  const toggle = (id) => setSelected(s => {
+    const next = new Set(s)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+  const submit = async () => {
+    if (selected.size === 0) { toast('请选择用户', 'error'); return }
+    setSaving(true)
+    try {
+      const d = await api.post('/node-repo/assign', { node_ids: nodeIds, user_ids: [...selected] })
+      toast(`已分配给 ${d?.users ?? selected.size} 个用户`)
+      onDone()
+    } catch (err) { toast(err.message, 'error') }
+    finally { setSaving(false) }
+  }
+  return (
+    <Modal open onClose={onClose} title={`分配 ${nodeIds.length} 个落地`} wide>
+      <div className="space-y-3">
+        <p className="text-[13px] text-ink-soft">追加到用户已有的落地里，不会清掉他们原来的订阅和链接。</p>
+        <SearchInput value={q} onChange={setQ} placeholder="搜索用户名…" />
+        <div className="max-h-[46vh] overflow-y-auto border border-line rounded-xl">
+          {loading ? <div className="py-8 text-center text-ink-mut text-sm">加载中…</div>
+            : shown.length === 0 ? <div className="py-8 text-center text-ink-mut text-sm">没有可分配的用户</div>
+            : shown.map(u => (
+              <label key={u.id} className="flex items-center gap-2 px-3 py-2 border-b border-line-soft last:border-0 text-[13px]">
+                <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggle(u.id)} />
+                <span className="font-semibold">{u.username}</span>
+                {u.disabled && <Badge color="red">已停用</Badge>}
+              </label>
+            ))}
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          <button type="button" disabled={saving || selected.size === 0} onClick={submit} className="btn-primary">
+            {saving ? '分配中…' : `分配给 ${selected.size} 个用户`}
+          </button>
+        </div>
+      </div>
     </Modal>
   )
 }
@@ -1016,22 +1205,20 @@ function BulkImportForm({ folders = [], onClose, onDone }) {
     if (nodes.length === 0) { toast('未能解析出任何有效节点', 'error'); return }
     setSubmitting(true)
     try {
-      let count = 0
       const gid = Number(groupId) || 0
-      for (const n of nodes) {
-        await api.post('/node-repo', {
+      const d = await api.post('/node-repo/batch-import', {
+        group_id: gid,
+        nodes: nodes.map(n => ({
           name: n.name || '(未命名)',
           protocol: n.protocol || '',
           host: n.host,
           port: n.port,
           uri: n.uri || '',
-          remark: '',
-          group_id: gid,
-          group_name: '',
-        })
-        count++
-      }
-      toast(`成功导入 ${count} 个节点`)
+        })),
+      })
+      const created = d?.created ?? 0
+      const updated = d?.updated ?? 0
+      toast(updated > 0 ? `新导入 ${created} 个，更新 ${updated} 个` : `成功导入 ${created} 个节点`)
       onDone()
     } catch (err) {
       toast(err.message, 'error')

@@ -598,7 +598,9 @@ type RepoExitPropagateResult struct {
 //
 // When the new endpoint already exists for a user (PRIMARY KEY conflict), the
 // old row is dropped after merging quota/used (sum) so history is not lost.
-// Metadata-only edits (same host:port) still refresh name/protocol/uri/expires.
+// Metadata-only edits (same host:port) still refresh name/protocol/uri.
+// expiresAt is ignored: the user row keeps its own clock. Warehouse expiry is
+// only a default for a new assignment; an explicit sync writes it later.
 func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPort int, name, protocol, uri string, expiresAt int64) (RepoExitPropagateResult, error) {
 	TouchDataEpoch()
 	out := RepoExitPropagateResult{
@@ -665,19 +667,11 @@ func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPor
 		if u == "" {
 			u = e.uri
 		}
-		exp := expiresAt
-		if exp < 0 {
-			if e.expires.Valid {
-				exp = e.expires.Int64
-			} else {
-				exp = 0
-			}
-		}
 
 		if !out.EndpointChanged {
-			if _, err := tx.Exec(`UPDATE user_landing_exits SET name=?, protocol=?, uri=?, expires_at=?, updated_at=?
+			if _, err := tx.Exec(`UPDATE user_landing_exits SET name=?, protocol=?, uri=?, updated_at=?
 				WHERE user_id=? AND host=? AND port=? AND source='repo'`,
-				srcName, proto, u, exp, nowTs, e.userID, oldHost, oldPort); err != nil {
+				srcName, proto, u, nowTs, e.userID, oldHost, oldPort); err != nil {
 				return out, err
 			}
 			out.ExitsUpdated++
@@ -692,9 +686,9 @@ func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPor
 			WHERE user_id=? AND host=? AND port=?`, e.userID, newHost, newPort).
 			Scan(&existQuota, &existUsed, &existPresent, &existNameOverride)
 		if err == sql.ErrNoRows {
-			if _, err := tx.Exec(`UPDATE user_landing_exits SET host=?, port=?, name=?, protocol=?, uri=?, expires_at=?, updated_at=?, source='repo'
+			if _, err := tx.Exec(`UPDATE user_landing_exits SET host=?, port=?, name=?, protocol=?, uri=?, updated_at=?, source='repo'
 				WHERE user_id=? AND host=? AND port=? AND source='repo'`,
-				newHost, newPort, srcName, proto, u, exp, nowTs, e.userID, oldHost, oldPort); err != nil {
+				newHost, newPort, srcName, proto, u, nowTs, e.userID, oldHost, oldPort); err != nil {
 				return out, err
 			}
 			out.ExitsUpdated++
@@ -719,9 +713,9 @@ func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPor
 			present = 1
 		}
 		if _, err := tx.Exec(`UPDATE user_landing_exits SET name=?, name_override=?, protocol=?, uri=?, present=?,
-			quota_bytes=?, used_bytes=?, expires_at=?, updated_at=?, source='repo'
+			quota_bytes=?, used_bytes=?, updated_at=?, source='repo'
 			WHERE user_id=? AND host=? AND port=?`,
-			srcName, override, proto, u, present, quota, used, exp, nowTs, e.userID, newHost, newPort); err != nil {
+			srcName, override, proto, u, present, quota, used, nowTs, e.userID, newHost, newPort); err != nil {
 			return out, err
 		}
 		if _, err := tx.Exec(`DELETE FROM user_landing_exits WHERE user_id=? AND host=? AND port=?`,
@@ -791,6 +785,51 @@ func PropagateRepoExitChange(d *sql.DB, oldHost, newHost string, oldPort, newPor
 		return out, err
 	}
 	return out, nil
+}
+
+// StopRepoExitUse marks source=repo exits at host:port absent and disables rules
+// those users still dial to that endpoint. The ledger row stays. Rules can be
+// turned back on from the subscription page. nodeIDs should be redispatched.
+func StopRepoExitUse(d *sql.DB, host string, port int) (rulesDisabled int, nodeIDs []int64, err error) {
+	TouchDataEpoch()
+	tx, err := d.Begin()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer tx.Rollback()
+	nowTs := now()
+	if _, err := tx.Exec(`UPDATE user_landing_exits SET present=0, updated_at=? WHERE host=? AND port=? AND source='repo' AND present=1`,
+		nowTs, host, port); err != nil {
+		return 0, nil, err
+	}
+	nodeIDs, err = queryInt64s(tx, `
+		SELECT DISTINCT rh.node_id
+		FROM rule_hops rh
+		JOIN rules r ON r.id = rh.rule_id
+		WHERE r.disabled=0 AND r.exit_host=? AND r.exit_port=?
+		  AND r.owner_id IN (SELECT user_id FROM user_landing_exits WHERE host=? AND port=? AND source='repo')`,
+		host, port, host, port)
+	if err != nil {
+		return 0, nil, err
+	}
+	res, err := tx.Exec(`UPDATE rules SET disabled=1
+		WHERE disabled=0 AND exit_host=? AND exit_port=?
+		  AND owner_id IN (SELECT user_id FROM user_landing_exits WHERE host=? AND port=? AND source='repo')`,
+		host, port, host, port)
+	if err != nil {
+		return 0, nil, err
+	}
+	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, nil, err
+	}
+	return int(n), nodeIDs, nil
+}
+
+// RepoExitUserIDs returns every user with a source=repo exit at host:port,
+// including rows already marked absent.
+func RepoExitUserIDs(d *sql.DB, host string, port int) ([]int64, error) {
+	return queryInt64s(d, `SELECT user_id FROM user_landing_exits WHERE host=? AND port=? AND source='repo' ORDER BY user_id`, host, port)
 }
 
 // RepoExitUser is one user who has a present, repo-sourced landing exit at host:port.

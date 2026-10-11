@@ -320,7 +320,7 @@ func (s *Server) apiUpdateNodeRepoEntry(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Cascade: repo template → user landing exits (source=repo) + rules/hops.
-	// Always run so name/uri/expires refresh even when host:port is unchanged.
+	// Name, protocol and URI refresh. The user's own expiry is not overwritten.
 	prop, err := db.PropagateRepoExitChange(s.DB,
 		prev.Host, body.Host, prev.Port, body.Port,
 		body.Name, body.Protocol, body.URI, body.ExpiresAt,
@@ -595,9 +595,11 @@ func (s *Server) apiDeleteNodeRepoFolder(w http.ResponseWriter, r *http.Request)
 
 // apiBatchDeleteNodeRepoEntries deletes several repository entries in one
 // request so the UI does not have to fire N sequential DELETEs.
+// cascade stops assigned users' rules. The default leaves those lines running.
 func (s *Server) apiBatchDeleteNodeRepoEntries(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		IDs []int64 `json:"ids"`
+		IDs     []int64 `json:"ids"`
+		Cascade bool    `json:"cascade"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -607,30 +609,90 @@ func (s *Server) apiBatchDeleteNodeRepoEntries(w http.ResponseWriter, r *http.Re
 		jsonErr(w, http.StatusBadRequest, "no nodes selected")
 		return
 	}
-	n, err := db.DeleteNodeRepoEntries(s.DB, body.IDs)
+	entries, err := db.ListNodeRepoByIDs(s.DB, body.IDs)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	nodes, err := s.deleteRepoEntries(entries, body.Cascade)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if u := userFromCtx(r.Context()); u != nil {
-		db.WriteAudit(s.DB, u.ID, "node_repo.batch_delete", "", fmt.Sprintf("%d entries", n))
+		detail := fmt.Sprintf("%d entries", len(entries))
+		if body.Cascade {
+			detail += " cascade"
+		}
+		db.WriteAudit(s.DB, u.ID, "node_repo.batch_delete", "", detail)
 	}
-	jsonOK(w, map[string]any{"ok": true, "count": n})
+	jsonOK(w, map[string]any{"ok": true, "count": len(entries), "cascade": body.Cascade, "nodes": len(nodes)})
 }
 
 // apiDeleteNodeRepoEntry deletes a node from the repository.
+// cascade=1 also stops rules of users who were assigned this endpoint.
 func (s *Server) apiDeleteNodeRepoEntry(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := db.DeleteNodeRepoEntry(s.DB, id); err != nil {
+	entry, err := db.GetNodeRepoEntry(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusNotFound, "节点不存在")
+		return
+	}
+	cascade := r.URL.Query().Get("cascade") == "1" || r.URL.Query().Get("cascade") == "true"
+	if _, err := s.deleteRepoEntries([]db.NodeRepoEntry{entry}, cascade); err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	jsonOK(w, map[string]any{"ok": true})
+	if u := userFromCtx(r.Context()); u != nil {
+		detail := entry.Host
+		if cascade {
+			detail += " cascade"
+		}
+		db.WriteAudit(s.DB, u.ID, "node_repo.delete", strconv.FormatInt(id, 10), detail)
+	}
+	jsonOK(w, map[string]any{"ok": true, "cascade": cascade})
+}
+
+// deleteRepoEntries removes warehouse rows. When cascade is set, assigned
+// users' matching rules are disabled first and their nodes are redispatched.
+func (s *Server) deleteRepoEntries(entries []db.NodeRepoEntry, cascade bool) ([]int64, error) {
+	var nodes []int64
+	if cascade {
+		seenEP := map[string]bool{}
+		seenNode := map[int64]bool{}
+		for _, e := range entries {
+			key := e.Host + ":" + strconv.Itoa(e.Port)
+			if seenEP[key] {
+				continue
+			}
+			seenEP[key] = true
+			_, ids, err := db.StopRepoExitUse(s.DB, e.Host, e.Port)
+			if err != nil {
+				return nil, err
+			}
+			for _, id := range ids {
+				if !seenNode[id] {
+					seenNode[id] = true
+					nodes = append(nodes, id)
+				}
+			}
+		}
+	}
+	ids := make([]int64, 0, len(entries))
+	for _, e := range entries {
+		ids = append(ids, e.ID)
+	}
+	if _, err := db.DeleteNodeRepoEntries(s.DB, ids); err != nil {
+		return nil, err
+	}
+	if len(nodes) > 0 {
+		s.redispatchNodes(nodes)
+	}
+	return nodes, nil
 }
 
 // apiAssignRepoToUser takes selected repo node IDs and assigns them to a user
@@ -686,6 +748,206 @@ func (s *Server) apiAssignRepoToUser(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true, "assigned": len(inputs), "exits": exits})
 }
 
+// apiAssignRepoToUsers assigns the selected warehouse rows to several users.
+// Each user keeps the exits they already have.
+func (s *Server) apiAssignRepoToUsers(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		NodeIDs []int64 `json:"node_ids"`
+		UserIDs []int64 `json:"user_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(body.NodeIDs) == 0 || len(body.UserIDs) == 0 {
+		jsonErr(w, http.StatusBadRequest, "请选择节点和用户")
+		return
+	}
+	entries, err := db.ListNodeRepoByIDs(s.DB, body.NodeIDs)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(entries) == 0 {
+		jsonErr(w, http.StatusBadRequest, "节点不存在")
+		return
+	}
+	assigned := 0
+	for _, uid := range body.UserIDs {
+		if _, err := db.GetUserByID(s.DB, uid); err != nil {
+			jsonErr(w, http.StatusBadRequest, "用户不存在")
+			return
+		}
+		if _, err := s.assignRepoEntries(uid, entries); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		assigned++
+	}
+	if u := userFromCtx(r.Context()); u != nil {
+		db.WriteAudit(s.DB, u.ID, "node_repo.assign", "", fmt.Sprintf("%d nodes to %d users", len(entries), assigned))
+	}
+	jsonOK(w, map[string]any{"ok": true, "users": assigned, "nodes": len(entries)})
+}
+
+func (s *Server) assignRepoEntries(uid int64, entries []db.NodeRepoEntry) (int, error) {
+	var inputs []db.LandingExitInput
+	for _, e := range entries {
+		inputs = append(inputs, db.LandingExitInput{
+			Host:     e.Host,
+			Port:     e.Port,
+			Name:     e.Name,
+			Protocol: e.Protocol,
+			URI:      e.URI,
+		})
+	}
+	flipped, err := db.AppendUserLandingExits(s.DB, uid, inputs)
+	if err != nil {
+		return 0, err
+	}
+	for _, k := range flipped {
+		s.goAsync(func() { s.redispatchUserExit(uid, k.Host, k.Port) })
+	}
+	for _, e := range entries {
+		if e.ExpiresAt > 0 {
+			_, _, _ = db.SetUserLandingExitExpires(s.DB, uid, e.Host, e.Port, e.ExpiresAt)
+		}
+	}
+	return len(inputs), nil
+}
+
+// apiSyncNodeRepoExpiry copies this warehouse row's expiry onto users who
+// already hold the endpoint. Saving the row itself does not do this.
+func (s *Server) apiSyncNodeRepoExpiry(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body struct {
+		ExpiresAt *int64 `json:"expires_at"`
+	}
+	if r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonErr(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+	n, err := db.GetNodeRepoEntry(s.DB, id)
+	if err != nil {
+		jsonErr(w, http.StatusNotFound, "节点不存在")
+		return
+	}
+	if body.ExpiresAt != nil {
+		if err := db.SetNodeRepoExpires(s.DB, id, *body.ExpiresAt); err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		n.ExpiresAt = *body.ExpiresAt
+	}
+	uids, err := db.RepoExitUserIDs(s.DB, n.Host, n.Port)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	seen := map[int64]bool{}
+	var nodes []int64
+	updated := 0
+	for _, uid := range uids {
+		_, redisp, err := db.SetUserLandingExitExpires(s.DB, uid, n.Host, n.Port, n.ExpiresAt)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated++
+		if !redisp {
+			continue
+		}
+		ids, err := db.NodesForUserExit(s.DB, uid, n.Host, n.Port)
+		if err != nil {
+			continue
+		}
+		for _, nid := range ids {
+			if !seen[nid] {
+				seen[nid] = true
+				nodes = append(nodes, nid)
+			}
+		}
+	}
+	if len(nodes) > 0 {
+		s.redispatchNodes(nodes)
+	}
+	if u := userFromCtx(r.Context()); u != nil {
+		db.WriteAudit(s.DB, u.ID, "node_repo.sync_expiry", strconv.FormatInt(id, 10), fmt.Sprintf("%d users", updated))
+	}
+	jsonOK(w, map[string]any{"ok": true, "users": updated, "expires_at": n.ExpiresAt})
+}
+
+// apiBatchImportNodeRepo inserts a batch in one request. An existing host:port
+// is updated in the warehouse only and is not pushed onto assigned users.
+func (s *Server) apiBatchImportNodeRepo(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		GroupID int64 `json:"group_id"`
+		Nodes   []struct {
+			Name     string `json:"name"`
+			Protocol string `json:"protocol"`
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			URI      string `json:"uri"`
+		} `json:"nodes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(body.Nodes) == 0 {
+		jsonErr(w, http.StatusBadRequest, "请输入至少一条节点")
+		return
+	}
+	if len(body.Nodes) > 500 {
+		jsonErr(w, http.StatusBadRequest, "一次最多导入 500 条")
+		return
+	}
+	groupName := ""
+	if body.GroupID > 0 {
+		f, err := db.GetNodeRepoFolder(s.DB, body.GroupID)
+		if err != nil {
+			jsonErr(w, http.StatusBadRequest, "分组不存在")
+			return
+		}
+		groupName = f.Name
+	}
+	items := make([]db.NodeRepoImportInput, 0, len(body.Nodes))
+	for _, n := range body.Nodes {
+		host := strings.TrimSpace(n.Host)
+		if host == "" || n.Port < 1 || n.Port > 65535 {
+			jsonErr(w, http.StatusBadRequest, "地址或端口非法")
+			return
+		}
+		if err := validateNodeRepoHost(host); err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		name := strings.TrimSpace(n.Name)
+		if name == "" {
+			name = host
+		}
+		items = append(items, db.NodeRepoImportInput{
+			Name: name, Protocol: strings.TrimSpace(n.Protocol), Host: host, Port: n.Port,
+			URI: strings.TrimSpace(n.URI), GroupID: body.GroupID, GroupName: groupName,
+		})
+	}
+	res, err := db.ImportNodeRepoBatch(s.DB, items)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if u := userFromCtx(r.Context()); u != nil {
+		db.WriteAudit(s.DB, u.ID, "node_repo.import", "", fmt.Sprintf("created %d updated %d", res.Created, res.Updated))
+	}
+	jsonOK(w, map[string]any{"ok": true, "created": res.Created, "updated": res.Updated})
+}
+
 // apiSetNodeRepoBackendIP updates only the current IPv4 (and optionally forces
 // CF sync). Domain host/port stay unchanged so rules are not cascaded.
 func (s *Server) apiSetNodeRepoBackendIP(w http.ResponseWriter, r *http.Request) {
@@ -725,11 +987,15 @@ func (s *Server) apiSetNodeRepoBackendIP(w http.ResponseWriter, r *http.Request)
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Same backend IP = same machine. Changing one protocol's IP updates
-	// the siblings so ss/vless stay on the same host.
+	// Same machine id stays together when the current IP changes. Falling back
+	// to the old IP covers a row that has not been backfilled yet.
 	oldIP := strings.TrimSpace(n.BackendIP)
 	targets := []db.NodeRepoEntry{n}
-	if oldIP != "" {
+	if n.MachineID > 0 {
+		if sibs, err := db.ListNodeRepoByMachine(s.DB, n.MachineID); err == nil && len(sibs) > 0 {
+			targets = sibs
+		}
+	} else if oldIP != "" {
 		if sibs, err := db.ListNodeRepoByBackendIP(s.DB, oldIP); err == nil && len(sibs) > 0 {
 			targets = sibs
 		}
@@ -918,7 +1184,7 @@ func (s *Server) apiProbeNodeRepoDNS(w http.ResponseWriter, r *http.Request) {
 		out["message"] = "目标地址是 IP，无需 DNS 解析"
 		out["resolved"] = []string{}
 		out["match"] = host == n.BackendIP || n.BackendIP == ""
-		jsonOK(w, out)
+		s.finishNodeRepoProbe(w, n.ID, out, "")
 		return
 	}
 	if !resolver.PlausibleHostname(host) {
@@ -934,7 +1200,7 @@ func (s *Server) apiProbeNodeRepoDNS(w http.ResponseWriter, r *http.Request) {
 		out["message"] = "解析失败: " + err.Error()
 		out["resolved"] = []string{}
 		out["match"] = false
-		jsonOK(w, out)
+		s.finishNodeRepoProbe(w, n.ID, out, "")
 		return
 	}
 	out["resolved"] = []string{ip}
@@ -950,5 +1216,18 @@ func (s *Server) apiProbeNodeRepoDNS(w http.ResponseWriter, r *http.Request) {
 		out["status"] = "mismatch"
 		out["message"] = "解析到 " + ip + "，与当前 IP " + n.BackendIP + " 不一致（DNS 可能未生效）"
 	}
+	s.finishNodeRepoProbe(w, n.ID, out, ip)
+}
+
+func (s *Server) finishNodeRepoProbe(w http.ResponseWriter, id int64, out map[string]any, ip string) {
+	status, _ := out["status"].(string)
+	message, _ := out["message"].(string)
+	if err := db.SetNodeRepoProbe(s.DB, id, status, message, ip); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out["dns_probe_status"] = status
+	out["dns_probe_message"] = message
+	out["dns_probe_ip"] = ip
 	jsonOK(w, out)
 }
