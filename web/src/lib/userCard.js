@@ -1,5 +1,5 @@
 /* Admin-facing user delivery card (微信/飞书可直接粘贴).
-   Password is always the panel's published initial password — not a live hash. */
+   Password is included only when the caller just wrote it. */
 
 import { fmtDate, nullInt } from './fmt'
 
@@ -12,13 +12,13 @@ export const CARD_INITIAL_PASSWORD = '123456'
  * @param {string} [opts.panelName]
  * @param {string} opts.panelURL
  * @param {object} opts.user - list or detail user object
- * @param {string} [opts.password] - defaults to CARD_INITIAL_PASSWORD
+ * @param {string} [opts.password] - plaintext only when it was just written
  */
 export function buildUserCardText({
   panelName = '',
   panelURL = '',
   user,
-  password = CARD_INITIAL_PASSWORD,
+  password = '',
 } = {}) {
   if (!user) return ''
   const brand = (panelName || '').trim() || 'nft'
@@ -26,12 +26,15 @@ export function buildUserCardText({
   const username = user.username || ''
   const exp = nullInt(user.expires_at) || (user.expires_at > 0 ? user.expires_at : 0)
   const expiresLine = exp > 0 ? fmtDate(exp) : '永不过期'
+  const passwordLine = password
+    ? `密码：${password}`
+    : '密码：请使用创建或重置时下发的密码'
 
   const lines = [
     `【${brand}】账号信息`,
     `网址：${url}`,
     `用户名：${username}`,
-    `初始密码：${password}`,
+    passwordLine,
     `到期时间：${expiresLine}`,
     '使用说明：看网站公告',
   ]

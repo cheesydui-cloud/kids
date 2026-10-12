@@ -125,6 +125,21 @@ func ParseBusinessDateEnd(raw string) (int64, error) {
 	return end.Unix(), nil
 }
 
+// ExtendExpiry adds calendar days in the panel business zone.
+// A still-valid expiry keeps its clock time. An empty or past expiry starts from now.
+func ExtendExpiry(current, nowUnix int64, days int) int64 {
+	if days < 1 {
+		days = 1
+	}
+	var base time.Time
+	if current > nowUnix {
+		base = time.Unix(current, 0).In(panelBusinessLocation)
+	} else {
+		base = time.Unix(nowUnix, 0).In(panelBusinessLocation)
+	}
+	return base.AddDate(0, 0, days).Unix()
+}
+
 // AddNodeDailyRawTraffic folds delta raw bytes into today's per-node ledger.
 // Same actual-traffic semantics as AddNodeRawTraffic (no billing multiplier).
 // "Today" is the Asia/Shanghai calendar day.

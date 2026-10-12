@@ -3,11 +3,18 @@ import { api } from '../../lib/api'
 import { useToast } from '../../components/Layout'
 import { Badge, Modal, Select } from '../../components/ui'
 
+function nodeByToken(token, allNodes, nodeMap) {
+  if (nodeMap[token]) return nodeMap[token]
+  const idMatch = token.match(/^(?:#|id=)?(\d+)$/i)
+  if (!idMatch) return null
+  return allNodes.find(n => String(n.id) === idMatch[1]) || null
+}
+
 export function parseGrantText(text, allNodes) {
   const nodeMap = Object.fromEntries(allNodes.map(n => [n.name, n]))
   return text.split('\n')
     .map(line => line.trim())
-    .filter(line => line && !line.startsWith('#'))
+    .filter(line => line && !(line.startsWith('#') && !/^#\d+(\s*\|.*)?$/.test(line)))
     .map(line => {
       const parts = line.split('|').map(s => s.trim())
       const name = parts[0]
@@ -20,7 +27,7 @@ export function parseGrantText(text, allNodes) {
         const qMatch = p.match(/^quota=([\d.]+)\s*GB$/i)
         if (qMatch) { quotaGB = Number(qMatch[1]); continue }
       }
-      const node = nodeMap[name]
+      const node = nodeByToken(name, allNodes, nodeMap)
       return { name, maxForwards, quotaGB, nodeId: node?.id || null, found: !!node }
     })
 }
@@ -36,9 +43,14 @@ export default function PasteGrantsModal({ open, onClose, onDone, allNodes, allU
 
   const parsed = text.trim() ? parseGrantText(text, allNodes) : []
   const valid = parsed.filter(p => p.found)
-  const canSubmit = valid.length > 0 && userIds.length > 0 && !submitting
+  const unmatched = parsed.filter(p => !p.found)
+  const canSubmit = valid.length > 0 && unmatched.length === 0 && userIds.length > 0 && !submitting
 
   const submit = async () => {
+    if (unmatched.length > 0) {
+      toast(`有 ${unmatched.length} 行未找到：${unmatched.map(p => p.name).join('、')}`, 'error')
+      return
+    }
     setSubmitting(true)
     try {
       const grants = valid.map(p => ({
@@ -61,7 +73,7 @@ export default function PasteGrantsModal({ open, onClose, onDone, allNodes, allU
         <div>
           <label className="fl block mb-1.5">授权文本</label>
           <textarea className="input-field font-mono w-full" rows={8} value={text} onChange={e => setText(e.target.value)}
-            placeholder={'gateway-hk | max=10 | quota=5GB\nrelay-jp | max=20'} />
+            placeholder={'gateway-hk | max=10 | quota=5GB\n#12 | max=20'} />
         </div>
         <div>
           <label className="fl block mb-1.5">目标用户 <span className="text-ink-mut font-normal text-xs">(可多选)</span></label>
@@ -88,6 +100,9 @@ export default function PasteGrantsModal({ open, onClose, onDone, allNodes, allU
               </tbody>
             </table>
           </div>
+        )}
+        {unmatched.length > 0 && (
+          <p className="text-sm text-red-600 m-0">有 {unmatched.length} 行未找到：{unmatched.map(p => p.name).join('、')}。改完才能授权。</p>
         )}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-line-soft">
           <button onClick={onClose} className="btn-secondary">取消</button>

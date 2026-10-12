@@ -115,7 +115,7 @@ export function SearchInput({ value, onChange, placeholder, className = '' }) {
 }
 
 /* ---------- IdentityBar: sticky detail identity strip (ops console) ---------- */
-export function IdentityBar({ backTo, backLabel, avatar, title, badge, chips, meta, actions }) {
+export function IdentityBar({ backTo, backLabel, avatar, title, badge, chips, meta, extra, actions }) {
   const { setTitle, inTopbar } = useTopbarTitle()
   useEffect(() => {
     if (!inTopbar) return undefined
@@ -141,6 +141,7 @@ export function IdentityBar({ backTo, backLabel, avatar, title, badge, chips, me
               {badge}
             </div>
             {meta && <p className="mt-1 text-[12.5px] text-ink-mut">{meta}</p>}
+            {extra}
             {chips && chips.length > 0 && (
               <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
                 {chips.map((c, i) => (

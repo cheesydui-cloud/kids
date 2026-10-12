@@ -106,6 +106,7 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, billing
   const blurred = blurredProp ?? useBlur()
   const [url, setUrl] = useState(subURL || '')
   const [text, setText] = useState(uris || '')
+  useEffect(() => { setUrl(subURL || ''); setText(uris || '') }, [userId, subURL, uris])
   const [preview, setPreview] = useState(nodes || [])
   const [roles, setRoles] = useState({})
   const [exits, setExits] = useState([])
@@ -154,6 +155,8 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, billing
   }
 
   const resetExit = async (ex) => {
+    const label = ex.name || `${ex.host}:${ex.port}`
+    if (!(await confirm({ title: '重置落地流量', message: `清零落地「${label}」的已用流量？`, confirmText: '清零', danger: true }))) return
     try {
       await api.post(`/users/${userId}/landing-exits/reset`, { host: ex.host, port: ex.port })
       toast('已重置'); reloadLanding()
@@ -219,6 +222,10 @@ export default function LandingSourceCard({ userId, subURL, uris, nodes, billing
     <div className={shellClass}>
       <div className={embedded ? 'detail-panel-body space-y-4' : 'p-5'}>
         <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="fl block mb-1.5">订阅地址 <span className="text-ink-mut font-normal text-xs">(可选，留空表示不用订阅)</span></label>
+            <input className="input-field font-mono w-full" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com/api/sub/xxxx" />
+          </div>
           <div>
             <label className="fl block mb-1.5">手动节点 URI <span className="text-ink-mut font-normal text-xs">(可选，每行一条)</span></label>
             <textarea className={`input-field font-mono w-full min-h-[120px] h-auto py-2.5 ${blurred ? 'blur-[5px]' : ''}`} rows={6} value={text} onChange={e => setText(e.target.value)}

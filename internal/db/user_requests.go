@@ -103,6 +103,57 @@ func ListUserRequests(d *sql.DB, userID int64) ([]UserRequest, error) {
 	return out, rows.Err()
 }
 
+// FillOpenUserRequests sets OpenRequests on each user from still-open rows.
+// Kind order is renew, then quota.
+func FillOpenUserRequests(d *sql.DB, users []*User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	rows, err := d.Query(`SELECT user_id, kind FROM user_requests WHERE status='open'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byUser := map[int64]map[string]bool{}
+	for rows.Next() {
+		var userID int64
+		var kind string
+		if err := rows.Scan(&userID, &kind); err != nil {
+			return err
+		}
+		if byUser[userID] == nil {
+			byUser[userID] = map[string]bool{}
+		}
+		byUser[userID][kind] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	order := []string{RequestRenew, RequestQuota}
+	for _, u := range users {
+		kinds := byUser[u.ID]
+		if len(kinds) == 0 {
+			u.OpenRequests = nil
+			continue
+		}
+		out := make([]string, 0, len(kinds))
+		seen := map[string]bool{}
+		for _, kind := range order {
+			if kinds[kind] {
+				out = append(out, kind)
+				seen[kind] = true
+			}
+		}
+		for kind := range kinds {
+			if !seen[kind] {
+				out = append(out, kind)
+			}
+		}
+		u.OpenRequests = out
+	}
+	return nil
+}
+
 func CloseUserRequest(d *sql.DB, userID, id int64) error {
 	res, err := d.Exec(`UPDATE user_requests SET status='done' WHERE id=? AND user_id=? AND status='open'`, id, userID)
 	if err != nil {

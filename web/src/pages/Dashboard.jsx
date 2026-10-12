@@ -218,6 +218,7 @@ const ATTENTION_GROUPS = [
   { id: 'upgrade', label: '升级' },
   { id: 'soon', label: '即将到期' },
   { id: 'quota-high', label: '流量将尽' },
+  { id: 'request', label: '用户申请' },
 ]
 
 function groupAttention(items) {
@@ -398,6 +399,29 @@ function buildAttention(data, users) {
             desc: `已用 ${Math.round(ratio * 100)}%`,
           })
         }
+      }
+      const kinds = Array.isArray(u.open_requests) ? u.open_requests : []
+      if (kinds.includes('renew')) {
+        items.push({
+          key: `user-req-renew-${u.id}`,
+          group: 'request',
+          to: `/users/${u.id}`,
+          tone: 'warn',
+          tag: '待续期',
+          title: u.username,
+          desc: '用户提交了续期申请',
+        })
+      }
+      if (kinds.includes('quota')) {
+        items.push({
+          key: `user-req-quota-${u.id}`,
+          group: 'request',
+          to: `/users/${u.id}`,
+          tone: 'warn',
+          tag: '待加量',
+          title: u.username,
+          desc: '用户提交了加量申请',
+        })
       }
     }
   }

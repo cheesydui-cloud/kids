@@ -731,6 +731,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/users/{id}/admin-note", s.apiSetAdminNote)
 			r.Post("/users/{id}/group", s.apiSetUserGroup)
 			r.Post("/users/batch-group", s.apiBatchSetUserGroup)
+			r.Post("/users/batch", s.apiBatchUsers)
 			r.Get("/user-folders", s.apiListUserFolders)
 			r.Post("/user-folders", s.apiCreateUserFolder)
 			r.Patch("/user-folders/{id}", s.apiRenameUserFolder)

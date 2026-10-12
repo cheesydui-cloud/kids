@@ -154,15 +154,38 @@ export function isExpired(unix) {
   return unix < Math.floor(Date.now() / 1000)
 }
 
-/** Returns expiry status badge info:
- *  - >3 days: { color: 'green', label: '正常' }
- *  - ≤3 days & not expired: { color: 'red', label: '即将到期' }
- *  - expired: { color: 'gray', label: '已过期' }
+/** Returns expiry status badge info. Window matches the dashboard (7 days).
+ *  - >7 days: { color: 'green', label: '正常' }
+ *  - ≤7 days & not expired: { color: 'red', label: '即将到期' }
+ *  - expired: { color: 'red', label: '已过期' }
  *  - no expiry: null */
 export function expiryBadge(unix) {
   if (!unix || unix <= 0) return null
   const now = Math.floor(Date.now() / 1000)
-  if (unix <= now) return { color: 'gray', label: '已过期' }
+  if (unix <= now) return { color: 'red', label: '已过期' }
   const daysLeft = (unix - now) / 86400
-  return daysLeft > 3 ? { color: 'green', label: '正常' } : { color: 'red', label: '即将到期' }
+  return daysLeft > 7 ? { color: 'green', label: '正常' } : { color: 'red', label: '即将到期' }
+}
+
+/** Account reset cycle label. Window is anchored to created_at, same as the server. */
+export function resetCycleLabel(user) {
+  if (user?.role === 'admin') return '管理员'
+  const days = Number(user?.traffic_reset_days) || 0
+  if (days <= 0) return '不重置'
+  const created = Number(user?.created_at) || 0
+  if (!created) return `每 ${days} 天`
+  const now = Date.now() / 1000
+  const period = days * 86400
+  const elapsed = Math.max(0, now - created)
+  const cycleStart = created + Math.floor(elapsed / period) * period
+  const last = Number(user?.last_traffic_reset_at) || 0
+  if (last < cycleStart) return `每 ${days} 天 · 待重置`
+  return `每 ${days} 天 · 下次 ${fmtDate(cycleStart + period)}`
+}
+
+export function expiryRemainLabel(unix) {
+  if (!unix) return '永不过期'
+  const days = Math.ceil((unix - Date.now() / 1000) / 86400)
+  if (days <= 0) return '已过期'
+  return `还剩 ${days} 天`
 }

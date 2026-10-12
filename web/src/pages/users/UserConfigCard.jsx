@@ -77,7 +77,7 @@ export default function UserConfigCard({ userId, expiresAt, maxForwards, quotaBy
 
         <label className="fl">计费倍率</label>
         <div className="flex items-center gap-1.5">
-          <input className="input-field font-mono flex-1" type="number" min="0" step="0.1" value={form.billingRate} onChange={set('billingRate')} title="1.0 = 原价，<1 折扣，>1 加价" />
+          <input className="input-field font-mono flex-1" type="number" min="0" step="0.1" value={form.billingRate} onChange={set('billingRate')} title="已用量按 ×N 计入配额" />
           <span className="text-xs text-ink-mut">×</span>
         </div>
 

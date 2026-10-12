@@ -145,6 +145,19 @@ function AdminRoleBulkToggle({ nodes, roleOf, onToggle }) {
   )
 }
 
+function GrantUsed({ used, quota }) {
+  const raw = used || 0
+  const cap = quota || 0
+  const ratio = cap > 0 ? raw / cap : 0
+  const cls = ratio >= 1 ? 'text-red-500' : ratio >= 0.9 ? 'text-amber-500' : ''
+  return (
+    <span className={cls}>
+      {fmtTrafficGB(raw, cap)}
+      {cap > 0 && <span className="ml-1 text-[10px]">{Math.round(ratio * 100)}%</span>}
+    </span>
+  )
+}
+
 function GrantNodeForm({ userId, allNodes, grantedNodes, onDone }) {
   const [nodeIds, setNodeIds] = useState([])
   const [max, setMax] = useState('10')
@@ -288,7 +301,7 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
             <th className="w-8"><input type="checkbox"
               checked={tabNodes.length > 0 && tabNodes.every(n => selected.has(n.id))}
               onChange={toggleAll} /></th>
-            <th>节点</th><th>类型</th><th>规则上限</th><th>流量配额</th><th>已用</th><th className="w-16"></th><th className="text-right">操作</th>
+            <th>节点</th><th>类型</th><th>规则上限</th><th>流量配额</th><th title="这条线路按原始流量计配额，不乘账号倍率">已用（原始）</th><th className="w-16"></th><th className="text-right">操作</th>
           </tr></thead>
           <tbody>
             {tabNodes.map(n => (
@@ -304,8 +317,11 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
                 <td>
                   <PerNodeQuotaForm userId={userId} nodeId={n.id} quotaBytes={grantByNode[n.id]?.traffic_quota_bytes} onDone={onDone} />
                 </td>
-                <td className="font-mono text-sm">
-                  {fmtTrafficGB(grantByNode[n.id]?.traffic_used_bytes, grantByNode[n.id]?.traffic_quota_bytes)}
+                <td className="font-mono text-sm" title="原始流量，不乘倍率">
+                  <GrantUsed
+                    used={grantByNode[n.id]?.traffic_used_bytes}
+                    quota={grantByNode[n.id]?.traffic_quota_bytes}
+                  />
                 </td>
                 <td>
                   {grantByNode[n.id]?.traffic_quota_bytes > 0 && grantByNode[n.id]?.traffic_used_bytes > 0 && (

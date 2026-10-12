@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { fmtBytes, fmtTrafficGB, pct, fmtDate, fmtTime, expiryBadge } from '../../lib/fmt'
+import { fmtBytes, fmtTrafficGB, pct, fmtDate, fmtTime, expiryBadge, nullStr, expiryRemainLabel, resetCycleLabel, toLocalDateTimeValue } from '../../lib/fmt'
 import { Layout, useToast, useBlur, useCopyFmt } from '../../components/Layout'
 import { Loading, Empty, Badge, Modal, useConfirm, ProbeChainButton, SensText } from '../../components/ui'
 import { IdentityBar, DetailTabs, StatTile, SectionCard, TableBox } from '../../components/page'
@@ -15,6 +15,7 @@ import UserConfigCard from './UserConfigCard'
 import GrantedNodesCard from './GrantedNodesCard'
 import LandingSourceCard from './LandingSourceCard'
 import { UserCardModal } from '../../components/UserCardModal'
+import { buildUserCardText, loadPanelBranding } from '../../lib/userCard'
 import { QRCodeButton } from '../../components/QRCodeModal'
 import { HealthDot } from '../../components/HealthDot'
 
@@ -40,6 +41,8 @@ export default function UserDetail() {
   const [probeAllTrigger, setProbeAllTrigger] = useState(0)
   const [loadError, setLoadError] = useState('')
   const [showCard, setShowCard] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [folders, setFolders] = useState([])
   const confirm = useConfirm()
 
   const load = (silent) => {
@@ -52,6 +55,7 @@ export default function UserDetail() {
   }
   useEffect(() => { load() }, [id])
   useEffect(() => { api.get('/users').then(d => setAllUsers(d?.users || [])) }, [])
+  useEffect(() => { api.get('/user-folders').then(d => setFolders(d?.folders || [])).catch(() => {}) }, [])
   useEffect(() => { api.get('/node-bindings').then(d => setBindings(d?.bindings || [])).catch(console.error) }, [])
   useEffect(() => { fetchNodeRoles().then(setNodeRoles).catch(() => setNodeRoles({})) }, [])
   useEffect(() => { setTab('overview'); setCreateOpen(false); setEditRule(null); setProbeAllTrigger(0) }, [id])
@@ -93,7 +97,27 @@ export default function UserDetail() {
   }).length
 
   const toggleUser = async () => {
+    if (!user.disabled) {
+      if (!(await confirm({ title: '禁用用户', message: `禁用「${user.username}」？已下发的转发会停掉。`, confirmText: '禁用', danger: true }))) return
+    }
     try { await api.post(`/users/${id}/toggle`); toast(user.disabled ? '已启用' : '已禁用'); load() } catch (err) { toast(err.message, 'error') }
+  }
+  const setGroup = async (groupId) => {
+    try {
+      await api.post(`/users/${id}/group`, { group_id: Number(groupId) || 0 })
+      toast('分组已更新')
+      load()
+    } catch (err) { toast(err.message, 'error') }
+  }
+  const extendRenew = async (req) => {
+    const base = expiresAt && expiresAt * 1000 > Date.now() ? new Date(expiresAt * 1000) : new Date()
+    base.setDate(base.getDate() + 30)
+    try {
+      await api.post(`/users/${id}/expiry`, { expires_at: toLocalDateTimeValue(base) })
+      await api.post(`/users/${id}/requests/${req.id}/done`)
+      toast('已续期 30 天')
+      load()
+    } catch (err) { toast(err.message, 'error') }
   }
   const resetTraffic = async () => {
     if (!(await confirm({ title: '重置流量', message: `清零用户「${user.username}」的已用流量？`, confirmText: '重置', danger: true }))) return
@@ -119,8 +143,14 @@ export default function UserDetail() {
     } catch (err) { toast(err.message, 'error') }
   }
 
+  const disableText = !user.disabled ? '' : (() => {
+    const reason = nullStr(user.disable_reason)
+    if (reason === '流量超额') return '流量超额'
+    if (reason === '管理员手动禁用') return '手动禁用'
+    return reason || '已禁用'
+  })()
   const statusBadge = user.disabled
-    ? <Badge color="amber">已禁用</Badge>
+    ? <Badge color="amber">{disableText}</Badge>
     : <Badge color="green">正常</Badge>
 
   // Asia/Shanghai calendar day raw traffic (0:00–23:59); billable = raw × rate.
@@ -136,7 +166,7 @@ export default function UserDetail() {
     {
       label: '流量',
       value: fmtTrafficGB(billableUsed, quota),
-      tone: quota > 0 && billablePct >= 100 ? 'tone-danger' : quota > 0 && billablePct >= 80 ? 'tone-warn' : 'tone-blue',
+      tone: quota > 0 && billablePct >= 100 ? 'tone-danger' : quota > 0 && billablePct >= 90 ? 'tone-warn' : 'tone-blue',
       title: rate !== 1 ? `累计流量 ×${rate}` : '累计流量',
     },
     {
@@ -156,10 +186,28 @@ export default function UserDetail() {
     },
     {
       label: '到期',
-      value: expiresAt ? fmtDate(expiresAt) : '永不过期',
-      tone: exp?.color === 'red' ? 'tone-danger' : exp?.color === 'gray' ? 'tone-warn' : 'tone-ok',
+      value: expiryRemainLabel(expiresAt),
+      title: expiresAt ? fmtDate(expiresAt) : '永不过期',
+      tone: exp?.color === 'red' ? 'tone-danger' : 'tone-ok',
     },
   ].filter(Boolean) : []
+  if (isRegularUser) {
+    const nowSec = Math.floor(Date.now() / 1000)
+    let landingExp = 0
+    for (const n of landing_nodes) {
+      const t = n.expires_at || 0
+      if (t > 0 && (landingExp === 0 || t < landingExp)) landingExp = t
+    }
+    const sooner = landingExp > 0 && (!expiresAt || landingExp < expiresAt) && landingExp <= nowSec + 7 * 86400
+    if (sooner) {
+      chips.push({
+        label: '落地',
+        value: landingExp <= nowSec ? '已到期' : '将到期',
+        tone: landingExp <= nowSec ? 'tone-danger' : 'tone-warn',
+        title: '有落地比账号更早到期',
+      })
+    }
+  }
 
   const tabs = [{ id: 'overview', label: '概览' }]
   if (isRegularUser) {
@@ -175,11 +223,6 @@ export default function UserDetail() {
   const activeTab = tabs.some(t => t.id === tab) ? tab : 'overview'
   const avatar = (user.username || '?').slice(0, 2).toUpperCase()
 
-  const trafficTone = !quota ? 'blue'
-    : billablePct >= 100 ? 'danger'
-    : billablePct >= 80 ? 'warn'
-    : 'ok'
-
   return (
     <Layout>
       <IdentityBar
@@ -189,14 +232,35 @@ export default function UserDetail() {
         title={user.username}
         badge={statusBadge}
         meta={`ID ${user.id} · ${user.role}`}
+        extra={isRegularUser ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+            <label className="text-ink-mut">分组</label>
+            <select
+              className="input-field !h-8 text-xs w-auto max-w-[180px]"
+              value={String(user.group_id || 0)}
+              onChange={e => setGroup(e.target.value)}
+            >
+              <option value="0">未分组</option>
+              {folders.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+            </select>
+            <span className="text-ink-soft">{resetCycleLabel(user)}</span>
+          </div>
+        ) : null}
         chips={chips}
         actions={isRegularUser ? (
           <>
             <button onClick={() => setShowCard(true)} className="btn-primary text-xs">复制名片</button>
             <button onClick={toggleUser} className="btn-secondary text-xs">{user.disabled ? '启用' : '禁用'}</button>
-            <button onClick={resetTraffic} className="btn-secondary text-xs">重置流量</button>
             <button onClick={resetPassword} className="btn-secondary text-xs">重置密码</button>
-            <button onClick={deleteUser} className="btn-danger text-xs">删除</button>
+            <div className="relative">
+              <button type="button" onClick={() => setMoreOpen(v => !v)} className="btn-secondary text-xs">更多</button>
+              {moreOpen && (
+                <div className="absolute right-0 top-full z-20 mt-1 min-w-[140px] rounded-xl border border-line bg-surface shadow-lg p-1">
+                  <button type="button" onClick={() => { setMoreOpen(false); resetTraffic() }} className="block w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-raised">重置流量</button>
+                  <button type="button" onClick={() => { setMoreOpen(false); deleteUser() }} className="block w-full text-left px-3 py-2 text-xs rounded-lg text-red-600 hover:bg-raised">删除</button>
+                </div>
+              )}
+            </div>
           </>
         ) : null}
       />
@@ -209,6 +273,7 @@ export default function UserDetail() {
               <span className="text-[11px] text-ink-mut tabular-nums">{todayDay || '北京时间'} · 0:00–23:59</span>
             </div>
             <div className="text-[18px] font-bold tabular-nums text-ink leading-tight">{fmtBytes(todayBillable)}</div>
+            {rate !== 1 && <p className="mt-1 mb-0 text-[11px] text-ink-mut">已按 ×{rate} 计入</p>}
           </div>
           <div className="rounded-2xl border border-line-soft bg-surface/80 px-4 py-3">
             <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -216,6 +281,7 @@ export default function UserDetail() {
               <span className="text-[11px] text-ink-mut tabular-nums">{yesterdayDay || '上一自然日'}</span>
             </div>
             <div className="text-[18px] font-bold tabular-nums text-ink leading-tight">{fmtBytes(yesterdayBillable)}</div>
+            {rate !== 1 && <p className="mt-1 mb-0 text-[11px] text-ink-mut">已按 ×{rate} 计入</p>}
           </div>
         </div>
       )}
@@ -238,7 +304,15 @@ export default function UserDetail() {
                   {req.note && <p className="mt-1 text-[13px] text-ink-soft break-words">{req.note}</p>}
                 </div>
                 {req.status === 'open' && (
-                  <button type="button" className="btn-secondary text-xs shrink-0" onClick={() => closeRequest(req)}>标为已处理</button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {req.kind === 'renew' && (
+                      <button type="button" className="btn-primary text-xs" onClick={() => extendRenew(req)}>+30 天</button>
+                    )}
+                    {req.kind === 'quota' && (
+                      <button type="button" className="btn-primary text-xs" onClick={() => setTab('config')}>去改配额</button>
+                    )}
+                    <button type="button" className="btn-secondary text-xs" onClick={() => closeRequest(req)}>标为已处理</button>
+                  </div>
                 )}
               </div>
             ))}
@@ -251,32 +325,12 @@ export default function UserDetail() {
       {activeTab === 'overview' && (
         <div className="space-y-4">
           {isRegularUser && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <StatTile
-                label="流量"
-                value={fmtTrafficGB(billableUsed, quota)}
-                hint={rate !== 1
-                  ? (quota > 0 ? `×${rate} · 已用 ${billablePct}%` : `×${rate} · 不限额`)
-                  : (quota > 0 ? `已用 ${billablePct}%` : '出站+入站累计')}
-                tone={trafficTone}
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <StatTile
                 label="实时网速"
                 value={<span className="text-[18px] sm:text-[20px]"><span className="text-emerald-600">↑{fmtSpeed(liveUp)}</span> <span className="text-emerald-600">↓{fmtSpeed(liveDown)}</span></span>}
                 hint={`${liveActive} / ${rules.length} 条规则有流量`}
                 tone="teal"
-              />
-              <StatTile
-                label="授权线路"
-                value={String(nodes.length)}
-                hint="已授权转发线路"
-                tone="teal"
-              />
-              <StatTile
-                label="计费倍率"
-                value={`×${rate}`}
-                hint={rate !== 1 ? `流量按 ×${rate} 显示` : '默认 1 倍'}
-                tone="blue"
               />
             </div>
           )}
@@ -287,10 +341,11 @@ export default function UserDetail() {
                 <table className="tbl tbl-roomy">
                   <thead>
                     <tr>
-                      <th className="w-[28%]">名称</th>
-                      <th className="w-[26%]">节点</th>
-                      <th className="w-[26%]">实时</th>
-                      <th className="w-[20%] text-right">{rate !== 1 ? `用量(×${rate})` : '用量'}</th>
+                      <th className="w-[22%]">名称</th>
+                      <th className="w-[20%]">节点</th>
+                      <th className="w-[22%]">落地</th>
+                      <th className="w-[20%]">实时</th>
+                      <th className="w-[16%] text-right">{rate !== 1 ? `用量(×${rate})` : '用量'}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -309,6 +364,7 @@ export default function UserDetail() {
                               <Link to={`/rules/${r.id}`} className="link-accent hover:underline">{r.name}</Link>
                             </td>
                             <td className="font-mono text-[13px] text-ink-soft">{nodeMap[r.node_id]?.name || `#${r.node_id}`}</td>
+                            <td className="text-[13px] text-ink-soft truncate max-w-[180px]" title={r.landing_name || ''}>{r.landing_name || '—'}</td>
                             <td className="font-mono text-[13px]">
                               <span className="text-emerald-600">↑{fmtSpeed(sp.up)}</span>
                               <span className="inline-block w-3" />
@@ -557,7 +613,20 @@ export default function UserDetail() {
           <code className="flex-1 font-mono text-sm bg-raised border border-line rounded-lg px-3 py-2.5 break-all select-all">{newPassword}</code>
           <button onClick={() => copyToClipboard(newPassword).then(() => toast('已复制')).catch(() => toast('复制失败', 'error'))} className="btn-primary flex-none px-4">复制</button>
         </div>
-        <div className="flex justify-end mt-5">
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={async () => {
+            try {
+              const brand = await loadPanelBranding(api)
+              const text = buildUserCardText({
+                panelName: brand.panelName,
+                panelURL: brand.panelURL,
+                user,
+                password: newPassword,
+              })
+              await copyToClipboard(text)
+              toast('名片已复制')
+            } catch { toast('复制失败', 'error') }
+          }} className="btn-primary">复制含新密码的名片</button>
           <button onClick={() => setNewPassword(null)} className="btn-secondary">关闭</button>
         </div>
       </Modal>

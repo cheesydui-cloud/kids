@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Modal } from './ui'
 import { copyToClipboard } from '../lib/clipboard'
-import { buildUserCardText, CARD_INITIAL_PASSWORD, loadPanelBranding } from '../lib/userCard'
+import { buildUserCardText, loadPanelBranding } from '../lib/userCard'
 import { api } from '../lib/api'
 
 /**
@@ -33,7 +33,7 @@ export function UserCardModal({ open, onClose, user, toast }) {
           panelName,
           panelURL,
           user: fullUser,
-          password: CARD_INITIAL_PASSWORD,
+          password: '',
         })
         if (!cancelled) setText(card)
       } catch (e) {
@@ -63,8 +63,7 @@ export function UserCardModal({ open, onClose, user, toast }) {
       {!loading && text && (
         <>
           <p className="text-[12px] text-ink-mut mb-3 m-0">
-            初始密码固定为 <span className="font-mono font-semibold text-ink">{CARD_INITIAL_PASSWORD}</span>
-            （与实际重置密码无关，便于统一交付文案）。
+            名片只在创建或重置的当下带上刚写入的密码。之后再复制，不再附带密码。
           </p>
           <pre className="text-[13px] font-mono whitespace-pre-wrap break-all bg-raised border border-line rounded-xl px-4 py-3 max-h-[50vh] overflow-y-auto text-ink leading-relaxed m-0">
             {text}

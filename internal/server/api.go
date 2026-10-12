@@ -3082,6 +3082,10 @@ func (s *Server) apiListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	db.FillUserRuleCounts(s.DB, users)
+	if err := db.FillOpenUserRequests(s.DB, users); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "读取用户申请失败: "+err.Error())
+		return
+	}
 	jsonOK(w, map[string]any{"users": users})
 }
 
@@ -3201,6 +3205,7 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		AdminNote         string  `json:"admin_note"`
 		BillingRate       float64 `json:"billing_rate"`
 		GroupID           int64   `json:"group_id"`
+		TrafficResetDays  int     `json:"traffic_reset_days"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "请求格式错误")
@@ -3226,6 +3231,10 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := db.CreateUser(s.DB, username, hash, role)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			jsonErr(w, http.StatusBadRequest, "用户名已存在")
+			return
+		}
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -3237,8 +3246,12 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	if billingRate <= 0 {
 		billingRate = 1
 	}
-	if _, err := s.DB.Exec(`UPDATE users SET max_forwards=?, traffic_quota_bytes=?, billing_rate=? WHERE id=?`,
-		maxFwd, body.TrafficQuotaBytes, billingRate, id); err != nil {
+	resetDays := body.TrafficResetDays
+	if resetDays < 0 {
+		resetDays = 0
+	}
+	if _, err := s.DB.Exec(`UPDATE users SET max_forwards=?, traffic_quota_bytes=?, billing_rate=?, traffic_reset_days=? WHERE id=?`,
+		maxFwd, body.TrafficQuotaBytes, billingRate, resetDays, id); err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

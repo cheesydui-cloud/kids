@@ -49,6 +49,9 @@ type User struct {
 	// RuleCount is not a users-table column; it is filled by FillUserRuleCounts
 	// so the user list can show used/total rule quota.
 	RuleCount int `json:"rule_count"`
+	// OpenRequests lists kinds with an open user_requests row (renew, quota).
+	// Filled by FillOpenUserRequests; empty when the user has nothing pending.
+	OpenRequests []string `json:"open_requests,omitempty"`
 }
 
 type Node struct {
