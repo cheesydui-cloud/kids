@@ -27,7 +27,7 @@ func TestEgressChangeNote(t *testing.T) {
 			t.Errorf("%s: got %q, want empty", tc.name, got)
 		}
 		if !tc.wantEmpty {
-			want := "出口已变，中继地址未改（这次 2.2.2.2，中继仍是 9.9.9.9）"
+			want := "出口已变，对外地址未改（这次 2.2.2.2，仍是 9.9.9.9）"
 			if got != want {
 				t.Errorf("%s: got %q, want %q", tc.name, got, want)
 			}

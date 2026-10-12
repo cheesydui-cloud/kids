@@ -671,7 +671,7 @@ func RegenerateRule(tx DBTX, r *Rule, hops []HopInput, avoid map[int64]int) (str
 			return "", "", nil, fmt.Errorf("节点 %d 不存在", hop.NodeID)
 		}
 		if relay == "" {
-			return "", "", nil, fmt.Errorf("节点 %s 未设置中继地址", name)
+			return "", "", nil, fmt.Errorf("节点 %s 未设置对外地址", name)
 		}
 		segs, err := ParsePortRange(portRange)
 		if err != nil {
@@ -694,7 +694,7 @@ func RegenerateRule(tx DBTX, r *Rule, hops []HopInput, avoid map[int64]int) (str
 	if exitIsIPv6(r.ExitHost) && rs[len(rs)-1].relayHostV6 == "" {
 		var name string
 		_ = tx.QueryRow(`SELECT name FROM nodes WHERE id=?`, rs[len(rs)-1].nodeID).Scan(&name)
-		return "", "", nil, fmt.Errorf("节点 %s 未设置 IPv6 中继地址，不能转发 IPv6 目标", name)
+		return "", "", nil, fmt.Errorf("节点 %s 未设置 IPv6 对外地址，不能转发 IPv6 目标", name)
 	}
 
 	// The entry family is derived from what the entry node can serve, not chosen

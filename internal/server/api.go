@@ -1173,7 +1173,7 @@ func (s *Server) apiSetNodeRelayHost(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.TrimSpace(body.RelayHost)
 	if host != "" && !isValidRelayHost(host) {
-		jsonErr(w, http.StatusBadRequest, "中继地址须为 IPv4 或域名，IPv6 请使用 IPv6 中继地址字段")
+		jsonErr(w, http.StatusBadRequest, "对外地址须为 IPv4 或域名，IPv6 请使用 IPv6 对外地址字段")
 		return
 	}
 	if err := db.UpdateNodeRelayHost(s.DB, id, host); err != nil {
@@ -1213,7 +1213,7 @@ func (s *Server) apiSetNodeRelayHostV6(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.TrimSpace(body.RelayHostV6)
 	if host != "" && !isValidRelayHostV6(host) {
-		jsonErr(w, http.StatusBadRequest, "IPv6 中继地址须为有效的 IPv6 地址")
+		jsonErr(w, http.StatusBadRequest, "IPv6 对外地址须为有效的 IPv6 地址")
 		return
 	}
 	// Clearing the v6 relay would brick rules whose entry family needs it:
@@ -1222,7 +1222,7 @@ func (s *Server) apiSetNodeRelayHostV6(w http.ResponseWriter, r *http.Request) {
 	// type. Refuse the clear while such rules exist.
 	if host == "" {
 		if cnt, err := db.CountV6EntryRulesOnNode(s.DB, id); err == nil && cnt > 0 {
-			jsonErr(w, http.StatusConflict, fmt.Sprintf("该节点上有 %d 条使用 v6 入口的规则，需先将它们的入口类型改为 v4 才能清除 IPv6 中继地址", cnt))
+			jsonErr(w, http.StatusConflict, fmt.Sprintf("该节点上有 %d 条使用 v6 入口的规则，需先将它们的入口类型改为 v4 才能清除 IPv6 对外地址", cnt))
 			return
 		}
 	}
@@ -1244,13 +1244,13 @@ func validateNodeCF(relayHost string, cf db.NodeCFFields) error {
 	}
 	host := strings.TrimSpace(relayHost)
 	if host == "" {
-		return errBad("开启 CF 同步时，请先把中继地址设为域名")
+		return errBad("开启 CF 同步时，请先把对外地址设为域名")
 	}
 	if net.ParseIP(host) != nil {
-		return errBad("开启 CF 同步时，中继地址须为域名（不能是 IP）")
+		return errBad("开启 CF 同步时，对外地址须为域名（不能是 IP）")
 	}
 	if !resolver.PlausibleHostname(host) {
-		return errBad("开启 CF 同步时，中继地址须为合法域名")
+		return errBad("开启 CF 同步时，对外地址须为合法域名")
 	}
 	if !cloudflare.IsIPv4(cf.BackendIP) {
 		return errBad("开启 CF 同步时，须填写当前 IPv4")
@@ -1423,7 +1423,7 @@ func (s *Server) apiSetNodeBackendIP(w http.ResponseWriter, r *http.Request) {
 		cfSync = *body.CFSync
 	}
 	if net.ParseIP(strings.TrimSpace(node.RelayHost)) != nil && cfSync {
-		jsonErr(w, http.StatusBadRequest, "中继地址是 IP 时不能开启 CF 同步；请先把中继地址改为域名")
+		jsonErr(w, http.StatusBadRequest, "对外地址是 IP 时不能开启 CF 同步；请先把对外地址改为域名")
 		return
 	}
 	cf := db.NodeCFFields{

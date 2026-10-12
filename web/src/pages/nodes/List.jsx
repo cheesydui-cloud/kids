@@ -158,7 +158,7 @@ export default function NodeList() {
   const q = search.trim().toLowerCase()
   const matchSearch = (n) => {
     if (!q) return true
-    const hay = [n.name, n.relay_host, n.relay_host_v6, n.address, n.group_name, n.remark, `#${n.id}`]
+    const hay = [n.name, n.relay_host, n.relay_host_v6, n.group_name, n.remark, `#${n.id}`]
       .filter(Boolean).join(' ').toLowerCase()
     return hay.includes(q)
   }
@@ -312,7 +312,7 @@ export default function NodeList() {
             onRename={async (id, name) => { await api.patch(`/nodes/folders/${id}`, { name }); await loadFolders(); load() }}
             onDelete={async (id) => { await api.del(`/nodes/folders/${id}`); await loadFolders(); load() }}
           />
-          <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、IP、中继、备注…" />
+          <SearchInput value={search} onChange={setSearch} placeholder="搜索名称、对外地址、备注…" />
           <Select value={statusFilter} onChange={setStatusFilter}
             className="w-[136px] max-w-full shrink-0"
             options={[

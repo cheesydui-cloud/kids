@@ -171,11 +171,11 @@ export default function NodeDetail() {
   }
   const saveRelay = async (e) => {
     e.preventDefault()
-    try { await api.post(`/nodes/${id}/relay-host`, { relay_host: relayHost }); toast('中继地址已保存'); load() } catch (err) { toast(err.message, 'error') }
+    try { await api.post(`/nodes/${id}/relay-host`, { relay_host: relayHost }); toast('对外地址已保存'); load() } catch (err) { toast(err.message, 'error') }
   }
   const saveRelayV6 = async (e) => {
     e.preventDefault()
-    try { await api.post(`/nodes/${id}/relay-host-v6`, { relay_host_v6: relayHostV6 }); toast('IPv6 中继地址已保存'); load() } catch (err) { toast(err.message, 'error') }
+    try { await api.post(`/nodes/${id}/relay-host-v6`, { relay_host_v6: relayHostV6 }); toast('IPv6 对外地址已保存'); load() } catch (err) { toast(err.message, 'error') }
   }
   const notifyCF = (cf) => {
     if (!cf || cf.skipped) return
@@ -202,7 +202,7 @@ export default function NodeDetail() {
   const pullFromCF = async () => {
     const looksIP = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test((s || '').trim())
     const ip = looksIP(backendIP) ? backendIP.trim() : (looksIP(relayHost) ? relayHost.trim() : '')
-    if (!ip) { toast('请先填写当前 IP 或中继 IP', 'error'); return }
+    if (!ip) { toast('请先填写当前 IP', 'error'); return }
     setCfBusy(true)
     try {
       const d = await api.post(`/nodes/${id}/cf-lookup`, {
@@ -370,15 +370,11 @@ export default function NodeDetail() {
                 <div className="mt-2 text-[13px] text-ink-mut">虚拟链路节点，由下列各跳依次转发；自身无 Agent / IP / 同步状态</div>
               ) : (
                 <div className="mt-2 flex items-center gap-[18px] flex-wrap text-[13px] text-ink-mut">
-                  <span>连接 IP&nbsp;&nbsp;{node.address
-                    ? <b className="text-ink-soft font-mono font-semibold"><SensText blurred={blurred}>{node.address}</SensText></b>
-                    : <span className="text-ink-mut">未连接</span>}</span>
-                  <span className="text-[#cfd6df] hidden sm:inline">|</span>
-                  <span className="hidden sm:inline">Agent&nbsp;&nbsp;{node.agent_version
+                  <span>Agent&nbsp;&nbsp;{node.agent_version
                     ? <><span className="font-mono text-ink-soft">{displayAgentVersion(node, latest_agent_version, latest_agent_sha)}</span>{agentOutdated && <span className="ml-1"><Badge color="amber">非最新</Badge></span>}</>
                     : <span className="text-ink-mut">未知</span>}</span>
-                  <span className="text-[#cfd6df] hidden sm:inline">|</span>
-                  <span className="hidden sm:inline">最近同步&nbsp;&nbsp;<b className="text-ink-soft font-semibold">{fmtTime(node.last_apply_at?.Valid ? node.last_apply_at.Int64 : null)}</b></span>
+                  <span className="text-[#cfd6df]">|</span>
+                  <span>最近同步&nbsp;&nbsp;<b className="text-ink-soft font-semibold">{fmtTime(node.last_apply_at?.Valid ? node.last_apply_at.Int64 : null)}</b></span>
                 </div>
               )}
             </div>
@@ -421,13 +417,10 @@ export default function NodeDetail() {
           <section className={`${card} px-[26px] py-[22px]`}>
             <h2 className="m-0 mb-[18px] text-[15px] font-bold">基本信息</h2>
             <div className="grid grid-cols-[auto_1fr]">
-              <InfoRow label="连接 IP" mono>
-                {node.address ? <SensText blurred={blurred}>{node.address}</SensText> : <span className="text-ink-mut">未连接</span>}
-              </InfoRow>
-              <InfoRow label="中继地址（数据面）" mono>
+              <InfoRow label="对外地址" mono>
                 {node.relay_host ? <SensText blurred={blurred}>{node.relay_host}</SensText> : <span className="text-ink-mut">未设置（设置后才能进链路）</span>}
               </InfoRow>
-              <InfoRow label="IPv6 中继地址" mono>
+              <InfoRow label="IPv6 对外地址" mono>
                 {node.relay_host_v6 ? <SensText blurred={blurred}>{node.relay_host_v6}</SensText> : <span className="text-ink-mut">未设置</span>}
               </InfoRow>
               <InfoRow label="Token" mono valueClass="text-[12.5px] break-all leading-relaxed">
@@ -492,7 +485,7 @@ export default function NodeDetail() {
               </div>
             )}
             <div className="mb-3 flex items-center gap-2.5 flex-wrap text-[13px]">
-              <span className="text-ink-soft">中继地址声明（双出口机器用，可空）</span>
+              <span className="text-ink-soft">对外地址声明（双出口机器用，可空）</span>
               <input className="input-field font-mono" style={{ height: 30, maxWidth: 220 }} value={cmdRelayHost}
                 onChange={e => setCmdRelayHost(e.target.value)} placeholder="IPv4 / 域名（可选）" />
               <input className="input-field font-mono" style={{ height: 30, maxWidth: 220 }} value={cmdRelayHostV6}
@@ -534,9 +527,9 @@ export default function NodeDetail() {
               </form>
             </ConfigField>
 
-            <ConfigField label="中继地址（数据面）">
+            <ConfigField label="对外地址" hint="用户和上一跳连接这台机器时用的域名或 IP">
               <form onSubmit={saveRelay} className="flex gap-2">
-                <input className="input-field font-mono flex-1" value={relayHost} onChange={e => setRelayHost(e.target.value)} placeholder="数据面公网 IP 或域名" disabled={node.relay_host_declared} />
+                <input className="input-field font-mono flex-1" value={relayHost} onChange={e => setRelayHost(e.target.value)} placeholder="域名或 IP" disabled={node.relay_host_declared} />
                 <button type="submit" className="btn-primary flex-none px-5" disabled={node.relay_host_declared}>保存</button>
               </form>
             </ConfigField>
@@ -565,7 +558,7 @@ export default function NodeDetail() {
                     <div>
                       <label className="block text-[12px] font-semibold text-ink-soft mb-1">记录名（可选）</label>
                       <input className="input-field font-mono text-sm w-full" value={cfRecordName}
-                        onChange={e => setCfRecordName(e.target.value)} placeholder="默认用中继域名" />
+                        onChange={e => setCfRecordName(e.target.value)} placeholder="默认用对外域名" />
                     </div>
                   </div>
                   <div>
@@ -605,9 +598,9 @@ export default function NodeDetail() {
               </ConfigField>
             )}
 
-            <ConfigField label="IPv6 中继地址">
+            <ConfigField label="IPv6 对外地址" hint="用户和上一跳走 IPv6 时用的地址。留空表示不提供 IPv6">
               <form onSubmit={saveRelayV6} className="flex gap-2">
-                <input className="input-field font-mono flex-1" value={relayHostV6} onChange={e => setRelayHostV6(e.target.value)} placeholder="数据面公网 IPv6 地址" disabled={node.relay_host_v6_declared} />
+                <input className="input-field font-mono flex-1" value={relayHostV6} onChange={e => setRelayHostV6(e.target.value)} placeholder="IPv6 地址" disabled={node.relay_host_v6_declared} />
                 <button type="submit" className="btn-primary flex-none px-5" disabled={node.relay_host_v6_declared}>保存</button>
               </form>
             </ConfigField>
@@ -758,9 +751,9 @@ export default function NodeDetail() {
       <Modal open={changeIPOpen} onClose={() => !cfBusy && setChangeIPOpen(false)} title={`改 IP · ${node.name}`}>
         <form onSubmit={submitChangeIP} className="space-y-4">
           <div className="text-[13px] text-ink-soft">
-            中继 <span className="font-mono font-semibold text-ink">{node.relay_host || '（未设置）'}</span>
+            对外地址 <span className="font-mono font-semibold text-ink">{node.relay_host || '（未设置）'}</span>
             <div className="text-[12px] text-ink-mut mt-1">
-              只改当前入口 IP 并推送到 CF A 记录；中继域名与用户链接不变。
+              只改当前入口 IP 并推送到 CF A 记录；对外域名与用户链接不变。
             </div>
           </div>
           <div>

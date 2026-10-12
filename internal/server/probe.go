@@ -153,7 +153,7 @@ func hopRelayHost(n *db.Node) (string, error) {
 		if name == "" {
 			name = fmt.Sprintf("#%d", n.ID)
 		}
-		return "", fmt.Errorf("节点 %s 没有中继地址", name)
+		return "", fmt.Errorf("节点 %s 没有对外地址", name)
 	}
 	return host, nil
 }

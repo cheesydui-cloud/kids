@@ -18,7 +18,7 @@ func egressChangeNote(prevAddress, connectIP, relay, declared string, relayDecla
 	if connectIP == relay || prevAddress == connectIP {
 		return ""
 	}
-	return "出口已变，中继地址未改（这次 " + connectIP + "，中继仍是 " + relay + "）"
+	return "出口已变，对外地址未改（这次 " + connectIP + "，仍是 " + relay + "）"
 }
 
 func ipv4Literal(s string) bool {
