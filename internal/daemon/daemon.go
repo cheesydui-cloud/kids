@@ -263,37 +263,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	safeGo(func() { d.refreshLoop(ctx) })
 
 	if d.connectURL != "" {
-		dl := NewDialer(DialerConfig{
-			URL:                 d.connectURL,
-			Token:               d.connectTok,
-			AgentVersion:        agentVersion(),
-			AgentSHA:            agentSHA(),
-			PortRange:           d.portRange,
-			DeclaredRelayHost:   d.declaredRelayHost,
-			DeclaredRelayHostV6: d.declaredRelayHostV6,
-			GetState:            d.SnapshotForDialer,
-			OnApply:             d.SetPanelRuleset,
-			OnSession: func() {
-				d.markPanelSeen()
-				NoteUpgradeHealthy()
-			},
-			DisconnectPath:  filepath.Join(filepath.Dir(d.statePath), "disconnect.json"),
-			ResourceWarning: resourceWarning,
-			OnHelloRejected: func() { d.dropPanelRuleset("hello rejected") },
-			OnMigrated:      d.clearTuiSegment,
-			CountersFn:      d.counterSamples,
-			CountersReadd:   d.reAddCounters,
-			OnConfigUpdate: func(poolSize int, lease time.Duration) {
-				if lease > 0 {
-					d.panelLease = lease
-				}
-				if dp, ok := d.dp.(*forward.Dataplane); ok {
-					dp.SetPoolSize(poolSize)
-				}
-			},
-		})
-		d.dialer.Store(dl)
-		safeGo(func() { dl.Run(ctx) })
+		ensureUnlimitedSystemdRestarts()
+		safeGo(func() { d.runDialer(ctx) })
 		safeGo(func() { d.panelLeaseLoop(ctx) })
 	}
 
@@ -543,6 +514,85 @@ func (d *Daemon) clearTuiSegment() {
 		}, nil, true)
 	if err != nil {
 		log.Printf("daemon: clear tui segment after migration: %v", err)
+	}
+}
+
+// newPanelDialer builds the control-channel dialer from the daemon's
+// current flags. Each call returns a fresh Dialer; Run's stop channel
+// is one-shot, so a supervisor restart must not reuse the old value.
+func (d *Daemon) newPanelDialer() *Dialer {
+	return NewDialer(DialerConfig{
+		URL:                 d.connectURL,
+		Token:               d.connectTok,
+		AgentVersion:        agentVersion(),
+		AgentSHA:            agentSHA(),
+		PortRange:           d.portRange,
+		DeclaredRelayHost:   d.declaredRelayHost,
+		DeclaredRelayHostV6: d.declaredRelayHostV6,
+		GetState:            d.SnapshotForDialer,
+		OnApply:             d.SetPanelRuleset,
+		OnSession: func() {
+			d.markPanelSeen()
+			NoteUpgradeHealthy()
+		},
+		DisconnectPath:  filepath.Join(filepath.Dir(d.statePath), "disconnect.json"),
+		ResourceWarning: resourceWarning,
+		OnHelloRejected: func() { d.dropPanelRuleset("hello rejected") },
+		OnMigrated:      d.clearTuiSegment,
+		CountersFn:      d.counterSamples,
+		CountersReadd:   d.reAddCounters,
+		OnConfigUpdate: func(poolSize int, lease time.Duration) {
+			if lease > 0 {
+				d.panelLease = lease
+			}
+			if dp, ok := d.dp.(*forward.Dataplane); ok {
+				dp.SetPoolSize(poolSize)
+			}
+		},
+	})
+}
+
+// runDialer keeps a dialer running until ctx is cancelled. Dialer.Run
+// only returns on shutdown or on a panic recovered here; either way a
+// still-living daemon starts another loop instead of staying offline
+// with the process marked active.
+func (d *Daemon) runDialer(ctx context.Context) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		dl := d.newPanelDialer()
+		d.dialer.Store(dl)
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("dialer: supervisor recovered panic: %v", r)
+				}
+			}()
+			dl.Run(ctx)
+		}()
+		select {
+		case <-ctx.Done():
+			dl.Stop()
+			select {
+			case <-stopped:
+			case <-time.After(5 * time.Second):
+				log.Printf("daemon: dialer stop timed out")
+			}
+			return
+		case <-stopped:
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("dialer: reconnect loop exited; starting a new one")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+		}
 	}
 }
 

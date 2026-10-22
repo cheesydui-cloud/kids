@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +55,22 @@ func (f *fakeHub) closeConn() {
 	if ws != nil {
 		ws.Close(websocket.StatusNormalClosure, "")
 	}
+}
+
+func (f *fakeHub) write(env wsproto.Envelope) error {
+	f.mu.Lock()
+	ws := f.conn
+	f.mu.Unlock()
+	if ws == nil {
+		return errors.New("no connection")
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return ws.Write(ctx, websocket.MessageText, b)
 }
 
 func (f *fakeHub) handler(t *testing.T) http.Handler {
@@ -509,5 +526,106 @@ func TestDialerHelloIncludesDeclaredRelayHost(t *testing.T) {
 	}
 	if hello.DeclaredRelayHostV6 != "2001:db8::50" {
 		t.Errorf("DeclaredRelayHostV6 = %q, want 2001:db8::50", hello.DeclaredRelayHostV6)
+	}
+}
+
+func helloAckHook() func(wsproto.Envelope) wsproto.Envelope {
+	return func(env wsproto.Envelope) wsproto.Envelope {
+		ack, _ := json.Marshal(wsproto.HelloAck{NodeID: 7, Name: "edge"})
+		return wsproto.Envelope{Type: wsproto.TypeHelloAck, ID: env.ID, Payload: ack}
+	}
+}
+
+func countHellos(frames []wsproto.Envelope) int {
+	n := 0
+	for _, f := range frames {
+		if f.Type == wsproto.TypeHello {
+			n++
+		}
+	}
+	return n
+}
+
+// A dropped socket must dial again. The panel does not call the node back.
+func TestDialerRunRedialsAfterDrop(t *testing.T) {
+	fh := newFakeHub()
+	fh.onAck(wsproto.TypeHello, helloAckHook())
+	srv := httptest.NewServer(fh.handler(t))
+	defer srv.Close()
+
+	dl := NewDialer(DialerConfig{
+		URL:          "ws" + strings.TrimPrefix(srv.URL, "http") + "/",
+		Token:        "tok",
+		AgentVersion: "v1",
+		GetState:     func() (OwnerRuleset, AgentMeta) { return OwnerRuleset{}, AgentMeta{} },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dl.exitOnStall = cancel
+	dl.stallAfter = time.Hour
+	go dl.Run(ctx)
+
+	waitConnected(t, dl)
+	fh.closeConn()
+
+	deadline := time.After(5 * time.Second)
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for countHellos(fh.Frames()) < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("dialer did not redial after drop, hellos=%d", countHellos(fh.Frames()))
+		case <-tick.C:
+		}
+	}
+}
+
+// OnApply used to run on the serve loop. A disconnect during that call
+// never reached the reconnect path. The session has to end while apply
+// is still blocked.
+func TestDialerDisconnectDuringApplyEndsSession(t *testing.T) {
+	fh := newFakeHub()
+	fh.onAck(wsproto.TypeHello, helloAckHook())
+	srv := httptest.NewServer(fh.handler(t))
+	defer srv.Close()
+
+	started := make(chan struct{})
+	var once sync.Once
+	dl := NewDialer(DialerConfig{
+		URL:          "ws" + strings.TrimPrefix(srv.URL, "http") + "/",
+		Token:        "tok",
+		AgentVersion: "v1",
+		GetState:     func() (OwnerRuleset, AgentMeta) { return OwnerRuleset{}, AgentMeta{} },
+		OnApply: func(ctx context.Context, _ string, _ []nft.Rule) (string, error) {
+			once.Do(func() { close(started) })
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := dl.runOnce(ctx)
+		errCh <- err
+	}()
+	waitConnected(t, dl)
+	payload, _ := json.Marshal(wsproto.ApplyRuleset{Rev: "r1"})
+	if err := fh.write(wsproto.Envelope{Type: wsproto.TypeApplyRuleset, ID: "apply-1", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("apply did not start")
+	}
+	fh.closeConn()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected disconnect error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runOnce still blocked in apply after disconnect")
 	}
 }

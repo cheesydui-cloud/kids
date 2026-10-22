@@ -43,8 +43,9 @@ write_daemon_unit() {
 Description=nft host daemon (nftables controller)
 After=network-online.target nftables.service
 Wants=network-online.target
-StartLimitIntervalSec=120
-StartLimitBurst=8
+# 0 disables the burst cap. The default cap stops Restart=always after a
+# few failures and the node stays offline until reset-failed.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

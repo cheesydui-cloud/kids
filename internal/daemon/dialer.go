@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -52,6 +53,17 @@ const (
 	// Interval is short enough to catch NAT aging (~30–60s on some clouds)
 	// while staying well under typical panel read/ping budgets.
 	dialerTCPKeepAlive = 15 * time.Second
+	// dialerPingFailLimit ends the session after this many consecutive ping
+	// write failures. A single blip stays up; a dead socket must not sit
+	// in the serve loop until the read watchdog happens to notice.
+	dialerPingFailLimit = 3
+	// dialerProgressStall is how long Run may go without a dial attempt, a
+	// successful read, or a successful ping. Past it the process exits so
+	// systemd can start a clean one. Longer than one dial timeout plus the
+	// in-session watchdog, shorter than "offline for many minutes".
+	dialerProgressStall = 2 * time.Minute
+	// dialerStallCheck is how often the progress watchdog wakes.
+	dialerStallCheck = 5 * time.Second
 )
 
 const (
@@ -140,16 +152,81 @@ type Dialer struct {
 	stopOnce sync.Once
 	stop     chan struct{}
 	done     chan struct{} // closed when Run() returns
+
+	// progress is the last time the reconnect loop did something useful
+	// (a new attempt, a frame, a ping). The stall watchdog exits the
+	// process when this stops moving, which covers a dial or apply that
+	// never returns to Run.
+	progress atomic.Int64
+	// stallAfter and exitOnStall override the production stall policy.
+	// Tests set them; the zero value uses dialerProgressStall and os.Exit.
+	stallAfter  time.Duration
+	exitOnStall func()
+}
+
+type applyDone struct {
+	id      string
+	payload []byte
+	err     error
 }
 
 func NewDialer(cfg DialerConfig) *Dialer {
 	return &Dialer{
-		cfg:       cfg,
-		upgradeCh: make(chan upgradeResult, 1),
-		cmdCh:     make(chan wsproto.Envelope, 16),
-		pending:   make(map[string]chan wsproto.RuleCmdAck),
-		stop:      make(chan struct{}),
-		done:      make(chan struct{}),
+		cfg:         cfg,
+		upgradeCh:   make(chan upgradeResult, 1),
+		cmdCh:       make(chan wsproto.Envelope, 16),
+		pending:     make(map[string]chan wsproto.RuleCmdAck),
+		stop:        make(chan struct{}),
+		done:        make(chan struct{}),
+		exitOnStall: func() { os.Exit(1) },
+	}
+}
+
+func (d *Dialer) touchProgress() {
+	d.progress.Store(time.Now().UnixNano())
+}
+
+func (d *Dialer) progressStalled(now time.Time) bool {
+	last := d.progress.Load()
+	if last == 0 {
+		return false
+	}
+	limit := d.stallAfter
+	if limit <= 0 {
+		limit = dialerProgressStall
+	}
+	return now.Sub(time.Unix(0, last)) > limit
+}
+
+// progressStallLoop exits the process when the reconnect loop is wedged.
+// A deadlocked dial or nft apply never returns to Run, the panel already
+// shows the node offline, and systemd will not restart a process that is
+// still "active". Exiting is what makes Restart=always fire.
+func (d *Dialer) progressStallLoop(ctx context.Context, stop <-chan struct{}) {
+	t := time.NewTicker(dialerStallCheck)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.stop:
+			return
+		case <-stop:
+			return
+		case now := <-t.C:
+			if !d.progressStalled(now) {
+				continue
+			}
+			limit := d.stallAfter
+			if limit <= 0 {
+				limit = dialerProgressStall
+			}
+			log.Printf("dialer: no progress for %s; exiting so the service manager can restart", limit)
+			if d.exitOnStall != nil {
+				d.exitOnStall()
+			}
+			return
+		}
 	}
 }
 
@@ -280,6 +357,9 @@ func (d *Dialer) sendCommand(ctx context.Context, frameType string, payload json
 // data plane.
 func (d *Dialer) Run(ctx context.Context) {
 	defer close(d.done)
+	stallStop := make(chan struct{})
+	defer close(stallStop)
+	go d.progressStallLoop(ctx, stallStop)
 	backoff := dialerBackoffInitial
 	for {
 		select {
@@ -289,6 +369,7 @@ func (d *Dialer) Run(ctx context.Context) {
 			return
 		default:
 		}
+		d.touchProgress()
 		sessionStart := time.Now()
 		helloAcked, err := d.runOnceSafe(ctx)
 		reason := classifyDialerEnd(err, helloAcked, time.Since(sessionStart))
@@ -314,6 +395,7 @@ func (d *Dialer) Run(ctx context.Context) {
 			backoff = dialerBackoffInitial
 		}
 		sleep := jitter(backoff)
+		d.touchProgress()
 		select {
 		case <-ctx.Done():
 			return
@@ -556,6 +638,13 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 	// lastRead tracks the last successful frame so a half-open TCP that never
 	// errors can still be detected. Updated on every env from readCh.
 	lastRead := time.Now()
+	// sessCtx dies with this session. Apply runs off the serve loop so a
+	// dropped socket can reconnect while nft is still working; cancelling
+	// sessCtx asks that work to stop.
+	sessCtx, sessCancel := context.WithCancel(ctx)
+	defer sessCancel()
+	applyCh := make(chan applyDone, 4)
+	pingFails := 0
 
 	for {
 		select {
@@ -565,8 +654,19 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 			return helloAcked, nil
 		case err := <-errCh:
 			return helloAcked, err
+		case res := <-applyCh:
+			if res.err != nil {
+				log.Printf("dialer: marshal %s: %v", wsproto.TypeApplyAck, res.err)
+				continue
+			}
+			if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeApplyAck, ID: res.id, Payload: res.payload}); err != nil {
+				return helloAcked, err
+			}
+			d.touchProgress()
 		case env := <-readCh:
 			lastRead = time.Now()
+			d.touchProgress()
+			pingFails = 0
 			switch env.Type {
 			case wsproto.TypeApplyRuleset:
 				var ar wsproto.ApplyRuleset
@@ -574,45 +674,15 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 					log.Printf("dialer: unmarshal %s: %v", env.Type, err)
 					continue
 				}
-				// Keep the original v0.58.0 behaviour: apply synchronously so
-				// apply_ack is written immediately after OnApply returns. Long
-				// applies (many rules, slow DNS, port binds) can exceed the
-				// panel's 30s read timeout, so send pings concurrently while
-				// the apply runs.
-				kaCtx, kaCancel := context.WithCancel(ctx)
-				safeGo(func() {
-					ticker := time.NewTicker(dialerPingInterval)
-					defer ticker.Stop()
-					for {
-						select {
-						case <-kaCtx.Done():
-							return
-						case <-ticker.C:
-							pp, _ := json.Marshal(wsproto.Ping{TS: time.Now().UnixMilli()})
-							_ = writeOne(kaCtx, ws, wsproto.Envelope{Type: wsproto.TypePing, ID: "ping-ka-" + strconv.FormatInt(time.Now().UnixMilli(), 36), Payload: pp})
-						}
-					}
-				})
-				ok := true
-				errMsg := ""
-				warning := ""
-				if d.cfg.OnApply != nil {
-					var applyErr error
-					warning, applyErr = d.cfg.OnApply(ctx, ar.Rev, ar.Rules)
-					if applyErr != nil {
-						ok = false
-						errMsg = applyErr.Error()
-					}
-				}
-				kaCancel()
-				ap, err := json.Marshal(wsproto.ApplyAck{Rev: ar.Rev, OK: ok, Error: errMsg, Warning: warning})
-				if err != nil {
-					log.Printf("dialer: marshal %s: %v", wsproto.TypeApplyAck, err)
-					continue
-				}
-				if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeApplyAck, ID: env.ID, Payload: ap}); err != nil {
-					return helloAcked, err
-				}
+				// Apply off the serve loop. A synchronous OnApply used to
+				// block this select, so a socket that died mid-apply never
+				// reached the reconnect loop and the panel stayed offline.
+				// Pings still go out during the apply so the panel's read
+				// timeout does not cut a long ruleset push.
+				id := env.ID
+				rev := ar.Rev
+				rules := append([]nft.Rule(nil), ar.Rules...)
+				go d.runApply(sessCtx, ws, applyCh, id, rev, rules)
 			case wsproto.TypeUpgrade:
 				var u wsproto.Upgrade
 				if err := json.Unmarshal(env.Payload, &u); err != nil {
@@ -700,12 +770,17 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 			}
 			if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypePing, ID: "ping-" + strconv.FormatInt(time.Now().UnixMilli(), 36), Payload: pp}); err != nil {
 				// One failed ping write on a flaky link is usually transient.
-				// The reader will detect a truly dead connection; tearing down
-				// here makes high-latency links oscillate. The watchdog still
-				// covers the half-open case where writes appear to succeed.
+				// Several in a row means the socket is dead and the reader has
+				// not noticed yet; end the session so Run dials again.
+				pingFails++
 				log.Printf("dialer: write %s: %v", wsproto.TypePing, err)
+				if pingFails >= dialerPingFailLimit {
+					return helloAcked, fmt.Errorf("ping write failed %d times: %w", pingFails, err)
+				}
 				continue
 			}
+			pingFails = 0
+			d.touchProgress()
 		case <-countersT.C:
 			if d.cfg.CountersFn == nil {
 				continue
@@ -739,6 +814,62 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 				return helloAcked, err
 			}
 		}
+	}
+}
+
+// runApply executes OnApply away from the serve select and posts the ack.
+// sessCtx is cancelled when the session ends, so a dropped connection
+// reconnects without waiting for nft to finish.
+func (d *Dialer) runApply(sessCtx context.Context, ws *websocket.Conn, applyCh chan applyDone, id, rev string, rules []nft.Rule) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("dialer: apply panic: %v", r)
+			ap, _ := json.Marshal(wsproto.ApplyAck{Rev: rev, OK: false, Error: fmt.Sprintf("apply panic: %v", r)})
+			select {
+			case applyCh <- applyDone{id: id, payload: ap}:
+			case <-sessCtx.Done():
+			case <-d.stop:
+			}
+		}
+	}()
+	kaCtx, kaCancel := context.WithCancel(sessCtx)
+	defer kaCancel()
+	safeGo(func() {
+		ticker := time.NewTicker(dialerPingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-kaCtx.Done():
+				return
+			case <-ticker.C:
+				pp, err := json.Marshal(wsproto.Ping{TS: time.Now().UnixMilli()})
+				if err != nil {
+					continue
+				}
+				if err := writeOne(kaCtx, ws, wsproto.Envelope{Type: wsproto.TypePing, ID: "ping-ka-" + strconv.FormatInt(time.Now().UnixMilli(), 36), Payload: pp}); err != nil {
+					return
+				}
+				d.touchProgress()
+			}
+		}
+	})
+	ok := true
+	errMsg := ""
+	warning := ""
+	if d.cfg.OnApply != nil {
+		var applyErr error
+		warning, applyErr = d.cfg.OnApply(sessCtx, rev, rules)
+		if applyErr != nil {
+			ok = false
+			errMsg = applyErr.Error()
+		}
+	}
+	kaCancel()
+	ap, err := json.Marshal(wsproto.ApplyAck{Rev: rev, OK: ok, Error: errMsg, Warning: warning})
+	select {
+	case applyCh <- applyDone{id: id, payload: ap, err: err}:
+	case <-sessCtx.Done():
+	case <-d.stop:
 	}
 }
 
