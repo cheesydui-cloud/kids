@@ -563,6 +563,10 @@ func buildRulesChecked(d *sql.DB, ruleHops []*db.RuleHop) ([]nft.Rule, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取规则跳数失败: %w", err)
 	}
+	shapes, err := db.GrantShapes(d)
+	if err != nil {
+		return nil, fmt.Errorf("读取授权限速失败: %w", err)
+	}
 
 	rules := make([]nft.Rule, 0, len(ruleHops))
 	for _, rh := range ruleHops {
@@ -580,6 +584,17 @@ func buildRulesChecked(d *sql.DB, ruleHops []*db.RuleHop) ([]nft.Rule, error) {
 			if r.OwnerID.Valid {
 				if u := users[r.OwnerID.Int64]; u != nil {
 					rule.OwnerName = u.Username
+				}
+				// The cap is the grant on the rule's panel node (a single
+				// node or a composite). Only the entry hop is shaped, so a
+				// chain is not queued again on later hops. Mode stays as the
+				// operator set it: kernel rules use nft+tc, userspace rules
+				// keep their own token bucket at the same Mbps.
+				if rh.Position == 0 {
+					if gs, ok := shapes[[2]int64{r.OwnerID.Int64, r.NodeID}]; ok && gs.RateMbps > 0 && gs.GrantID > 0 {
+						rule.ShapeGroup = gs.GrantID
+						rule.RateMBytes = int(gs.RateMbps)
+					}
 				}
 			}
 		}
@@ -723,6 +738,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/users/{id}/reset-days", s.apiSetResetDays)
 			r.Post("/users/{id}/nodes/{nodeID}/max-forwards", s.apiSetPerNodeMaxForwards)
 			r.Post("/users/{id}/nodes/{nodeID}/quota", s.apiSetPerNodeQuota)
+			r.Post("/users/{id}/nodes/{nodeID}/rate", s.apiSetPerNodeRate)
 			r.Post("/users/{id}/nodes/{nodeID}/reset-traffic", s.apiResetPerNodeTraffic)
 			r.Get("/users/{id}/landing-exits", s.apiListUserLandingExits)
 			r.Post("/users/{id}/landing-exits/quota", s.apiSetLandingExitQuota)

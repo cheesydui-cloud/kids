@@ -30,6 +30,9 @@ type subItem struct {
 	Landing   string `json:"landing_name,omitempty"`
 	ExpiresAt int64  `json:"expires_at,omitempty"`
 	Family    string `json:"family,omitempty"` // v4 | v6
+	// RateMbps is the shared cap for this user's rules on the rule's panel
+	// node. 0 means unlimited. Direct landings are not grant-shaped.
+	RateMbps int `json:"rate_mbps,omitempty"`
 	// Status is the entry-node liveness shown on the user node list:
 	// online / offline / unknown for relay, direct for ROLE_DIRECT exits.
 	Status string `json:"status,omitempty"`
@@ -125,6 +128,10 @@ func (s *Server) collectUserSub(u *db.User) (userSubProfile, error) {
 		name := uniquifyName(base, used)
 		st := s.ruleEntryStatus(rl.ID, online)
 		block, text := relayConnectBlock(u, rl, st, acctBlock, acctText, exitByHP, grantByNode)
+		rateMbps := 0
+		if g := grantByNode[rl.NodeID]; g != nil && g.RateMbps > 0 {
+			rateMbps = int(g.RateMbps)
+		}
 		p.Items = append(p.Items, subItem{
 			Kind:        "relay",
 			Name:        name,
@@ -139,6 +146,7 @@ func (s *Server) collectUserSub(u *db.User) (userSubProfile, error) {
 			Status:      st,
 			BlockReason: block,
 			BlockText:   text,
+			RateMbps:    rateMbps,
 		})
 		if item.RelayURIV6 != "" {
 			n6 := uniquifyName(name+"-v6", used)
@@ -156,6 +164,7 @@ func (s *Server) collectUserSub(u *db.User) (userSubProfile, error) {
 				Status:      st,
 				BlockReason: block,
 				BlockText:   text,
+				RateMbps:    rateMbps,
 			})
 		}
 	}
@@ -580,12 +589,21 @@ func (s *Server) userSubRules(u *db.User, p userSubProfile) []map[string]any {
 			}
 		}
 	}
+	rates := map[int64]int64{}
+	if _, gs, err := db.ListNodesForUser(s.DB, u.ID); err == nil {
+		for _, g := range gs {
+			if g != nil {
+				rates[g.NodeID] = g.RateMbps
+			}
+		}
+	}
 	out := make([]map[string]any, 0, len(rules))
 	for _, rl := range rules {
 		row := map[string]any{
-			"id":       rl.ID,
-			"name":     rl.Name,
-			"disabled": rl.Disabled,
+			"id":        rl.ID,
+			"name":      rl.Name,
+			"disabled":  rl.Disabled,
+			"rate_mbps": rates[rl.NodeID],
 		}
 		if it, ok := byID[rl.ID]; ok {
 			row["status"] = it.Status

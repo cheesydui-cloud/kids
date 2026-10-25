@@ -4600,6 +4600,49 @@ func (s *Server) apiSetPerNodeQuota(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"ok": true})
 }
 
+func (s *Server) apiSetPerNodeRate(w http.ResponseWriter, r *http.Request) {
+	u := userFromCtx(r.Context())
+	userID, err := urlParamInt64(r, "id")
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	nodeID, err := urlParamInt64(r, "nodeID")
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "bad node id")
+		return
+	}
+	var body struct {
+		RateMbps int64 `json:"rate_mbps"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if body.RateMbps < 0 {
+		jsonErr(w, http.StatusBadRequest, "限速不能为负，0 表示不限")
+		return
+	}
+	res, err := s.DB.Exec(`UPDATE user_nodes SET rate_mbps=? WHERE user_id=? AND node_id=?`,
+		body.RateMbps, userID, nodeID)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		jsonErr(w, http.StatusNotFound, "尚未授权该节点")
+		return
+	}
+	affected, _ := db.RulesAffectedByNode(s.DB, userID, nodeID)
+	for _, id := range affected {
+		_ = s.dispatchToNode(id)
+	}
+	db.WriteAudit(s.DB, u.ID, "user.set_node_rate", strconv.FormatInt(userID, 10),
+		fmt.Sprintf("node=%d mbps=%d", nodeID, body.RateMbps))
+	jsonOK(w, map[string]any{"ok": true})
+}
+
 func (s *Server) apiResetPerNodeTraffic(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	userID, err := urlParamInt64(r, "id")

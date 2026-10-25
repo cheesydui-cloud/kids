@@ -44,14 +44,14 @@ type Rule struct {
 	RuleName  string `json:"rule_name,omitempty"`
 	OwnerName string `json:"owner_name,omitempty"`
 	HopCount  int    `json:"hop_count,omitempty"`
-// ShapeGroup/RateMBytes carry the per-grant shared rate limit: every rule
-		// in the same group (one user's rules on one panel node, priced by one
-		// grant) shares a single RateMBytes Mbps bucket, both directions combined.
-		// (RateMBytes is the historical wire name; the unit is megabits/s.)
-		// ShapeGroup is the panel-side grant id; 0 = no group. When the group is
-		// valid the data plane ignores the legacy per-rule BandwidthMbps, which
-		// new panels still fill so pre-group agents degrade to an approximate
-		// per-rule cap.
+	// ShapeGroup/RateMBytes carry the per-grant shared rate limit: every rule
+	// in the same group (one user's rules on one panel node, priced by one
+	// grant) shares a single RateMBytes Mbps bucket, both directions combined.
+	// (RateMBytes is the historical wire name; the unit is megabits/s.)
+	// ShapeGroup is the panel-side grant id; 0 = no group. When the group is
+	// valid the data plane ignores BandwidthMbps. Current panels leave that
+	// legacy per-port field at 0 so a grant cap does not also open a second
+	// class. A group id above 16 bits cannot be a tc class minor.
 	ShapeGroup int64 `json:"shape_group,omitempty"`
 	RateMBytes int   `json:"rate_mbytes,omitempty"`
 }

@@ -297,7 +297,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
 
 ## 已知限制
 
-- 限速仅 egress 方向
+- 同一用户在同一节点的限速，上下行共用一个上限（单位 Mbps），只计该节点公网网卡出去的流量
 - 面板单实例（SQLite）
 - WSS 不内置 TLS，需反代做 TLS 终结
 - 官方预编译二进制目前仅 linux/amd64 与 linux/arm64

@@ -30,6 +30,29 @@ function PerNodeMaxForwardsForm({ userId, nodeId, maxForwards, onDone }) {
   )
 }
 
+function PerNodeRateForm({ userId, nodeId, rateMbps, onDone }) {
+  const [mbps, setMbps] = useState(String(rateMbps ?? 0))
+  const toast = useToast()
+  const submit = async (e) => {
+    e.preventDefault()
+    const n = Math.max(0, Math.round(Number(mbps) || 0))
+    try {
+      await api.post(`/users/${userId}/nodes/${nodeId}/rate`, { rate_mbps: n })
+      toast(n > 0 ? `已限速 ${n} Mbps` : '已取消限速')
+      onDone()
+    } catch (err) { toast(err.message, 'error') }
+  }
+  return (
+    <form onSubmit={submit} className="inline-flex items-center gap-1">
+      <input className="input-field font-mono !h-8 !text-xs !px-2" type="number" min="0" step="1" value={mbps}
+        onChange={e => setMbps(e.target.value)} style={{ width: 64 }}
+        title="0 = 不限。这个用户在这个节点上的全部规则共用，单位 Mbps" />
+      <span className="text-[11px] text-ink-mut">Mbps</span>
+      <button type="submit" className="btn-secondary !h-8 !px-2.5 text-[11px]">设</button>
+    </form>
+  )
+}
+
 function PerNodeQuotaForm({ userId, nodeId, quotaBytes, onDone }) {
   const [gb, setGb] = useState(String(Number(((quotaBytes || 0) / 1073741824).toFixed(2))))
   const toast = useToast()
@@ -301,7 +324,9 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
             <th className="w-8"><input type="checkbox"
               checked={tabNodes.length > 0 && tabNodes.every(n => selected.has(n.id))}
               onChange={toggleAll} /></th>
-            <th>节点</th><th>类型</th><th>规则上限</th><th>流量配额</th><th title="这条线路按原始流量计配额，不乘账号倍率">已用（原始）</th><th className="w-16"></th><th className="text-right">操作</th>
+            <th>节点</th><th>类型</th><th>规则上限</th><th>流量配额</th>
+            <th title="这个用户在这个节点上的全部规则共用。0 = 不限。只在入口跳生效">限速</th>
+            <th title="这条线路按原始流量计配额，不乘账号倍率">已用（原始）</th><th className="w-16"></th><th className="text-right">操作</th>
           </tr></thead>
           <tbody>
             {tabNodes.map(n => (
@@ -316,6 +341,9 @@ function GrantedNodesCard({ userId, nodes, grants, allNodes, allUsers, onDone, e
                 </td>
                 <td>
                   <PerNodeQuotaForm userId={userId} nodeId={n.id} quotaBytes={grantByNode[n.id]?.traffic_quota_bytes} onDone={onDone} />
+                </td>
+                <td>
+                  <PerNodeRateForm userId={userId} nodeId={n.id} rateMbps={grantByNode[n.id]?.rate_mbps} onDone={onDone} />
                 </td>
                 <td className="font-mono text-sm" title="原始流量，不乘倍率">
                   <GrantUsed

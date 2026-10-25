@@ -612,12 +612,18 @@ function FieldRow({ label, value, onCopy, copied, multiline, placeholder }) {
   )
 }
 
+function fmtRateMbps(mbps) {
+  const n = Number(mbps) || 0
+  return n > 0 ? `${n} Mbps` : '不限'
+}
+
 function nodeMeta(item) {
   const bits = []
   if (item.protocol) bits.push(item.protocol)
   if (item.family === 'v6') bits.push('IPv6')
   else if (item.family === 'v4') bits.push('IPv4')
   if (item.rule_name && item.rule_name !== item.name) bits.push(item.rule_name)
+  if (item.kind === 'relay') bits.push(fmtRateMbps(item.rate_mbps))
   return bits.join(' · ')
 }
 
@@ -656,7 +662,7 @@ function RuleOnlyRow({ rule, ruleBusy, onToggle }) {
         <span className={`sub-status ${off ? 'is-off' : 'is-unk'}`}><i />{off ? '已停用' : '未纳入'}</span>
         <div className="min-w-0">
           <div className="sub-node-name">{rule.name}</div>
-          <div className="sub-node-meta">{rule.block_text || (off ? '已停用，入口不再转发。启用即可恢复。' : '这条规则没有可导入的节点')}</div>
+          <div className="sub-node-meta">{fmtRateMbps(rule.rate_mbps)} · {rule.block_text || (off ? '已停用，入口不再转发。启用即可恢复。' : '这条规则没有可导入的节点')}</div>
         </div>
       </div>
       <div className="sub-node-side">
