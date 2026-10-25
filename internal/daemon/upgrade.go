@@ -202,6 +202,11 @@ func restartSelf() {
 	time.Sleep(time.Second)
 	unit := detectUnit()
 	log.Printf("upgrade: restarting unit %s", unit)
+	// A unit that already hit StartLimitBurst stays failed across binary
+	// replacement. Clearing it here is what lets this restart actually run.
+	if out, err := exec.Command("systemctl", "reset-failed", unit+".service").CombinedOutput(); err != nil {
+		log.Printf("upgrade: reset-failed %s: %v: %s", unit, err, out)
+	}
 	if out, err := exec.Command(
 		"systemd-run", "--no-block", "--",
 		"systemctl", "restart", unit,

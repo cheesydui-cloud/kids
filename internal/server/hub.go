@@ -25,7 +25,10 @@ import (
 
 const (
 	hubWriteTimeout = 10 * time.Second
-	hubReadTimeout  = 30 * time.Second
+	// 90s covers a brief stall (slow apply, GC, a delayed pong) without
+	// dropping a node that is still forwarding. The agent pings every 10s,
+	// so a healthy socket still refreshes well inside this window.
+	hubReadTimeout  = 90 * time.Second
 	applyAckTimeout = 60 * time.Second
 	// hubMaxReadBytes bounds a single WebSocket frame. Counters samples and
 	// rule command payloads are small; anything larger is malformed or malicious.

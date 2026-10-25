@@ -623,6 +623,7 @@ rollback_update() {
       mv -f "$INSTALL_DIR/$bin.bak" "$INSTALL_DIR/$bin"
     fi
   done
+  systemctl reset-failed nft-daemon.service 2>/dev/null || true
   systemctl restart nft-daemon.service 2>/dev/null || true
   if [[ -f "$SYSTEMD_DIR/nft-server.service" ]]; then
     systemctl restart nft-server.service 2>/dev/null || true
@@ -690,6 +691,8 @@ do_update() {
   # ---- 重启 unit ----
   note "[4/5] 重启 daemon (+ server, if present) ..."
   systemctl daemon-reload
+  # A unit already in the failed state ignores restart until this clears it.
+  systemctl reset-failed nft-daemon.service || true
   systemctl restart nft-daemon.service
   if [[ "$want_server" -eq 1 ]]; then
     systemctl restart nft-server.service
@@ -1097,7 +1100,9 @@ EOF
     # enable --now 对已运行的 daemon 是 no-op，不会重启；装 agent 时 daemon 往往
     # 已在运行（纯 daemon 段或先前角色），必须 restart 才能让新写入的 --connect
     # 参数真正生效，否则旧进程继续以无 --connect 的纯 daemon 模式运行、永不上线。
+    # reset-failed：启动次数超限后 unit 停在 failed，不清理则这次 restart 不会起来。
     systemctl enable nft-daemon.service
+    systemctl reset-failed nft-daemon.service || true
     systemctl restart nft-daemon.service
     cat <<EOF
 

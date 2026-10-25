@@ -250,6 +250,8 @@ chmod 0755 "$INSTALL_DIR/nft-upgrade"
 note "[3/4] 启动 nft-daemon ..."
 systemctl daemon-reload
 systemctl enable nft-daemon.service
+# 启动次数超限后 unit 停在 failed。不清理的话，这次升级替换了二进制也不会起来。
+systemctl reset-failed nft-daemon.service || true
 systemctl restart nft-daemon.service
 sleep 1
 if systemctl is-active --quiet nft-daemon.service; then

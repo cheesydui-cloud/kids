@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { billedUsedBytes, fmtBytes, fmtTime, fmtDate, nullStr, nullInt, expiryBadge } from '../lib/fmt'
+import { controlRemainLabel, isControlDown } from '../lib/nodeLink'
 import { Layout } from '../components/Layout'
 import { Loading, Badge, ErrorState } from '../components/ui'
 import { PageHeader, TableBox } from '../components/page'
@@ -37,6 +38,7 @@ export default function Dashboard() {
   const [users, setUsers] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
   const ruleSpeeds = useRuleSpeed()
   const live = useMemo(() => sumRuleSpeeds(ruleSpeeds), [ruleSpeeds])
 
@@ -56,6 +58,10 @@ export default function Dashboard() {
   }
 
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 30000)
+    return () => clearInterval(t)
+  }, [])
 
   const visibleData = useMemo(() => {
     if (!data) return data
@@ -65,7 +71,7 @@ export default function Dashboard() {
     () => (Array.isArray(users) ? users.filter(u => u.username !== 'admin') : users),
     [users],
   )
-  const attention = useMemo(() => buildAttention(visibleData, tenantUsers), [visibleData, tenantUsers])
+  const attention = useMemo(() => buildAttention(visibleData, tenantUsers, nowSec), [visibleData, tenantUsers, nowSec])
   const attentionGroups = useMemo(() => groupAttention(attention), [attention])
   const expiryCalendar = useMemo(
     () => buildExpiryCalendar(tenantUsers, data?.landing_expiring || []),
@@ -209,6 +215,7 @@ export default function Dashboard() {
 }
 
 const ATTENTION_GROUPS = [
+  { id: 'control', label: '管理断开' },
   { id: 'offline', label: '离线' },
   { id: 'error', label: '错误' },
   { id: 'expired', label: '已到期' },
@@ -246,10 +253,10 @@ function agentOutdated(n, latestVer, latestSHA) {
   return !!(n.agent_version && n.agent_version !== latestVer)
 }
 
-function buildAttention(data, users) {
+function buildAttention(data, users, nowSec) {
   if (!data) return []
   const items = []
-  const now = Math.floor(Date.now() / 1000)
+  const now = nowSec || Math.floor(Date.now() / 1000)
   const nodes = data.nodes || []
   const latestVer = data.latest_agent_version || ''
   const latestSHA = data.latest_agent_sha || ''
@@ -282,17 +289,29 @@ function buildAttention(data, users) {
     }
     if (n.online !== 1) {
       const down = Array.isArray(n.down_hops) ? n.down_hops.filter(Boolean) : []
-      items.push({
-        key: `node-off-${n.id}`,
-        group: 'offline',
-        to: `/nodes/${n.id}`,
-        tone: 'danger',
-        tag: '离线',
-        title: n.name,
-        desc: down.length
-          ? `跳 ${down.join('、')} 离线`
-          : (n.last_seen ? `最后心跳 ${fmtTime(n.last_seen)}` : '暂无心跳'),
-      })
+      if (isControlDown(n, data.panel_lease_hours, now)) {
+        items.push({
+          key: `node-ctl-${n.id}`,
+          group: 'control',
+          to: `/nodes/${n.id}`,
+          tone: 'warn',
+          tag: '管理断开',
+          title: n.name,
+          desc: controlRemainLabel(n, data.panel_lease_hours, now),
+        })
+      } else {
+        items.push({
+          key: `node-off-${n.id}`,
+          group: 'offline',
+          to: `/nodes/${n.id}`,
+          tone: 'danger',
+          tag: '离线',
+          title: n.name,
+          desc: down.length
+            ? `跳 ${down.join('、')} 离线`
+            : (n.last_seen ? `最后心跳 ${fmtTime(n.last_seen)}` : '暂无心跳'),
+        })
+      }
     }
   }
   for (const n of nodes) {

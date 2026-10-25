@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { fmtTime, fmtBytes, nullStr, fmtDateInput, unixFromDateInput, disconnectReasonLabel } from '../../lib/fmt'
+import { controlRemainLabel, isControlDown } from '../../lib/nodeLink'
 import { Layout, useToast, useBlur } from '../../components/Layout'
 import { Loading, Empty, Badge, ProtoBadge, ModeBadge, SensText, NodeTypeBadge, NodeStackBadge, useConfirm, Select, Modal, CopyText, Spinner, DateInput } from '../../components/ui'
 import { TableBox, TopbarTitle } from '../../components/page'
@@ -62,6 +63,7 @@ export default function NodeDetail() {
   const [nodeCost, setNodeCost] = useState('')
   const [opsBusy, setOpsBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
   const [logsOpen, setLogsOpen] = useState(false)
   const [logs, setLogs] = useState(null)
   const [logsErr, setLogsErr] = useState('')
@@ -98,6 +100,10 @@ export default function NodeDetail() {
   // path keeps them mounted and just refreshes the data underneath.
   const reloadSilent = () => api.get(`/nodes/${id}`).then(applyData).catch(console.error)
   useEffect(() => { load() }, [id])
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 30000)
+    return () => clearInterval(t)
+  }, [])
   useEffect(() => { api.get('/nodes/folders').then(d => setFolders(d?.folders || [])).catch(() => {}) }, [])
 
   const saveOps = async (e) => {
@@ -156,7 +162,8 @@ export default function NodeDetail() {
     )
   }
 
-  const { node, panel_url, panel_url_configured, latest_agent_version, latest_agent_sha } = data
+  const { node, panel_url, panel_url_configured, latest_agent_version, latest_agent_sha, panel_lease_hours: leaseHours } = data
+  const controlDown = isControlDown(node, leaseHours, nowSec)
   const ruleHops = data.rule_hops || []
   const nodeHops = data.node_hops || []
   const grantedUsers = data.granted_users || []
@@ -364,7 +371,7 @@ export default function NodeDetail() {
                 <NodeStackBadge node={node} />
                 {isComposite
                   ? (node.disabled && <Badge color="amber">已禁用</Badge>)
-                  : <HeaderStatus node={node} />}
+                  : <HeaderStatus node={node} leaseHours={leaseHours} nowSec={nowSec} />}
               </div>
               {isComposite ? (
                 <div className="mt-2 text-[13px] text-ink-mut">虚拟链路节点，由下列各跳依次转发；自身无 Agent / IP / 同步状态</div>
@@ -433,7 +440,10 @@ export default function NodeDetail() {
               </InfoRow>
               <InfoRow label="最近心跳">
                 {fmtTime(node.last_seen ?? null)}
-                <span className={`ml-1.5 font-semibold ${node.online === 1 ? 'text-[#0a8a4f]' : 'text-[#c2520a]'}`}>{node.online === 1 ? '在线' : '离线'}</span>
+                <span className={`ml-1.5 font-semibold ${node.online === 1 ? 'text-[#0a8a4f]' : controlDown ? 'text-amber-700 dark:text-amber-300' : 'text-[#c2520a]'}`}>
+                  {node.online === 1 ? '在线' : controlDown ? '管理断开' : '离线'}
+                </span>
+                {controlDown && <span className="ml-1.5 text-ink-mut">{controlRemainLabel(node, leaseHours, nowSec)}</span>}
               </InfoRow>
               <InfoRow label="Agent 版本" mono valueClass="text-[12.5px]">
                 {node.agent_version
@@ -797,7 +807,7 @@ function ConfigField({ label, hint, children }) {
 }
 
 // Header status pill combining online + sync state, with disabled/error overriding.
-function HeaderStatus({ node }) {
+function HeaderStatus({ node, leaseHours, nowSec }) {
   let text, cls, dot
   if (node.disabled) {
     text = '已禁用'; cls = 'text-amber-700 dark:text-amber-300 border-amber-500/55'; dot = '#e0892f'
@@ -808,6 +818,8 @@ function HeaderStatus({ node }) {
   } else if (node.online === 1) {
     text = node.last_apply_at?.Valid ? '在线 · 已同步' : '在线 · 待同步'
     cls = 'text-emerald-700 dark:text-emerald-300 border-emerald-500/55'; dot = '#22b46e'
+  } else if (isControlDown(node, leaseHours, nowSec)) {
+    text = '管理断开'; cls = 'text-amber-700 dark:text-amber-300 border-amber-500/55'; dot = '#e0892f'
   } else {
     text = '离线'; cls = 'text-ink-soft border-line'; dot = '#9aa4b2'
   }

@@ -27,9 +27,11 @@ import (
 const (
 	dialerPingInterval     = 10 * time.Second
 	dialerCountersInterval = 5 * time.Second
-	dialerReadTimeout      = 30 * time.Second
-	dialerWriteTimeout     = 20 * time.Second
-	dialerBackoffInitial   = 1 * time.Second
+	// A brief stall (panel busy, GC, a ruleset apply holding the write lock)
+	// must not drop a live node. 90s is several missed pongs, not one.
+	dialerReadTimeout    = 90 * time.Second
+	dialerWriteTimeout   = 20 * time.Second
+	dialerBackoffInitial = 1 * time.Second
 	// Cap reconnect wait so a long-lived agent that drops after days (NAT
 	// aging, reverse-proxy idle kill, panel restart) is back online within
 	// ~15s rather than waiting a full minute at max backoff.
@@ -46,8 +48,11 @@ const (
 	dialerWatchdogInterval = 15 * time.Second
 	// dialerWatchdogStale is the max age of the last successful read before
 	// the watchdog tears the session down. Must exceed dialerReadTimeout so
-	// a single slow frame does not false-trigger.
-	dialerWatchdogStale = 45 * time.Second
+	// a single slow frame does not false-trigger. Stays at 2 minutes so a
+	// silent socket reconnects as the progress stall (also 2 minutes) is
+	// about to exit a wedged process; pings still refresh progress, so the
+	// watchdog wins when the loop itself is still scheduling.
+	dialerWatchdogStale = 120 * time.Second
 	// dialerTCPKeepAlive probes the TCP layer so middleboxes that silently
 	// drop idle sockets surface a reset instead of a half-open forever.
 	// Interval is short enough to catch NAT aging (~30–60s on some clouds)
@@ -59,8 +64,9 @@ const (
 	dialerPingFailLimit = 3
 	// dialerProgressStall is how long Run may go without a dial attempt, a
 	// successful read, or a successful ping. Past it the process exits so
-	// systemd can start a clean one. Longer than one dial timeout plus the
-	// in-session watchdog, shorter than "offline for many minutes".
+	// systemd can start a clean one. The in-session watchdog reconnects a
+	// silent socket while this loop is still scheduling; this exit covers a
+	// dial or apply that never returns to Run.
 	dialerProgressStall = 2 * time.Minute
 	// dialerStallCheck is how often the progress watchdog wakes.
 	dialerStallCheck = 5 * time.Second
@@ -152,6 +158,12 @@ type Dialer struct {
 	stopOnce sync.Once
 	stop     chan struct{}
 	done     chan struct{} // closed when Run() returns
+
+	// writeMu serializes websocket writes. coder/websocket allows one Read
+	// beside Writes, but not two Writes at once. The serve loop and the
+	// apply keepalive both write; an interleaved ping during a ruleset
+	// push drops the control channel while nft keeps forwarding.
+	writeMu sync.Mutex
 
 	// progress is the last time the reconnect loop did something useful
 	// (a new attempt, a frame, a ping). The stall watchdog exits the
@@ -509,7 +521,7 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("marshal hello: %w", err)
 	}
-	if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeHello, ID: "hello-1", Payload: helloPayload}); err != nil {
+	if err := d.writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeHello, ID: "hello-1", Payload: helloPayload}); err != nil {
 		return false, fmt.Errorf("write hello: %w", err)
 	}
 
@@ -550,7 +562,7 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 	owners, _ := d.cfg.GetState()
 	if tuiRules := owners["tui"]; len(tuiRules) > 0 {
 		migPayload, _ := json.Marshal(wsproto.MigrateRules{Rules: tuiRules})
-		if err := writeOne(ctx, ws, wsproto.Envelope{
+		if err := d.writeOne(ctx, ws, wsproto.Envelope{
 			Type:    wsproto.TypeMigrateRules,
 			ID:      "migrate-1",
 			Payload: migPayload,
@@ -659,7 +671,7 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 				log.Printf("dialer: marshal %s: %v", wsproto.TypeApplyAck, res.err)
 				continue
 			}
-			if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeApplyAck, ID: res.id, Payload: res.payload}); err != nil {
+			if err := d.writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeApplyAck, ID: res.id, Payload: res.payload}); err != nil {
 				return helloAcked, err
 			}
 			d.touchProgress()
@@ -768,7 +780,7 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 				log.Printf("dialer: marshal %s: %v", wsproto.TypePing, err)
 				continue
 			}
-			if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypePing, ID: "ping-" + strconv.FormatInt(time.Now().UnixMilli(), 36), Payload: pp}); err != nil {
+			if err := d.writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypePing, ID: "ping-" + strconv.FormatInt(time.Now().UnixMilli(), 36), Payload: pp}); err != nil {
 				// One failed ping write on a flaky link is usually transient.
 				// Several in a row means the socket is dead and the reader has
 				// not noticed yet; end the session so Run dials again.
@@ -794,7 +806,7 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 				log.Printf("dialer: marshal %s: %v", wsproto.TypeCounters, err)
 				continue
 			}
-			if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeCounters, Payload: cp}); err != nil {
+			if err := d.writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeCounters, Payload: cp}); err != nil {
 				log.Printf("dialer: write %s: %v", wsproto.TypeCounters, err)
 				if d.cfg.CountersReadd != nil {
 					d.cfg.CountersReadd(samples)
@@ -806,11 +818,11 @@ func (d *Dialer) runOnce(ctx context.Context) (helloAcked bool, err error) {
 			}
 		case res := <-d.upgradeCh:
 			ap, _ := json.Marshal(res.ack)
-			if err := writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeUpgradeAck, ID: res.id, Payload: ap}); err != nil {
+			if err := d.writeOne(ctx, ws, wsproto.Envelope{Type: wsproto.TypeUpgradeAck, ID: res.id, Payload: ap}); err != nil {
 				return helloAcked, err
 			}
 		case env := <-d.cmdCh:
-			if err := writeOne(ctx, ws, env); err != nil {
+			if err := d.writeOne(ctx, ws, env); err != nil {
 				return helloAcked, err
 			}
 		}
@@ -846,7 +858,7 @@ func (d *Dialer) runApply(sessCtx context.Context, ws *websocket.Conn, applyCh c
 				if err != nil {
 					continue
 				}
-				if err := writeOne(kaCtx, ws, wsproto.Envelope{Type: wsproto.TypePing, ID: "ping-ka-" + strconv.FormatInt(time.Now().UnixMilli(), 36), Payload: pp}); err != nil {
+				if err := d.writeOne(kaCtx, ws, wsproto.Envelope{Type: wsproto.TypePing, ID: "ping-ka-" + strconv.FormatInt(time.Now().UnixMilli(), 36), Payload: pp}); err != nil {
 					return
 				}
 				d.touchProgress()
@@ -887,11 +899,13 @@ func readOne(ctx context.Context, ws *websocket.Conn, timeout time.Duration) (ws
 	return env, nil
 }
 
-func writeOne(ctx context.Context, ws *websocket.Conn, env wsproto.Envelope) error {
+func (d *Dialer) writeOne(ctx context.Context, ws *websocket.Conn, env wsproto.Envelope) error {
 	b, err := json.Marshal(env)
 	if err != nil {
 		return err
 	}
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
 	wctx, cancel := context.WithTimeout(ctx, dialerWriteTimeout)
 	defer cancel()
 	return ws.Write(wctx, websocket.MessageText, b)

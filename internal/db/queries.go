@@ -1241,10 +1241,13 @@ func MarkAllAgentNodesOffline(d *sql.DB) error {
 	return err
 }
 
-// TouchNodeLastSeen refreshes last_seen without flipping online. Used on agent
-// pings so the UI's "最后心跳" tracks a live session, not only the original hello.
+// TouchNodeLastSeen refreshes last_seen and marks the node online. Used on
+// agent pings so the UI's "最后心跳" tracks a live session. Setting online=1
+// here also undoes a stale demotion: a live socket must not stay offline
+// just because an earlier list pass flipped the flag, or later pings would
+// stop matching the old "WHERE online=1" and the row would stay gray.
 func TouchNodeLastSeen(d *sql.DB, id int64) error {
-	_, err := d.Exec(`UPDATE nodes SET last_seen=? WHERE id=? AND online=1`, now(), id)
+	_, err := d.Exec(`UPDATE nodes SET last_seen=?, online=1 WHERE id=?`, now(), id)
 	return err
 }
 
@@ -1256,12 +1259,18 @@ const nodeStaleOnlineTTL = 45 // seconds
 // ApplyStaleOnlinePolicy demotes agent nodes whose last_seen is older than
 // nodeStaleOnlineTTL (or missing) from online=1 → 0 in the returned slice.
 // Also persists the flip so the next page load does not re-show them green.
+// live is the set of node IDs with a hub websocket right now; those stay
+// online even when last_seen is stale (a slow ping must not paint a
+// connected node offline). nil live demotes every stale row.
 // Composite online is re-derived later via ResolveCompositeOnline.
-func ApplyStaleOnlinePolicy(d *sql.DB, nodes []*Node) {
+func ApplyStaleOnlinePolicy(d *sql.DB, nodes []*Node, live map[int64]bool) {
 	cutoff := now() - nodeStaleOnlineTTL
 	var staleIDs []int64
 	for _, n := range nodes {
 		if n == nil || n.NodeType == "self" || n.NodeType == "composite" {
+			continue
+		}
+		if live[n.ID] {
 			continue
 		}
 		if n.Online != 1 {

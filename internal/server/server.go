@@ -103,21 +103,27 @@ func NewWithDocsDir(d *sql.DB, docsDir string) (*Server, error) {
 // nodes whose last_seen is older than the stale TTL (假在线). Call before any
 // list/dashboard that surfaces node.online to operators.
 func (s *Server) reconcileNodeOnline(nodes []*db.Node) {
+	live := map[int64]bool{}
 	if s.Hub != nil {
 		for _, n := range nodes {
 			if n == nil || n.NodeType == "self" || n.NodeType == "composite" {
 				continue
 			}
-			live := s.Hub.IsOnline(n.ID)
-			if live && n.Online != 1 {
-				n.Online = 1
-			} else if !live && n.Online == 1 {
+			if s.Hub.IsOnline(n.ID) {
+				live[n.ID] = true
+				if n.Online != 1 {
+					n.Online = 1
+					ts := time.Now().Unix()
+					n.LastSeen = &ts
+					_ = db.TouchNodeLastSeen(s.DB, n.ID)
+				}
+			} else if n.Online == 1 {
 				n.Online = 0
 				_ = db.MarkNodeOffline(s.DB, n.ID)
 			}
 		}
 	}
-	db.ApplyStaleOnlinePolicy(s.DB, nodes)
+	db.ApplyStaleOnlinePolicy(s.DB, nodes, live)
 }
 
 // expiryEnforcer periodically scans for users whose expires_at has passed

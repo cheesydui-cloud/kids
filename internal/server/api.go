@@ -403,6 +403,7 @@ func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
 		"landing_expiring":     landingSoon,
 		"latest_agent_version": latestAgentVersion,
 		"latest_agent_sha":     latestAgentSHA,
+		"panel_lease_hours":    panelLeaseHoursFromDB(s.DB),
 	}
 	ensureNonNilSlices(payload)
 	var buf bytes.Buffer
@@ -465,6 +466,7 @@ func (s *Server) apiListNodes(w http.ResponseWriter, r *http.Request) {
 		"latest_agent_version": lv,
 		"latest_agent_sha":     latestAgentSHA,
 		"show_rate_to_user":    showRate == "1",
+		"panel_lease_hours":    panelLeaseHoursFromDB(s.DB),
 	})
 }
 
@@ -779,6 +781,7 @@ func (s *Server) apiGetNode(w http.ResponseWriter, r *http.Request) {
 		"latest_agent_sha":     latestAgentSHA,
 		"upgrade":              deriveUpgradeStatus(n, lv, latestAgentSHA, time.Now()),
 		"granted_users":        grantedUsers,
+		"panel_lease_hours":    panelLeaseHoursFromDB(s.DB),
 	}
 
 	// Include node_hops if composite, enriched with each child's name.

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { fmtTime, fmtBytes, fmtDate, fmtDuration, nullStr, nullInt, expiryBadge, disconnectReasonLabel } from '../../lib/fmt'
+import { controlRemainLabel, isControlDown } from '../../lib/nodeLink'
 import { useSpeed, usePresence, useNodeSpeedValue, fmtSpeed } from '../../lib/useSpeed'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { Layout, useToast } from '../../components/Layout'
@@ -135,7 +136,7 @@ export default function NodeList() {
   if (loading && !data) return <Layout><Loading /></Layout>
   if (!data && error) return <Layout><Empty title="加载失败" desc={error}><button onClick={load} className="btn-secondary text-xs mt-3">重试</button></Empty></Layout>
 
-  const { nodes: allNodes = [], latest_agent_version, latest_agent_sha, node_traffic = {}, node_raw_traffic = {} } = data || {}
+  const { nodes: allNodes = [], latest_agent_version, latest_agent_sha, node_traffic = {}, node_raw_traffic = {}, panel_lease_hours: leaseHours } = data || {}
   const hiddenSelf = allNodes.filter(n => n.node_type === 'self')
   const nodes = allNodes.filter(n => n.node_type !== 'self')
   // Older installers (and failed release-tag resolution) write "latest" into
@@ -169,12 +170,12 @@ export default function NodeList() {
   }
   const matchStatus = (n) => {
     if (statusFilter === 'all') return true
-    const h = nodeHealth(n)
-    if (statusFilter === 'attention') return needsAttention(n, latest_agent_version, latest_agent_sha, nowSec)
+    const h = nodeHealth(n, nowSec, leaseHours)
+    if (statusFilter === 'attention') return needsAttention(n, latest_agent_version, latest_agent_sha, nowSec, leaseHours)
     return h === statusFilter
   }
   const filtered0 = tabNodes.filter(n => matchSearch(n) && matchFolder(n) && matchStatus(n))
-  const attentionNodes = tabNodes.filter(n => needsAttention(n, latest_agent_version, latest_agent_sha, nowSec))
+  const attentionNodes = tabNodes.filter(n => needsAttention(n, latest_agent_version, latest_agent_sha, nowSec, leaseHours))
   const attentionCount = attentionNodes.length
 
   // 「原始流量」列只在单点 tab 渲染：带着它的排序切去组合 tab，排序仍生效却
@@ -292,7 +293,7 @@ export default function NodeList() {
       setProbingIds(null)
     }
   }
-  const bannerText = attentionBanner(attentionNodes, latest_agent_version, latest_agent_sha, nowSec)
+  const bannerText = attentionBanner(attentionNodes, latest_agent_version, latest_agent_sha, nowSec, leaseHours)
 
   return (
     <Layout>
@@ -320,6 +321,7 @@ export default function NodeList() {
               { value: 'attention', label: `需处理 ${attentionCount}` },
               { value: 'error', label: '错误' },
               { value: 'warning', label: '警告' },
+              { value: 'control', label: '管理断开' },
               { value: 'offline', label: '离线' },
               { value: 'pending', label: '待同步' },
               { value: 'disabled', label: '已禁用' },
@@ -400,13 +402,13 @@ export default function NodeList() {
                   </td>
                   <td>
                     <span className="inline-flex items-center gap-2 font-semibold text-[color:var(--brand-from)]">
-                      <span className={`node-presence w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'is-live bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.18)]' : 'bg-gray-400 shadow-[0_0_0_3px_rgba(154,163,176,0.16)]'}`} />
+                      <span className={`node-presence w-1.5 h-1.5 rounded-full flex-none ${presenceClass(n, nowSec, leaseHours, true)}`} />
                       {n.name}
                       {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
                       {n.group_name && <Badge color="blue" title="分组">{n.group_name}</Badge>}
                       <NodeBillingBadges node={n} />
                     </span>
-                    <NodeLineMeta n={n} latestVer={latest_agent_version} latestSHA={latest_agent_sha} nowSec={nowSec} />
+                    <NodeLineMeta n={n} latestVer={latest_agent_version} latestSHA={latest_agent_sha} nowSec={nowSec} leaseHours={leaseHours} />
                   </td>
                   <td>
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -419,7 +421,7 @@ export default function NodeList() {
                   <td className="font-mono text-xs text-ink-soft">
                     {fmtTime(n.last_apply_at?.Valid ? n.last_apply_at.Int64 : null)}
                   </td>
-                  <td><NodeStatus node={n} nowSec={nowSec} /></td>
+                  <td><NodeStatus node={n} nowSec={nowSec} leaseHours={leaseHours} /></td>
                   <td><NodeOpsCell node={n} /></td>
                   <td className="font-mono text-xs text-ink-mut">{billedTrafficCell(n, node_traffic, node_raw_traffic)}</td>
                   {tab !== 'composite' && <td className="font-mono text-xs text-ink-mut">{fmtBytes(node_raw_traffic[n.id] || 0)}</td>}
@@ -463,15 +465,15 @@ export default function NodeList() {
               <Link key={n.id} to={`/nodes/${n.id}`} className="mobile-card block no-underline text-ink">
                 <div className="flex items-center justify-between mb-1">
                   <span className="inline-flex items-center gap-2 font-semibold text-[color:var(--brand-from)] flex-wrap">
-                    <span className={`node-presence w-1.5 h-1.5 rounded-full flex-none ${!n.disabled && n.online === 1 ? 'is-live bg-green-500' : 'bg-gray-400'}`} />
+                    <span className={`node-presence w-1.5 h-1.5 rounded-full flex-none ${presenceClass(n, nowSec, leaseHours, false)}`} />
                     {n.name}
                     {(n.roles & 2) !== 0 && <Badge color="blue">中间层</Badge>}
                     {n.group_name && <Badge color="blue">{n.group_name}</Badge>}
                     <NodeBillingBadges node={n} />
                   </span>
-                  <NodeStatus node={n} nowSec={nowSec} />
+                  <NodeStatus node={n} nowSec={nowSec} leaseHours={leaseHours} />
                 </div>
-                <NodeLineMeta n={n} latestVer={latest_agent_version} latestSHA={latest_agent_sha} nowSec={nowSec} />
+                <NodeLineMeta n={n} latestVer={latest_agent_version} latestSHA={latest_agent_sha} nowSec={nowSec} leaseHours={leaseHours} />
                 <div className="text-[11.5px] text-ink-mut mb-1"><NodeOpsCell node={n} /></div>
                 <div className="flex items-center gap-2 text-xs text-ink-soft flex-wrap">
                   <LatencyCell row={latency[n.id]} measuring={!!probingIds?.has(n.id)} nowSec={nowSec} />
@@ -619,7 +621,7 @@ function AddNodeModal({ open, onClose, onDone }) {
   )
 }
 
-const STATUS_FILTERS = new Set(['all', 'attention', 'error', 'warning', 'offline', 'pending', 'disabled', 'ok'])
+const STATUS_FILTERS = new Set(['all', 'attention', 'error', 'warning', 'control', 'offline', 'pending', 'disabled', 'ok'])
 const ATTENTION_WINDOW = 7 * 86400
 const LATENCY_TTL = 180
 
@@ -719,8 +721,8 @@ function attentionExtras(n, latestVer, latestSHA, nowSec) {
   return out
 }
 
-function needsAttention(n, latestVer, latestSHA, nowSec) {
-  if (nodeHealth(n) !== 'ok') return true
+function needsAttention(n, latestVer, latestSHA, nowSec, leaseHours) {
+  if (nodeHealth(n, nowSec, leaseHours) !== 'ok') return true
   return attentionExtras(n, latestVer, latestSHA, nowSec).length > 0
 }
 
@@ -748,10 +750,11 @@ function offlineReason(n, nowSec) {
   return '暂无心跳'
 }
 
-function rowReason(n, nowSec) {
-  const h = nodeHealth(n)
+function rowReason(n, nowSec, leaseHours) {
+  const h = nodeHealth(n, nowSec, leaseHours)
   if (h === 'error') return firstLine(n.last_error)
   if (h === 'warning') return firstLine(n.last_warning)
+  if (h === 'control') return controlRemainLabel(n, leaseHours, nowSec)
   if (h === 'offline') return offlineReason(n, nowSec)
   if (h === 'pending') return '尚未同步'
   return ''
@@ -772,14 +775,15 @@ function impactLine(n) {
   return `${rules} 条规则 · ${users} 个用户`
 }
 
-function attentionBanner(nodes, latestVer, latestSHA, nowSec) {
+function attentionBanner(nodes, latestVer, latestSHA, nowSec, leaseHours) {
   const labels = []
   const seen = new Set()
   const add = (s) => { if (s && !seen.has(s)) { seen.add(s); labels.push(s) } }
   for (const n of nodes) {
-    const h = nodeHealth(n)
+    const h = nodeHealth(n, nowSec, leaseHours)
     if (h === 'error') add('错误')
     else if (h === 'warning') add('警告')
+    else if (h === 'control') add('管理断开')
     else if (h === 'offline') add('离线')
     else if (h === 'pending') add('待同步')
     else if (h === 'disabled') add('已禁用')
@@ -788,13 +792,13 @@ function attentionBanner(nodes, latestVer, latestSHA, nowSec) {
   return labels.join(' / ') || '需处理'
 }
 
-function NodeLineMeta({ n, latestVer, latestSHA, nowSec }) {
+function NodeLineMeta({ n, latestVer, latestSHA, nowSec, leaseHours }) {
   const relay = relayLine(n)
   const extras = [...attentionExtras(n, latestVer, latestSHA, nowSec)]
   const impact = impactLine(n)
   if (impact) extras.push(impact)
   const extraLine = extras.join(' · ')
-  const reason = rowReason(n, nowSec)
+  const reason = rowReason(n, nowSec, leaseHours)
   return (
     <>
       {relay && <div className="font-mono text-[11.5px] text-ink-mut mt-0.5 max-w-[280px] truncate" title={relay}>{relay}</div>}
@@ -828,8 +832,11 @@ function LatencyCell({ row, measuring, nowSec }) {
 
 // nodeHealth is the single source of truth for the status badge, the
 // 「需处理」filter and the attention banner, so they can never disagree.
-// Priority: disabled > error > warning > offline > pending > ok.
-function nodeHealth(node) {
+// Priority: disabled > error > warning > control > offline > pending > ok.
+// control means the management socket is down but the panel lease still
+// has kernel rules forwarding. 离线 is only after that lease, or when the
+// node was never seen, or a composite hop is down.
+function nodeHealth(node, nowSec, leaseHours) {
   if (node.disabled) return 'disabled'
   // A composite node has no agent of its own to sync; its health is the
   // aggregate of its child hops, so show online/offline rather than a sync
@@ -837,19 +844,39 @@ function nodeHealth(node) {
   if (node.node_type === 'composite') return node.online === 1 ? 'ok' : 'offline'
   if (nullStr(node.last_error)) return 'error'
   if (node.last_warning) return 'warning'
-  // A disconnected agent is offline regardless of when it last synced; a stale
-  // "已同步" on an offline node misrepresents its real state.
-  if (node.online !== 1) return 'offline'
+  // A disconnected agent is not "已同步". While the lease remains, call it
+  // 管理断开 so a still-forwarding node is not painted as fully offline.
+  if (node.online !== 1) {
+    if (isControlDown(node, leaseHours, nowSec)) return 'control'
+    return 'offline'
+  }
   if (node.last_apply_at?.Valid) return 'ok'
   return 'pending'
 }
 
-function NodeStatus({ node, nowSec }) {
-  const h = nodeHealth(node)
+function presenceClass(node, nowSec, leaseHours, withShadow) {
+  if (!node.disabled && node.online === 1) {
+    return withShadow
+      ? 'is-live bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.18)]'
+      : 'is-live bg-green-500'
+  }
+  if (nodeHealth(node, nowSec, leaseHours) === 'control') {
+    return withShadow
+      ? 'bg-amber-400 shadow-[0_0_0_3px_rgba(224,137,47,0.18)]'
+      : 'bg-amber-400'
+  }
+  return withShadow
+    ? 'bg-gray-400 shadow-[0_0_0_3px_rgba(154,163,176,0.16)]'
+    : 'bg-gray-400'
+}
+
+function NodeStatus({ node, nowSec, leaseHours }) {
+  const h = nodeHealth(node, nowSec, leaseHours)
   const clock = nowSec || Math.floor(Date.now() / 1000)
   if (h === 'disabled') return <Badge color="amber">禁用</Badge>
   if (h === 'error') return <Badge color="red" title={firstLine(node.last_error)}>错误</Badge>
   if (h === 'warning') return <Badge color="amber" title={firstLine(node.last_warning)}>警告</Badge>
+  if (h === 'control') return <Badge color="amber" title={controlRemainLabel(node, leaseHours, clock)}>管理断开</Badge>
   if (h === 'offline') return <Badge color="gray" title={offlineReason(node, clock)}>离线</Badge>
   if (h === 'pending') return <Badge color="amber" title="尚未同步">待同步</Badge>
   return node.node_type === 'composite' ? <Badge color="green">在线</Badge> : <Badge color="green">已同步</Badge>

@@ -13,7 +13,7 @@ func TestApplyStaleOnlinePolicyDemotesStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ApplyStaleOnlinePolicy(d, nodes)
+	ApplyStaleOnlinePolicy(d, nodes, nil)
 	var found bool
 	for _, n := range nodes {
 		if n.ID == nid {
@@ -46,11 +46,36 @@ func TestApplyStaleOnlinePolicyKeepsFresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ApplyStaleOnlinePolicy(d, nodes)
+	ApplyStaleOnlinePolicy(d, nodes, nil)
 	for _, n := range nodes {
 		if n.ID == nid && n.Online != 1 {
 			t.Fatalf("fresh node demoted unexpectedly, online=%d", n.Online)
 		}
+	}
+}
+
+func TestApplyStaleOnlinePolicyKeepsLive(t *testing.T) {
+	d := openTestDB(t)
+	nid := createTestNode(t, d, "live-stale")
+	if _, err := d.Exec(`UPDATE nodes SET online=1, last_seen=? WHERE id=?`, now()-nodeStaleOnlineTTL-10, nid); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := ListNodes(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ApplyStaleOnlinePolicy(d, nodes, map[int64]bool{nid: true})
+	for _, n := range nodes {
+		if n.ID == nid && n.Online != 1 {
+			t.Fatalf("live hub node demoted, online=%d", n.Online)
+		}
+	}
+	got, err := GetNode(d, nid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Online != 1 {
+		t.Fatalf("persisted online want 1, got %d", got.Online)
 	}
 }
 
@@ -85,6 +110,31 @@ func TestTouchNodeLastSeen(t *testing.T) {
 	got, err := GetNode(d, nid)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got.LastSeen == nil || *got.LastSeen <= old {
+		t.Fatalf("last_seen not refreshed: old=%d got=%v", old, got.LastSeen)
+	}
+	if got.Online != 1 {
+		t.Fatalf("online want 1, got %d", got.Online)
+	}
+}
+
+func TestTouchNodeLastSeenRestoresOnline(t *testing.T) {
+	d := openTestDB(t)
+	nid := createTestNode(t, d, "touch-off")
+	old := now() - 30
+	if _, err := d.Exec(`UPDATE nodes SET online=0, last_seen=? WHERE id=?`, old, nid); err != nil {
+		t.Fatal(err)
+	}
+	if err := TouchNodeLastSeen(d, nid); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetNode(d, nid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Online != 1 {
+		t.Fatalf("online want 1, got %d", got.Online)
 	}
 	if got.LastSeen == nil || *got.LastSeen <= old {
 		t.Fatalf("last_seen not refreshed: old=%d got=%v", old, got.LastSeen)
