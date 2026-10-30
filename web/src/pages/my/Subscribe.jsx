@@ -16,7 +16,7 @@ export default function MySubscribe() {
   const [loadError, setLoadError] = useState('')
   const [ruleBusy, setRuleBusy] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [addrOpen, setAddrOpen] = useState(false)
+  const [addrOpen, setAddrOpen] = useState(true)
   const [qr, setQr] = useState('')
   const [qrErr, setQrErr] = useState('')
   const [copied, setCopied] = useState('')
@@ -124,13 +124,17 @@ export default function MySubscribe() {
 
   const downloadYaml = () => {
     if (!data?.mihomo_url) return
-    const a = document.createElement('a')
-    a.href = data.mihomo_url + (data.mihomo_url.includes('?') ? '&' : '?') + 'download=1'
-    a.download = `${profileName || 'kids'}.yaml`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
+    triggerDownload(withQuery(data.mihomo_url, { download: '1' }), `${profileName || 'kids'}.yaml`)
     toast('已开始下载 YAML')
+  }
+
+  const downloadNodeYaml = (item) => {
+    if (!data?.mihomo_url || !item?.name || !item.clash_ok) return
+    triggerDownload(
+      withQuery(data.mihomo_url, { node: item.name, download: '1' }),
+      `${item.name}.yaml`,
+    )
+    toast('已开始下载这个节点的 YAML')
   }
 
   const rotateSub = async () => {
@@ -466,6 +470,8 @@ export default function MySubscribe() {
                   latLoading={latLoading}
                   copied={copied === `node-${latencyKey(item)}`}
                   onCopy={() => copy(item.uri, `node-${latencyKey(item)}`, '已复制节点链接')}
+                  onYaml={() => downloadNodeYaml(item)}
+                  yamlDisabled={importBlocked || !data?.mihomo_url}
                   rule={rule}
                   ruleBusy={ruleBusy}
                   onToggle={toggleRule}
@@ -581,6 +587,26 @@ function latencyKey(it) {
   return `${it.kind || ''}|${it.rule_id || 0}|${it.family || ''}|${it.name || ''}`
 }
 
+function withQuery(raw, params) {
+  try {
+    const u = new URL(raw)
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v)
+    return u.toString()
+  } catch {
+    const join = raw.includes('?') ? '&' : '?'
+    return raw + join + new URLSearchParams(params).toString()
+  }
+}
+
+function triggerDownload(href, filename) {
+  const a = document.createElement('a')
+  a.href = href
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 function importHrefs(uriURL, clashURL, mihomoURL, name) {
   const label = encodeURIComponent(name || 'kids')
   const enc = (u) => encodeURIComponent(u)
@@ -627,8 +653,11 @@ function nodeMeta(item) {
   return bits.join(' · ')
 }
 
-function NodeRow({ item, probe, latLoading, copied, onCopy, rule, ruleBusy, onToggle }) {
+function NodeRow({ item, probe, latLoading, copied, onCopy, onYaml, yamlDisabled, rule, ruleBusy, onToggle }) {
   const st = statusView(item)
+  const yamlTitle = item.clash_ok
+    ? '下载这个节点的 YAML，只含这一条，导入 OpenClash 后不用再选节点'
+    : '这个节点不能导出 Clash YAML'
   return (
     <div className="sub-node-row">
       <div className="sub-node-main">
@@ -643,6 +672,15 @@ function NodeRow({ item, probe, latLoading, copied, onCopy, rule, ruleBusy, onTo
         <span className="sub-latency">{item.block_reason ? '' : latencyLabel(probe, latLoading)}</span>
         <button type="button" className="btn-secondary h-[32px] px-3 text-[12px]" disabled={!item.uri} onClick={onCopy}>
           {copied ? '已复制' : '复制'}
+        </button>
+        <button
+          type="button"
+          className="btn-secondary h-[32px] px-3 text-[12px]"
+          disabled={!item.clash_ok || yamlDisabled}
+          title={yamlTitle}
+          onClick={onYaml}
+        >
+          YAML
         </button>
         {rule && (
           <button type="button" className="btn-secondary h-[32px] px-3 text-[12px]" disabled={ruleBusy === rule.id} onClick={() => onToggle(rule)}>

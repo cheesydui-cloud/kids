@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -345,6 +346,85 @@ func TestSubscribePacksEveryLandingRule(t *testing.T) {
 	}
 	if !strings.Contains(yml, "5.6.7.8") {
 		t.Fatalf("clash yaml missing direct landing:\n%s", yml)
+	}
+}
+
+func TestClashYAMLFiltersOneNode(t *testing.T) {
+	d := openDB(t)
+	_, cookie, _ := seedSubUser(t, d)
+	s := newServer(t, d)
+
+	req := newTestRequest("GET", "/api/my/subscribe", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subscribe: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Token string `json:"token"`
+		Items []struct {
+			Name    string `json:"name"`
+			Kind    string `json:"kind"`
+			ClashOK bool   `json:"clash_ok"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	var relayName, directName string
+	for _, it := range body.Items {
+		if !it.ClashOK {
+			t.Fatalf("expected clash yaml for %s", it.Name)
+		}
+		switch it.Kind {
+		case "relay":
+			relayName = it.Name
+		case "direct":
+			directName = it.Name
+		}
+	}
+	if relayName == "" || directName == "" {
+		t.Fatalf("names relay=%q direct=%q", relayName, directName)
+	}
+
+	one := newTestRequest("GET", "/api/v1/mihomo.yaml?token="+body.Token+"&node="+url.QueryEscape(relayName)+"&download=1", nil)
+	orec := httptest.NewRecorder()
+	s.Router().ServeHTTP(orec, one)
+	if orec.Code != http.StatusOK {
+		t.Fatalf("node yaml: %d %s", orec.Code, orec.Body.String())
+	}
+	yml := orec.Body.String()
+	if strings.Count(yml, "type: vless") != 1 || strings.Contains(yml, "type: trojan") {
+		t.Fatalf("single-node yaml should keep only the relay:\n%s", yml)
+	}
+	if !strings.Contains(yml, "server: relay.example") || strings.Contains(yml, "5.6.7.8") {
+		t.Fatalf("single-node endpoints:\n%s", yml)
+	}
+	if !strings.Contains(yml, "name: "+relayName) && !strings.Contains(yml, `name: "`+relayName+`"`) {
+		t.Fatalf("yaml missing node name %q:\n%s", relayName, yml)
+	}
+	disp := orec.Header().Get("Content-Disposition")
+	if !strings.Contains(disp, "filename*=") || !strings.Contains(disp, url.PathEscape(relayName)) {
+		t.Fatalf("disposition = %q", disp)
+	}
+
+	missing := newTestRequest("GET", "/api/v1/clash.yaml?token="+body.Token+"&node="+url.QueryEscape("不存在"), nil)
+	mrec := httptest.NewRecorder()
+	s.Router().ServeHTTP(mrec, missing)
+	if mrec.Code != http.StatusNotFound {
+		t.Fatalf("missing node: %d %s", mrec.Code, mrec.Body.String())
+	}
+
+	all := newTestRequest("GET", "/api/v1/clash.yaml?token="+body.Token, nil)
+	arec := httptest.NewRecorder()
+	s.Router().ServeHTTP(arec, all)
+	if arec.Code != http.StatusOK {
+		t.Fatalf("full clash: %d %s", arec.Code, arec.Body.String())
+	}
+	full := arec.Body.String()
+	if !strings.Contains(full, "type: vless") || !strings.Contains(full, "type: trojan") {
+		t.Fatalf("full yaml should still pack every node:\n%s", full)
 	}
 }
 

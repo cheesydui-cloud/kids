@@ -459,7 +459,7 @@ func (s *Server) apiPublicSub(w http.ResponseWriter, r *http.Request) {
 	}
 	flag := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("flag")))
 	if flag == "clash" || flag == "meta" || flag == "mihomo" || strings.HasSuffix(r.URL.Path, ".yaml") {
-		s.writeClashBody(w, u, p, r.URL.Query().Get("download") == "1")
+		s.serveClash(w, r, u, p, r.URL.Query().Get("download") == "1")
 		return
 	}
 	uris := make([]string, 0, len(p.Items))
@@ -479,10 +479,35 @@ func (s *Server) apiPublicClash(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.writeClashBody(w, u, p, r.URL.Query().Get("download") == "1" || strings.Contains(r.URL.Path, "mihomo"))
+	s.serveClash(w, r, u, p, r.URL.Query().Get("download") == "1" || strings.Contains(r.URL.Path, "mihomo"))
 }
 
-func (s *Server) writeClashBody(w http.ResponseWriter, u *db.User, p userSubProfile, asDownload bool) {
+// serveClash writes the full profile, or one node when ?node= matches a
+// display name. A single-node file is what OpenClash on OpenWrt can import
+// when its group picker does not list members of the combined subscription.
+func (s *Server) serveClash(w http.ResponseWriter, r *http.Request, u *db.User, p userSubProfile, asDownload bool) {
+	node := strings.TrimSpace(r.URL.Query().Get("node"))
+	if node != "" {
+		matched := make([]subItem, 0, 1)
+		for _, it := range p.Items {
+			if it.Name == node {
+				matched = append(matched, it)
+			}
+		}
+		if len(matched) == 0 {
+			http.Error(w, "node not found", http.StatusNotFound)
+			return
+		}
+		if !matched[0].ClashOK {
+			http.Error(w, "node has no clash config", http.StatusUnprocessableEntity)
+			return
+		}
+		p.Items = matched
+	}
+	s.writeClashBody(w, u, p, asDownload, node)
+}
+
+func (s *Server) writeClashBody(w http.ResponseWriter, u *db.User, p userSubProfile, asDownload bool, node string) {
 	named := make([]landing.NamedURI, 0, len(p.Items))
 	for _, it := range p.Items {
 		named = append(named, landing.NamedURI{Name: it.Name, URI: it.URI})
@@ -492,13 +517,44 @@ func (s *Server) writeClashBody(w http.ResponseWriter, u *db.User, p userSubProf
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	if asDownload {
-		name := "nft.yaml"
-		if u != nil && u.Username != "" {
-			name = u.Username + ".yaml"
+		user := ""
+		if u != nil {
+			user = u.Username
 		}
-		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+		w.Header().Set("Content-Disposition", yamlAttachmentDisposition(clashDownloadFilename(user, node)))
 	}
 	_, _ = w.Write([]byte(body))
+}
+
+func clashDownloadFilename(username, node string) string {
+	base := "nft"
+	if username != "" {
+		base = username
+	}
+	if node != "" {
+		base += "-" + node
+	}
+	base = strings.Map(func(r rune) rune {
+		switch r {
+		case '"', '\\', '/', '\n', '\r', ';':
+			return '-'
+		}
+		return r
+	}, base)
+	return base + ".yaml"
+}
+
+func yamlAttachmentDisposition(name string) string {
+	ascii := strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e || r == '"' || r == '\\' {
+			return '_'
+		}
+		return r
+	}, name)
+	if strings.Trim(ascii, "_.") == "" {
+		ascii = "node.yaml"
+	}
+	return `attachment; filename="` + ascii + `"; filename*=UTF-8''` + url.PathEscape(name)
 }
 
 func (s *Server) subscribeURLs(r *http.Request, token string) (uriURL, clashURL, mihomoURL string) {
