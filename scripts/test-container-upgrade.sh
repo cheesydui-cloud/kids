@@ -1,8 +1,9 @@
 #!/bin/bash
-# Prove the container installer on overlayfs: do not docker-cp onto the running
-# entrypoint, write the starter through the upper directory, then switch again
-# by restarting onto /var/lib/nft/nft-server.next. A second container checks the
-# recreate fallback keeps the label, bind mount, and published port.
+# Prove the container installer does not docker-cp onto the running entrypoint.
+# overlay2 writes the starter through the upper directory. containerd snapshotter
+# recreates the container instead. The next install restarts onto
+# /var/lib/nft/nft-server.next. A second container checks the recreate fallback
+# keeps the label, bind mount, and published port.
 set -euo pipefail
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -80,7 +81,7 @@ if [[ "$cp_rc" -eq 0 ]]; then
 fi
 
 id_before="$(docker inspect -f '{{.Id}}' "$name")"
-echo "install via upper directory"
+echo "install via upper directory, or recreate when the snapshotter cannot be trusted"
 NFT_INSTALL_LOCAL=1 \
 NFT_VERSION=v0.15.4 \
 NFT_WORK="$workdir/install-upper" \
@@ -92,15 +93,25 @@ NFT_EXPECT_TEXT=v1 \
 bash "$installer" "$name" | tee "$workdir/upper.log"
 
 grep -q '容器里没有 bash' "$workdir/upper.log"
-grep -q 'KIDS_SWITCH=upper' "$workdir/upper.log"
 id_after="$(docker inspect -f '{{.Id}}' "$name")"
-if [[ "$id_before" != "$id_after" ]]; then
-  echo "upper install changed container id" >&2
+if grep -q 'KIDS_SWITCH=upper' "$workdir/upper.log"; then
+  if [[ "$id_before" != "$id_after" ]]; then
+    echo "upper install changed container id" >&2
+    exit 1
+  fi
+elif grep -q 'KIDS_SWITCH=recreate' "$workdir/upper.log"; then
+  if [[ "$id_before" == "$id_after" ]]; then
+    echo "recreate kept the same container id" >&2
+    exit 1
+  fi
+else
+  echo "first install did not choose upper or recreate" >&2
   exit 1
 fi
 
-docker exec "$name" sh -c 'head -n 1 /usr/local/sbin/nft-server' | grep -q bash
-docker exec "$name" grep -q '# kids-panel-start' /usr/local/sbin/nft-server
+entry="$(docker inspect -f '{{index .Config.Entrypoint 0}}' "$name")"
+docker exec "$name" sh -c "head -n 1 '$entry'" | grep -q bash
+docker exec "$name" grep -q '# kids-panel-start' "$entry"
 docker exec "$name" grep -q v1 /var/lib/nft/ran-version
 docker exec "$name" sh -c '
   f=/usr/local/sbin/nft-upgrade
@@ -143,7 +154,7 @@ if [[ "$(docker inspect -f '{{.Id}}' "$name")" != "$id_after" ]]; then
   echo "restart changed container id" >&2
   exit 1
 fi
-docker exec "$name" grep -q '# kids-panel-start' /usr/local/sbin/nft-server
+docker exec "$name" grep -q '# kids-panel-start' "$entry"
 docker exec "$name" grep -q panel-slot-v1 /usr/local/lib/kids/nft-server
 docker exec "$name" sh -c 'grep -q panel-slot-v2 /usr/local/lib/kids/nft-server.a || grep -q panel-slot-v2 /usr/local/lib/kids/nft-server.b'
 
