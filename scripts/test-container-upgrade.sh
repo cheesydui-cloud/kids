@@ -111,9 +111,21 @@ docker exec "$name" sh -c '
   grep -q nft-server "$f"
 '
 
-echo "second upgrade through the starter"
-docker cp "$workdir/panel-v2" "$name:/var/lib/nft/nft-server.next"
-docker restart --time 20 "$name" >/dev/null
+echo "second upgrade through installer next path"
+NFT_INSTALL_LOCAL=1 \
+NFT_VERSION=v0.16.0 \
+NFT_WORK="$workdir/install-next" \
+NFT_SERVER_BIN="$workdir/panel-v2" \
+NFT_UPGRADE_FILE="$upgrade" \
+NFT_STARTER_FILE="$starter" \
+NFT_EXPECT_FILE=/var/lib/nft/ran-version \
+NFT_EXPECT_TEXT=v2 \
+bash "$installer" "$name" | tee "$workdir/next.log"
+grep -q 'KIDS_SWITCH=next' "$workdir/next.log"
+if [[ "$(docker inspect -f '{{.Id}}' "$name")" != "$id_after" ]]; then
+  echo "next install changed container id" >&2
+  exit 1
+fi
 ok=0
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   if docker exec "$name" grep -q v2 /var/lib/nft/ran-version 2>/dev/null; then

@@ -635,22 +635,39 @@ func extractIP(r *http.Request) string {
 	if err != nil {
 		host = r.RemoteAddr
 	}
+	host = strings.Trim(host, "[]")
 	remoteIP := net.ParseIP(host)
 	if remoteIP != nil && isTrustedProxy(remoteIP) {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.Index(xff, ","); i > 0 {
-				return strings.TrimSpace(xff[:i])
-			}
-			return strings.TrimSpace(xff)
-		}
-		if xri := r.Header.Get("X-Real-IP"); xri != "" {
-			return strings.TrimSpace(xri)
+		if ip := forwardedClientIP(r); ip != "" {
+			return ip
 		}
 	}
-	if i := strings.LastIndex(host, ":"); i > 0 {
+	if i := strings.LastIndex(host, ":"); i > 0 && remoteIP == nil {
 		host = host[:i]
 	}
-	return strings.Trim(host, "[]")
+	return host
+}
+
+// forwardedClientIP returns the client address added by a trusted proxy.
+// The leftmost X-Forwarded-For entry is chosen by the client, so a spoofed
+// prefix must not win. Walk from the right and skip other trusted proxies.
+func forwardedClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			ip := net.ParseIP(strings.TrimSpace(parts[i]))
+			if ip == nil || isTrustedProxy(ip) {
+				continue
+			}
+			return ip.String()
+		}
+	}
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+		if ip := net.ParseIP(xri); ip != nil && !isTrustedProxy(ip) {
+			return ip.String()
+		}
+	}
+	return ""
 }
 
 // fillNodeRelayHosts seeds relay_host/relay_host_v6 for a node that hasn't

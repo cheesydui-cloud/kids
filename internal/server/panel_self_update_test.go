@@ -250,6 +250,7 @@ func TestStagePanelNextAndReexecUsesStarter(t *testing.T) {
 	}
 	panelWrapperPath = wrapper
 	panelReexecTarget = ""
+	t.Setenv("KIDS_PANEL_STARTER", "")
 	t.Cleanup(func() {
 		panelUpdateDir = prevDir
 		panelWrapperPath = prevWrap
@@ -283,10 +284,14 @@ func TestAdoptStagedPanelWithoutStarter(t *testing.T) {
 	panelUpdateDir = dir
 	panelWrapperPath = filepath.Join(dir, "missing-starter")
 	panelReexecTarget = ""
+	prevExtra := panelStarterExtraPaths
+	panelStarterExtraPaths = nil
+	t.Setenv("KIDS_PANEL_STARTER", "")
 	t.Cleanup(func() {
 		panelUpdateDir = prevDir
 		panelWrapperPath = prevWrap
 		panelReexecTarget = prevTarget
+		panelStarterExtraPaths = prevExtra
 	})
 	err := adoptStagedPanel([]byte("new-elf"))
 	if err == nil || !strings.Contains(err.Error(), "入口还不是启动器") {
@@ -313,6 +318,9 @@ func TestPanelStartScriptHasMarker(t *testing.T) {
 	}
 	if !strings.Contains(script, "/var/lib/nft/nft-server.next") {
 		t.Fatal("missing next path")
+	}
+	if !strings.Contains(script, "KIDS_PANEL_STARTER") {
+		t.Fatal("starter must export its path for the next upgrade")
 	}
 	if strings.Contains(script, "\r\n") {
 		t.Fatal("starter script must be LF")

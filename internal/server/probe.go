@@ -84,7 +84,7 @@ func (s *Server) probeEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", target, probeTimeout)
+	conn, err := dialPublicTarget(target)
 	elapsed := time.Since(start)
 	if err != nil {
 		json.NewEncoder(w).Encode(probeResult{Error: err.Error()})
@@ -92,6 +92,70 @@ func (s *Server) probeEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.Close()
 	json.NewEncoder(w).Encode(probeResult{OK: true, Latency: int(elapsed.Milliseconds())})
+}
+
+// dialPublicTarget dials a public TCP address. The panel-dial probe is an SSRF
+// primitive, so loopback, private, link-local and cloud-metadata targets are
+// refused before the connection is opened.
+func dialPublicTarget(target string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(target)
+	if err != nil {
+		return nil, fmt.Errorf("目标格式应为 host:port")
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return nil, fmt.Errorf("目标端口无效")
+	}
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		resolved, rerr := net.LookupIP(host)
+		if rerr != nil || len(resolved) == 0 {
+			return nil, fmt.Errorf("无法解析主机")
+		}
+		ips = resolved
+	}
+	for _, ip := range ips {
+		if !publicDialIP(ip) {
+			return nil, fmt.Errorf("拒绝从面板探测内网或本机地址")
+		}
+	}
+	d := &net.Dialer{Timeout: probeTimeout}
+	var last error
+	for _, ip := range ips {
+		conn, derr := d.Dial("tcp", net.JoinHostPort(ip.String(), port))
+		if derr == nil {
+			return conn, nil
+		}
+		last = derr
+	}
+	if last == nil {
+		last = fmt.Errorf("连接失败")
+	}
+	return nil, last
+}
+
+func publicDialIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return false
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return true
+	}
+	// 0.0.0.0/8 is "this host" on some stacks. 255.255.255.255 is broadcast.
+	if ip4[0] == 0 || ip4.Equal(net.IPv4bcast) {
+		return false
+	}
+	if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+		return false
+	}
+	return true
 }
 
 func (s *Server) probeCompositeToTarget(w http.ResponseWriter, compositeID int64, target string) {

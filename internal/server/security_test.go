@@ -66,7 +66,7 @@ func TestProbeNodeAuthorization(t *testing.T) {
 	adminCookie := loginAsAdmin(t, d)
 
 	probe := func(cookie *http.Cookie, node string) int {
-		url := "/api/probe?target=1.2.3.4:80"
+		url := "/api/probe?target=127.0.0.1:9"
 		if node != "" {
 			url += "&node=" + node
 		}
@@ -138,6 +138,88 @@ func TestBearerTokensHashedAtRest(t *testing.T) {
 	}
 	if u, _, err := db.GetUserByAPIToken(d, apiTok); err != nil || u.ID != uid {
 		t.Errorf("GetUserByAPIToken by plaintext failed: %v", err)
+	}
+}
+
+func TestExtractIPUsesRightmostUntrustedForwardedFor(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "172.17.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 8.8.8.8, 10.0.0.1")
+	if got := extractIP(r); got != "8.8.8.8" {
+		t.Fatalf("rightmost untrusted hop = %s, want 8.8.8.8", got)
+	}
+
+	r.Header.Set("X-Forwarded-For", "9.9.9.9")
+	r.Header.Set("X-Real-IP", "1.1.1.1")
+	if got := extractIP(r); got != "9.9.9.9" {
+		t.Fatalf("X-Forwarded-For should win over X-Real-IP, got %s", got)
+	}
+
+	r.Header.Del("X-Forwarded-For")
+	if got := extractIP(r); got != "1.1.1.1" {
+		t.Fatalf("X-Real-IP = %s, want 1.1.1.1", got)
+	}
+	r.Header.Set("X-Real-IP", "192.168.1.1")
+	if got := extractIP(r); got != "172.17.0.1" {
+		t.Fatalf("trusted X-Real-IP should be ignored, got %s", got)
+	}
+}
+
+func TestExtractIPIgnoresForwardedForFromPublicPeer(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "203.0.113.9:443"
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 8.8.8.8")
+	r.Header.Set("X-Real-IP", "9.9.9.9")
+	if got := extractIP(r); got != "203.0.113.9" {
+		t.Fatalf("public peer = %s, want 203.0.113.9", got)
+	}
+}
+
+func TestLoginClientIPIgnoresForwardedFor(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+	r.RemoteAddr = "203.0.113.8:1234"
+	r.Header.Set("X-Forwarded-For", "1.2.3.4")
+	r.Header.Set("X-Real-IP", "8.8.8.8")
+	if got := clientIP(r); got != "203.0.113.8" {
+		t.Fatalf("clientIP = %s, want the socket address", got)
+	}
+}
+
+func TestSecurityHeadersAndHealthz(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	req := newTestRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("healthz status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for k, want := range map[string]string{
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":           "DENY",
+		"Referrer-Policy":           "no-referrer",
+		"Content-Security-Policy":   "frame-ancestors 'none'",
+		"Permissions-Policy":        "camera=(), microphone=(), geolocation=()",
+	} {
+		if got := rec.Header().Get(k); got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("closed db status=%d", rec.Code)
+	}
+	body := rec.Body.String()
+	if body != "db unavailable\n" {
+		t.Fatalf("healthz body = %q", body)
+	}
+	if strings.Contains(strings.ToLower(body), "sql") {
+		t.Fatalf("healthz leaked a database error: %s", body)
 	}
 }
 

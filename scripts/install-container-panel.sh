@@ -7,7 +7,7 @@
 set -euo pipefail
 
 name="${1:-kids}"
-ver="${NFT_VERSION:-v0.15.4}"
+ver="${NFT_VERSION:-v0.16.0}"
 work="${NFT_WORK:-/tmp/kids-$name-$ver}"
 NFT_INSTALL_LOCAL="${NFT_INSTALL_LOCAL:-}"
 NFT_FORCE_RECREATE="${NFT_FORCE_RECREATE:-}"
@@ -21,6 +21,7 @@ UPPER=""
 ENTRY_PATH="/usr/local/sbin/nft-server"
 ENTRY_BAK=""
 used_recreate=0
+used_next=0
 recreate_bak=""
 recreate_image=""
 switch_done=0
@@ -418,7 +419,56 @@ PY
   echo "旧容器已改名为 $bak。确认新面板正常后可以删除它"
 }
 
+upper_untrusted() {
+  case "$1" in
+    *io.containerd.snapshotter*|*containerd/io.containerd*) return 0 ;;
+  esac
+  return 1
+}
+
+starter_is_entrypoint() {
+  # Official image execs docker-init, which drops privileges and execs the starter.
+  # That file is not the running program, so a restart picks up nft-server.next.
+  if docker exec "$name" grep -q '# kids-panel-start' "$ENTRY_PATH" 2>/dev/null; then
+    return 0
+  fi
+  if docker exec "$name" grep -q '# kids-docker-init' "$ENTRY_PATH" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+switch_via_next() {
+  echo "入口已是启动器，替换旁边的程序后重启"
+  echo "KIDS_SWITCH=next"
+  used_next=1
+  ensure_bash
+  docker exec "$name" mkdir -p /usr/local/lib/kids /usr/local/sbin /var/lib/nft
+  if ! docker cp "$work/nft-upgrade" "$name:/usr/local/sbin/nft-upgrade"; then
+    docker cp "$work/nft-upgrade" "$name:/usr/local/lib/kids/nft-upgrade"
+  fi
+  docker exec "$name" chmod 755 /usr/local/sbin/nft-upgrade /usr/local/lib/kids/nft-upgrade 2>/dev/null || true
+  docker cp "$work/nft-server" "$name:/var/lib/nft/nft-server.next"
+  docker exec "$name" chmod 755 /var/lib/nft/nft-server.next
+  docker cp "$work/panel-start.sh" "$name:/usr/local/lib/kids/panel-start.sh" || true
+  docker exec "$name" chmod 755 /usr/local/lib/kids/panel-start.sh || true
+  # docker-init must stay the entrypoint so the next start still drops privileges.
+  if docker exec "$name" grep -q '# kids-docker-init' "$ENTRY_PATH" 2>/dev/null; then
+    echo "保留容器入口 $ENTRY_PATH"
+  elif docker cp "$work/panel-start.sh" "$name:$ENTRY_PATH"; then
+    docker exec "$name" chmod 755 "$ENTRY_PATH" || true
+  else
+    echo "启动器文件未替换，继续使用容器里现有的启动器"
+  fi
+  echo "启动 $name"
+  docker restart --time 20 "$name" >/dev/null
+}
+
 starter_in_place() {
+  if docker exec "$name" grep -q '# kids-docker-init' "$ENTRY_PATH" 2>/dev/null; then
+    docker exec "$name" grep -q '# kids-panel-start' /usr/local/lib/kids/panel-start.sh
+    return
+  fi
   if [[ "$used_recreate" -eq 1 ]]; then
     docker exec "$name" grep -q '# kids-panel-start' /usr/local/lib/kids/panel-start.sh
     return
@@ -447,22 +497,23 @@ verify_after_start() {
   if [[ "$ok" -ne 1 ]]; then
     echo "--- 启动后校验失败 ---" >&2
     docker logs "$name" --tail 40 >&2 || true
-    if [[ "$used_recreate" -eq 0 ]]; then
+    if [[ "$used_recreate" -eq 0 && "$used_next" -eq 0 ]]; then
       docker stop --time 20 "$name" >/dev/null 2>&1 || true
       restore_upper_entrypoint
       docker start "$name" >/dev/null 2>&1 || true
-      fail "启动后没有看到新面板，已恢复旧入口"
+      return 1
     fi
-    if [[ -n "$recreate_bak" ]]; then
+    if [[ "$used_recreate" -eq 1 && -n "$recreate_bak" ]]; then
       docker rm -f "$name" >/dev/null 2>&1 || true
       docker rename "$recreate_bak" "$name" || true
       docker start "$name" >/dev/null 2>&1 || true
     fi
-    if [[ -n "$recreate_image" ]]; then
+    if [[ -n "$recreate_image" && "$used_recreate" -eq 1 ]]; then
       docker rmi "$recreate_image" >/dev/null 2>&1 || true
     fi
-    fail "启动后没有看到新面板，已恢复旧容器"
+    return 1
   fi
+  return 0
 }
 
 if ! docker inspect "$name" >/dev/null 2>&1; then
@@ -475,19 +526,24 @@ prepare_files
 ensure_running
 ENTRY_PATH="$(entrypoint_path)"
 echo "当前入口 $ENTRY_PATH"
-case "$ENTRY_PATH" in
-  /usr/local/lib/kids/nft-server|/usr/local/lib/kids/panel-start.sh|/usr/local/sbin/nft-upgrade)
-    fail "入口路径和要写入的新文件冲突: $ENTRY_PATH"
-    ;;
-esac
-ensure_bash
-copy_free_paths
-
-if [[ "$NFT_FORCE_RECREATE" == "1" ]]; then
+if starter_is_entrypoint; then
+  switch_via_next
+elif [[ "$NFT_FORCE_RECREATE" == "1" ]]; then
   recreate_container
 else
+  case "$ENTRY_PATH" in
+    /usr/local/lib/kids/nft-server|/usr/local/sbin/nft-upgrade)
+      fail "入口路径和要写入的新文件冲突: $ENTRY_PATH"
+      ;;
+  esac
+  ensure_bash
+  copy_free_paths
   UPPER="$(find_upper || true)"
-  if [[ -n "$UPPER" ]] && touch "$UPPER/.kids-write-test" 2>/dev/null; then
+  if upper_untrusted "$UPPER"; then
+    echo "容器使用 containerd 快照，直接写上层目录不会换上新程序，改为重建容器"
+    echo "上层目录 $UPPER"
+    recreate_container
+  elif [[ -n "$UPPER" ]] && touch "$UPPER/.kids-write-test" 2>/dev/null; then
     rm -f "$UPPER/.kids-write-test"
     ENTRY_BAK="$UPPER${ENTRY_PATH}.bak-before-${ver}"
     switch_via_upper
@@ -498,7 +554,15 @@ else
   fi
 fi
 
-verify_after_start
+if ! verify_after_start; then
+  if [[ "$used_recreate" -eq 0 && "$used_next" -eq 0 ]]; then
+    echo "上层目录没有换上新程序，改为重建容器"
+    recreate_container
+    verify_after_start || fail "启动后没有看到新面板，已恢复旧容器"
+  else
+    fail "启动后没有看到新面板"
+  fi
+fi
 switch_done=1
 if [[ -n "$recreate_image" ]]; then
   docker rmi "$recreate_image" >/dev/null 2>&1 || true

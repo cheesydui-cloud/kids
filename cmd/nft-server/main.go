@@ -63,6 +63,15 @@ func runServer(args []string) int {
 	fs.IntVar(&hourlyTrafficRetentionDays, "traffic-hourly-retention-days", 30, "hourly traffic retention in days (0 disables cleanup)")
 	fs.IntVar(&dailyTrafficRetentionDays, "traffic-daily-retention-days", 730, "daily traffic retention in days (0 disables cleanup)")
 	fs.Parse(args)
+	if bootstrapPw == "" {
+		bootstrapPw = os.Getenv("NFT_BOOTSTRAP_ADMIN_PASSWORD")
+	}
+	if bootstrapPw == "" {
+		bootstrapPw = consumeBootstrapPasswordFile(dbPath)
+	}
+	if resetAdminPw == "" {
+		resetAdminPw = os.Getenv("NFT_RESET_ADMIN_PASSWORD")
+	}
 
 	if resetAdminPw != "" {
 		return runResetAdmin(dbPath, resetAdminUser, resetAdminPw)
@@ -76,7 +85,7 @@ func runServer(args []string) int {
 		log.Fatalf("open db: %v", err)
 	}
 	defer d.Close()
-	if err := bootstrap(d, bootstrapPw); err != nil {
+	if err := bootstrap(d, dbPath, bootstrapPw); err != nil {
 		log.Fatalf("bootstrap: %v", err)
 	}
 	stopBackups := db.StartBackups(d, dbPath, backupInterval, backupKeep)
@@ -203,7 +212,7 @@ func runImport(args []string) int {
 // execCommand is os/exec.Command; tests do not import this file.
 var execCommand = exec.Command
 
-func bootstrap(d *sql.DB, pw string) error {
+func bootstrap(d *sql.DB, dbPath, pw string) error {
 	n, err := db.CountUsers(d)
 	if err != nil {
 		return err
@@ -211,7 +220,8 @@ func bootstrap(d *sql.DB, pw string) error {
 	if n > 0 {
 		return nil
 	}
-	if pw == "" {
+	generated := pw == ""
+	if generated {
 		pw = db.RandToken(8)
 	}
 	hash, err := server.HashPassword(pw)
@@ -224,8 +234,53 @@ func bootstrap(d *sql.DB, pw string) error {
 	fmt.Println("================================================")
 	fmt.Println(" 首次启动 - 已创建管理员账号")
 	fmt.Println(" 用户名: admin")
-	fmt.Println(" 密  码:", pw)
-	fmt.Println(" 请妥善保存。可通过 --bootstrap-admin-password 自定义。")
+	if generated {
+		notice, nerr := initialPasswordNotice(dbPath, pw, stdoutIsTTY())
+		if nerr != nil {
+			return nerr
+		}
+		fmt.Print(notice)
+	} else {
+		fmt.Println(" 已使用启动时提供的管理员密码。")
+	}
 	fmt.Println("================================================")
 	return nil
+}
+
+// consumeBootstrapPasswordFile reads a one-shot password placed in the data
+// volume by the Docker installer. The file is removed so later starts, and
+// docker inspect, do not keep it. An empty file is ignored.
+func consumeBootstrapPasswordFile(dbPath string) string {
+	path := filepath.Join(filepath.Dir(dbPath), "bootstrap-admin-password")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	_ = os.Remove(path)
+	return strings.TrimSpace(string(b))
+}
+
+func stdoutIsTTY() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// initialPasswordNotice stores a generated password beside the database.
+// Interactive terminals also print it. Container logs only get the file path,
+// so docker logs does not keep the password.
+func initialPasswordNotice(dbPath, pw string, tty bool) (string, error) {
+	path := filepath.Join(filepath.Dir(dbPath), "initial-admin-password")
+	if err := os.WriteFile(path, []byte(pw+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	if tty {
+		fmt.Fprintf(&b, " 密  码: %s\n", pw)
+	}
+	fmt.Fprintf(&b, " 初始密码已写入 %s\n", path)
+	b.WriteString(" 请登录后立即修改，并删除该文件。\n")
+	return b.String(), nil
 }

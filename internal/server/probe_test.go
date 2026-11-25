@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"nft/internal/db"
@@ -67,6 +70,70 @@ func TestProbeChainOwnershipGate(t *testing.T) {
 	}
 	if code := probeChainStatus(t, s, ruleID, adminCookie); code == http.StatusForbidden {
 		t.Errorf("admin: want non-403, got 403")
+	}
+}
+
+func TestPublicDialIPRejectsPrivateAndMetadata(t *testing.T) {
+	cases := []struct {
+		ip   string
+		want bool
+	}{
+		{"1.1.1.1", true},
+		{"8.8.8.8", true},
+		{"2606:4700:4700::1111", true},
+		{"127.0.0.1", false},
+		{"::1", false},
+		{"10.1.2.3", false},
+		{"172.17.0.1", false},
+		{"192.168.1.1", false},
+		{"169.254.169.254", false},
+		{"100.64.0.1", false},
+		{"0.1.2.3", false},
+		{"255.255.255.255", false},
+		{"224.0.0.1", false},
+	}
+	for _, c := range cases {
+		if got := publicDialIP(net.ParseIP(c.ip)); got != c.want {
+			t.Errorf("publicDialIP(%s) = %v, want %v", c.ip, got, c.want)
+		}
+	}
+}
+
+func TestDialPublicTargetRefusesPrivate(t *testing.T) {
+	for _, target := range []string{
+		"127.0.0.1:1",
+		"169.254.169.254:80",
+		"10.1.2.3:80",
+		"localhost:9",
+		"[::1]:80",
+		"0.1.2.3:80",
+	} {
+		conn, err := dialPublicTarget(target)
+		if conn != nil {
+			conn.Close()
+			t.Fatalf("%s was dialed", target)
+		}
+		if err == nil || !strings.Contains(err.Error(), "拒绝从面板探测内网或本机地址") {
+			t.Fatalf("%s err = %v", target, err)
+		}
+	}
+}
+
+func TestPanelProbeRefusesPrivateTarget(t *testing.T) {
+	d := openDB(t)
+	s := newServer(t, d)
+	admin := loginAsAdmin(t, d)
+	for _, target := range []string{"127.0.0.1:1", "169.254.169.254:80", "localhost:9"} {
+		req := newTestRequest(http.MethodGet, "/api/probe?target="+url.QueryEscape(target), nil)
+		req.AddCookie(admin)
+		rec := httptest.NewRecorder()
+		s.Router().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", target, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "拒绝从面板探测内网或本机地址") {
+			t.Fatalf("%s body=%s", target, rec.Body.String())
+		}
 	}
 }
 

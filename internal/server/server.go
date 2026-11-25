@@ -634,6 +634,7 @@ func computeRev(rules []nft.Rule) string {
 
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
+	r.Use(securityHeaders)
 	r.Use(logRequests)
 	r.Get("/healthz", s.healthz)
 	r.HandleFunc("/v1/agents", s.Hub.ServeWS)
@@ -871,11 +872,23 @@ func (s *Server) Router() http.Handler {
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	if err := s.DB.PingContext(r.Context()); err != nil {
-		http.Error(w, "db: "+err.Error(), http.StatusServiceUnavailable)
+		log.Printf("healthz: %v", err)
+		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintln(w, `{"ok":true}`)
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func logRequests(next http.Handler) http.Handler {

@@ -1,45 +1,47 @@
 # kids 面板。只跑 nft-server，不要把 nft-agent 放进这个容器。
-# 在本目录执行: docker compose up -d --build
-# 国内构建访问不了 GitHub 时，把 GH_PROXY 改成你平时用的前缀。
-# 或者把官方 nft-server 放到本目录 local/nft-server，构建时就不再下载。
+# 在仓库根目录执行:
+#   docker compose -f docker/panel/compose.yml up -d --build
+# 没有源码、只有 Docker 的机器，用 scripts/install-docker-panel.sh。
 
 services:
   kids-panel:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: docker/panel/Dockerfile
       args:
-        VERSION: latest
-        GH_PROXY: ""
-    image: kids-panel:latest
+        VERSION: dev
+    image: kids-panel:local
     container_name: kids-panel
     restart: unless-stopped
     ports:
-      # 只绑本机，公网访问走 1Panel 网站反代。
+      # 只绑本机。公网访问走 1Panel 网站反代到 127.0.0.1:7788。
       - "127.0.0.1:7788:7788"
     environment:
       TZ: Asia/Shanghai
       NFT_ADDR: ":7788"
       NFT_DB: /var/lib/nft/panel.db
-      # 首次启动写入管理员密码。不填则密码打印在容器日志里，用户名 admin。
-      # NFT_BOOTSTRAP_ADMIN_PASSWORD: "请改成你的密码"
+      # 不要把密码写进 environment，docker inspect 能看到。
+      # 需要指定密码时用 scripts/install-docker-panel.sh。
+      # 也可以把密码文件放到数据卷的 bootstrap-admin-password（权限 600），面板读完会删除。
     volumes:
       # panel.db 和 sub_token.key 必须在同一个目录。删掉这个卷，订阅链接会全部失效。
       - kids-data:/var/lib/nft
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7788/healthz"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 20s
-    # OpenResty 访问不到 127.0.0.1 时，取消下面两行和文件底部的 networks。
-    # 网站反代改填 http://kids-panel:7788
-    # networks:
-    #   - 1panel-network
 
 volumes:
   kids-data:
-
-# networks:
-#   1panel-network:
-#     external: true

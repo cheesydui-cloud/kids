@@ -25,6 +25,9 @@ func TestInstallScriptDoesNotCopyOntoBusyEntrypoint(t *testing.T) {
 		"NFT_EXPECT_FILE",
 		"NFT_EXPECT_TEXT",
 		"KIDS_SWITCH=upper",
+		"KIDS_SWITCH=next",
+		"kids-docker-init",
+		"io.containerd.snapshotter",
 		"set -euo pipefail",
 	} {
 		if !strings.Contains(script, needle) {

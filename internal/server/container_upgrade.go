@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed container-upgrade.sh
@@ -26,6 +27,13 @@ const panelStartMarker = "# kids-panel-start"
 // cannot be unlinked while it is the process image, so the host installer
 // replaces it with panel-start.sh once, while the container is stopped.
 var panelWrapperPath = "/usr/local/sbin/nft-server"
+
+// panelStarterExtraPaths are starter copies the official image keeps beside
+// the running program. Tests point these at missing files.
+var panelStarterExtraPaths = []string{
+	"/usr/local/lib/kids/panel-start.sh",
+	"/usr/local/sbin/nft-server",
+}
 
 // panelReexecTarget is set when the new ELF was staged beside the running
 // binary. The next exec must be the starter, not the busy inode.
@@ -60,11 +68,43 @@ func panelStartScriptBytes() []byte {
 }
 
 func refreshPanelStarter() error {
-	existing, err := os.ReadFile(panelWrapperPath)
-	if err != nil || !bytes.Contains(existing, []byte(panelStartMarker)) {
+	p := panelStarterPath()
+	if p == "" {
 		return nil
 	}
-	return os.WriteFile(panelWrapperPath, panelStartScriptBytes(), 0o755)
+	return os.WriteFile(p, panelStartScriptBytes(), 0o755)
+}
+
+func looksLikeStarterFile(path string) bool {
+	if path == "" {
+		return false
+	}
+	b, err := os.ReadFile(path)
+	return err == nil && bytes.Contains(b, []byte(panelStartMarker))
+}
+
+// panelStarterPath finds the entrypoint script. Docker execs that script, then
+// the script execs the ELF, so the script itself is not the busy inode.
+func panelStarterPath() string {
+	seen := map[string]struct{}{}
+	candidates := []string{
+		strings.TrimSpace(os.Getenv("KIDS_PANEL_STARTER")),
+		panelWrapperPath,
+	}
+	candidates = append(candidates, panelStarterExtraPaths...)
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		if looksLikeStarterFile(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 func panelNextPath() string {
@@ -72,8 +112,7 @@ func panelNextPath() string {
 }
 
 func panelStarterReady() bool {
-	b, err := os.ReadFile(panelWrapperPath)
-	return err == nil && bytes.Contains(b, []byte(panelStartMarker))
+	return panelStarterPath() != ""
 }
 
 // stagePanelNext writes the downloaded ELF to a path that is not executed.
@@ -117,16 +156,17 @@ func adoptStagedPanel(data []byte) error {
 	if err := stagePanelNext(data); err != nil {
 		return fmt.Errorf("无法替换正在运行的程序: %w", err)
 	}
-	if !panelStarterReady() {
+	p := panelStarterPath()
+	if p == "" {
 		return fmt.Errorf("正在运行的程序删不掉，新版本已写到 %s。入口还不是启动器，请在宿主机执行 install-container-panel.sh", panelNextPath())
 	}
-	panelReexecTarget = panelWrapperPath
+	panelReexecTarget = p
 	return nil
 }
 
 func panelReexecPath() (string, error) {
-	if panelReexecTarget != "" && panelStarterReady() {
-		return panelWrapperPath, nil
+	if p := panelStarterPath(); p != "" {
+		return p, nil
 	}
 	exe, err := os.Executable()
 	if err != nil {

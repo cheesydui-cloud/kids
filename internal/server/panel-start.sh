@@ -52,4 +52,10 @@ if [[ -z "${current:-}" || ! -x "$current" ]]; then
   echo "kids: 找不到面板程序" >&2
   exit 1
 fi
+starter_self="$0"
+case "$starter_self" in
+  /*) ;;
+  *) starter_self="$(CDPATH= cd -- "$(dirname "$starter_self")" && pwd)/$(basename "$starter_self")" ;;
+esac
+export KIDS_PANEL_STARTER="$starter_self"
 exec "$current" "$@"

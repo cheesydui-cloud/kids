@@ -22,6 +22,8 @@ func TestIsPublicIP(t *testing.T) {
 		{"fe80::1", false},         // link-local
 		{"fc00::1", false},         // ULA
 		{"0.0.0.0", false},
+		{"0.1.2.3", false},    // 0.0.0.0/8 this-host
+		{"255.255.255.255", false},
 		{"100.64.0.1", false}, // CGNAT
 		{"224.0.0.1", false},  // multicast
 	}

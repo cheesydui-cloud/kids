@@ -1,39 +1,62 @@
-# kids panel only. The image downloads the official nft-server release.
-# nft-agent stays on each node host; it needs the host network and nftables.
+# Official kids panel image. nft-agent stays on the node host.
+# The entrypoint is not the running program, so later upgrades replace a
+# side file and restart through the starter.
 #
 #   docker compose -f docker/panel/compose.yml up -d --build
 #
-# Build args:
-#   VERSION   release tag, default latest (example: v0.14.0)
-#   GH_PROXY  prefix concatenated in front of the GitHub URL, same as install.sh
-#             example: https://ghfast.top/
+# On a machine that only has Docker, use scripts/install-docker-panel.sh.
+# That script downloads the release and does not need the Go toolchain.
+
+FROM golang:1.26-bookworm AS build
+WORKDIR /src
+ARG VERSION=dev
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w -X nft/internal/server.buildVersion=${VERSION}" \
+    -o /out/nft-server ./cmd/nft-server
 
 FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl tzdata passwd util-linux \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 65532 --home-dir /var/lib/nft --no-create-home kids \
+ && mkdir -p /usr/local/lib/kids /var/lib/nft \
+ && chown -R kids:kids /usr/local/lib/kids /var/lib/nft
 
-ARG VERSION=latest
-ARG GH_PROXY=
-ARG TARGETARCH
+COPY --from=build /out/nft-server /usr/local/lib/kids/nft-server
+COPY internal/server/panel-start.sh /usr/local/lib/kids/panel-start.sh
+COPY internal/server/container-upgrade.sh /usr/local/sbin/nft-upgrade
+COPY docker/panel/docker-init.sh /usr/local/lib/kids/docker-init.sh
+RUN sed -i 's/\r$//' \
+      /usr/local/lib/kids/panel-start.sh \
+      /usr/local/sbin/nft-upgrade \
+      /usr/local/lib/kids/docker-init.sh \
+ && cp /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-server \
+ && chmod 755 \
+      /usr/local/lib/kids/nft-server \
+      /usr/local/lib/kids/panel-start.sh \
+      /usr/local/sbin/nft-server \
+      /usr/local/sbin/nft-upgrade \
+      /usr/local/lib/kids/docker-init.sh \
+ && printf '%s\n' /usr/local/lib/kids/nft-server > /var/lib/nft/nft-server.live \
+ && chown kids:kids \
+      /usr/local/lib/kids/nft-server \
+      /usr/local/lib/kids/panel-start.sh \
+      /usr/local/sbin/nft-server \
+      /usr/local/sbin/nft-upgrade \
+      /usr/local/lib/kids/docker-init.sh \
+      /var/lib/nft/nft-server.live \
+ && chown -R kids:kids /usr/local/lib/kids /var/lib/nft
 
 ENV TZ=Asia/Shanghai \
     NFT_ADDR=:7788 \
     NFT_DB=/var/lib/nft/panel.db
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl tzdata \
- && rm -rf /var/lib/apt/lists/* \
- && mkdir -p /var/lib/nft
-
-COPY fetch-panel.sh entrypoint.sh /tmp/kids/
-COPY local/ /tmp/kids/local/
-RUN sed -i 's/\r$//' /tmp/kids/fetch-panel.sh /tmp/kids/entrypoint.sh \
- && chmod 0755 /tmp/kids/fetch-panel.sh /tmp/kids/entrypoint.sh \
- && VERSION="$VERSION" GH_PROXY="$GH_PROXY" TARGETARCH="$TARGETARCH" \
-    sh /tmp/kids/fetch-panel.sh \
- && mv /tmp/kids/entrypoint.sh /usr/local/bin/kids-entrypoint \
- && rm -rf /tmp/kids
-
 EXPOSE 7788
 VOLUME ["/var/lib/nft"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD curl -fsS http://127.0.0.1:7788/healthz || exit 1
-ENTRYPOINT ["/usr/local/bin/kids-entrypoint"]
+ENTRYPOINT ["/usr/local/lib/kids/docker-init.sh"]

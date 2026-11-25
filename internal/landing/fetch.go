@@ -93,7 +93,15 @@ func isPublicIP(ip net.IP) bool {
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
 		return false
 	}
-	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return true
+	}
+	// 0.0.0.0/8 is "this host" on some stacks. 255.255.255.255 is broadcast.
+	if ip4[0] == 0 || ip4.Equal(net.IPv4bcast) {
+		return false
+	}
+	if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
 		return false // 100.64.0.0/10 CGNAT
 	}
 	return true
