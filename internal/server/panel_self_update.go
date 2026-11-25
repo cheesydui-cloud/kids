@@ -46,8 +46,8 @@ func panelAssetCandidates() []string {
 }
 
 // startBuiltinPanelUpgrade downloads the published panel binary, replaces the
-// running executable, and re-execs. It is the upgrade path for containers that
-// were not installed with install.sh and therefore have no nft-upgrade script.
+// running executable, and re-execs. Containers use this path. A systemd host
+// with the official nft-upgrade script still uses that script.
 func startBuiltinPanelUpgrade(target, current string) error {
 	if err := os.MkdirAll(panelUpdateDir, 0o755); err != nil {
 		return err

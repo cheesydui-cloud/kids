@@ -85,6 +85,9 @@ func runServer(args []string) int {
 		AuditDays: auditRetentionDays, HourlyTrafficDays: hourlyTrafficRetentionDays, DailyTrafficDays: dailyTrafficRetentionDays,
 	})
 	defer stopRetention()
+	if err := server.EnsureContainerUpgradeHelper(); err != nil {
+		log.Printf("nft-upgrade helper: %v", err)
+	}
 
 	// Doc images live next to the SQLite file so backups/migrations of the
 	// data directory keep text and assets together.

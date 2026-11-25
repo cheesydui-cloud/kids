@@ -26,6 +26,87 @@ func TestCompareSemver(t *testing.T) {
 	}
 }
 
+func TestContainerUpgradeScriptAcceptedByOldPanel(t *testing.T) {
+	script := containerUpgradeScriptBytes()
+	if bytes.Contains(script, []byte("\r")) {
+		t.Fatal("container upgrade script contains CR")
+	}
+	if !bytes.Contains(script, []byte(containerUpgradeMarker)) {
+		t.Fatal("missing container upgrade marker")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nft-upgrade")
+	if err := os.WriteFile(path, script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !looksLikePanelInstaller(path) {
+		t.Fatal("v0.14.0 would reject this nft-upgrade")
+	}
+}
+
+func TestInstallContainerUpgradeHelper(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing", "nft-upgrade")
+	if err := installContainerUpgradeHelper(missing); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, containerUpgradeScriptBytes()) {
+		t.Fatal("missing helper was not installed")
+	}
+
+	official := filepath.Join(dir, "official.sh")
+	body := []byte("#!/bin/bash\n# official\ndo_update(){ echo nft-server; }\n")
+	if err := os.WriteFile(official, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installContainerUpgradeHelper(official); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(official)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatal("official installer was overwritten")
+	}
+
+	marked := filepath.Join(dir, "marked.sh")
+	if err := os.WriteFile(marked, []byte("#!/bin/bash\n# kids-container-upgrade\nold\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installContainerUpgradeHelper(marked); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(marked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, containerUpgradeScriptBytes()) {
+		t.Fatal("marked helper was not refreshed")
+	}
+}
+
+func TestPreferInstallerUpgrade(t *testing.T) {
+	official := []byte("#!/bin/bash\ndo_update(){ echo nft-server; }\n")
+	helper := append([]byte("# kids-container-upgrade\n"), official...)
+	if !preferInstallerUpgrade(true, true, official) {
+		t.Fatal("official installer on systemd should be used")
+	}
+	if preferInstallerUpgrade(true, false, official) {
+		t.Fatal("no systemd must use the builtin upgrade")
+	}
+	if preferInstallerUpgrade(true, true, helper) {
+		t.Fatal("container helper must not replace the builtin upgrade")
+	}
+	if preferInstallerUpgrade(false, true, official) {
+		t.Fatal("invalid installer must not be used")
+	}
+}
+
 func TestLooksLikePanelInstaller(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "good.sh")

@@ -22,7 +22,6 @@ const (
 	panelUpdateStatusName = "panel-update.json"
 	panelUpdateLogName    = "panel-update.log"
 	panelUpdateScriptName = "panel-self-update.sh"
-	panelUpdateInstallSH  = "panel-self-update-install.sh"
 	ghProxyFile           = "/etc/nft/gh-proxy"
 	panelUpdateStaleAfter = 20 * time.Minute
 	latestReleaseCacheFor = 45 * time.Second
@@ -349,22 +348,18 @@ func startPanelUpgradeDetached(target, current string) error {
 		return err
 	}
 	script := filepath.Join(panelUpdateDir, panelUpdateScriptName)
-	installSH := filepath.Join(panelUpdateDir, panelUpdateInstallSH)
 	logPath := panelUpdateLogPath()
 	statusPath := panelUpdateStatusPath()
 
-	useLocal := looksLikeInstallerFn(nftUpgradePath)
-	if !useLocal {
-		// Containers installed without install.sh have no nft-upgrade and no
-		// systemd unit. The panel downloads the release itself, replaces its
-		// own binary, and re-execs. Do not fetch a mutable GitHub branch.
+	if !shouldUseInstallerUpgrade() {
+		// No systemd unit, or only the container helper is present. Download
+		// the release, replace this binary, and re-exec. v0.14.0 cannot do
+		// that; it runs /usr/local/sbin/nft-upgrade, which this process
+		// installs when that file is missing.
 		return startBuiltinPanelUpgrade(target, current)
 	}
 
-	upgradeLine := "bash " + shellQuote(installSH) + " update --release " + shellQuote(target)
-	if useLocal {
-		upgradeLine = shellQuote(nftUpgradePath) + " update --release " + shellQuote(target)
-	}
+	upgradeLine := shellQuote(nftUpgradePath) + " update --release " + shellQuote(target)
 
 	body := fmt.Sprintf(`#!/usr/bin/env bash
 set -uo pipefail
