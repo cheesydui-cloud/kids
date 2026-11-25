@@ -29,25 +29,25 @@ RUN apt-get update \
 COPY --from=build /out/nft-server /usr/local/lib/kids/nft-server
 COPY internal/server/panel-start.sh /usr/local/lib/kids/panel-start.sh
 COPY internal/server/container-upgrade.sh /usr/local/sbin/nft-upgrade
-COPY docker/panel/docker-init.sh /usr/local/lib/kids/docker-init.sh
+COPY docker/panel/docker-init.sh /usr/local/sbin/kids-docker-init
 RUN sed -i 's/\r$//' \
       /usr/local/lib/kids/panel-start.sh \
       /usr/local/sbin/nft-upgrade \
-      /usr/local/lib/kids/docker-init.sh \
+      /usr/local/sbin/kids-docker-init \
  && cp /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-server \
  && chmod 755 \
       /usr/local/lib/kids/nft-server \
       /usr/local/lib/kids/panel-start.sh \
       /usr/local/sbin/nft-server \
       /usr/local/sbin/nft-upgrade \
-      /usr/local/lib/kids/docker-init.sh \
+      /usr/local/sbin/kids-docker-init \
+ && chown root:root /usr/local/sbin/kids-docker-init \
  && printf '%s\n' /usr/local/lib/kids/nft-server > /var/lib/nft/nft-server.live \
  && chown kids:kids \
       /usr/local/lib/kids/nft-server \
       /usr/local/lib/kids/panel-start.sh \
       /usr/local/sbin/nft-server \
       /usr/local/sbin/nft-upgrade \
-      /usr/local/lib/kids/docker-init.sh \
       /var/lib/nft/nft-server.live \
  && chown -R kids:kids /usr/local/lib/kids /var/lib/nft
 
@@ -59,4 +59,4 @@ EXPOSE 7788
 VOLUME ["/var/lib/nft"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD curl -fsS http://127.0.0.1:7788/healthz || exit 1
-ENTRYPOINT ["/usr/local/lib/kids/docker-init.sh"]
+ENTRYPOINT ["/usr/local/sbin/kids-docker-init"]

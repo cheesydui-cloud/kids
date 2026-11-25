@@ -69,7 +69,7 @@ fi
 
 id_before="$(docker inspect -f '{{.Id}}' "$name")"
 entry="$(docker inspect -f '{{index .Config.Entrypoint 0}}' "$name")"
-if [[ "$entry" != "/usr/local/lib/kids/docker-init.sh" ]]; then
+if [[ "$entry" != "/usr/local/sbin/kids-docker-init" ]]; then
   echo "entrypoint = $entry" >&2
   exit 1
 fi
@@ -102,7 +102,16 @@ if [[ "$ok" -ne 1 ]]; then
 fi
 docker exec "$name" grep -qx 65532 /var/lib/nft/ran-uid
 docker exec "$name" grep -q '# kids-panel-start' /usr/local/lib/kids/panel-start.sh
-docker exec "$name" grep -q '# kids-docker-init' /usr/local/lib/kids/docker-init.sh
+docker exec "$name" grep -q '# kids-docker-init' /usr/local/sbin/kids-docker-init
+owner="$(docker exec "$name" stat -c '%U' /usr/local/sbin/kids-docker-init)"
+if [[ "$owner" != "root" ]]; then
+  echo "docker-init owner = $owner" >&2
+  exit 1
+fi
+if docker exec -u kids "$name" test -w /usr/local/sbin/kids-docker-init; then
+  echo "kids can overwrite the container entrypoint" >&2
+  exit 1
+fi
 uid="$(docker exec "$name" sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' /proc/1/status)"
 if [[ "$uid" != "65532" ]]; then
   echo "pid 1 uid = $uid" >&2
@@ -154,7 +163,11 @@ if [[ "$(docker inspect -f '{{index .Config.Entrypoint 0}}' "$name")" != "$entry
   echo "upgrade replaced docker-init" >&2
   exit 1
 fi
-docker exec "$name" grep -q '# kids-docker-init' /usr/local/lib/kids/docker-init.sh
+docker exec "$name" grep -q '# kids-docker-init' /usr/local/sbin/kids-docker-init
+if docker exec -u kids "$name" test -w /usr/local/sbin/kids-docker-init; then
+  echo "upgrade left the entrypoint writable by kids" >&2
+  exit 1
+fi
 docker exec "$name" grep -qx 65532 /var/lib/nft/ran-uid
 docker exec "$name" sh -c 'grep -q panel-slot-v2 /usr/local/lib/kids/nft-server.a || grep -q panel-slot-v2 /usr/local/lib/kids/nft-server.b'
 echo "docker panel ok"

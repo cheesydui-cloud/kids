@@ -14,6 +14,7 @@ import (
 func TestInstallDockerPanelScript(t *testing.T) {
 	script := string(readRepoFile(t, "scripts", "install-docker-panel.sh"))
 	initScript := string(readRepoFile(t, "docker", "panel", "docker-init.sh"))
+	dockerfile := string(readRepoFile(t, "docker", "panel", "Dockerfile"))
 	retired := string(readRepoFile(t, "docker", "panel", "fetch-panel.sh"))
 	for _, needle := range []string{
 		"127.0.0.1:7788:7788",
@@ -33,6 +34,23 @@ func TestInstallDockerPanelScript(t *testing.T) {
 	}
 	if strings.Contains(script, "--inh-caps") {
 		t.Fatal("setpriv must not require CAP_SETPCAP")
+	}
+	if !strings.Contains(script, "/usr/local/sbin/kids-docker-init") {
+		t.Fatal("installer must keep the entrypoint outside the kids tree")
+	}
+	if strings.Contains(script, "chown kids:kids /usr/local/sbin/kids-docker-init") ||
+		strings.Contains(script, "chown kids:kids /usr/local/lib/kids/docker-init.sh") {
+		t.Fatal("installer must not give the entrypoint to the panel user")
+	}
+	if !strings.Contains(dockerfile, "ENTRYPOINT [\"/usr/local/sbin/kids-docker-init\"]") {
+		t.Fatal("official image entrypoint must stay outside the kids tree")
+	}
+	if strings.Contains(dockerfile, "chown kids:kids") && strings.Contains(dockerfile, "kids-docker-init") {
+		for _, line := range strings.Split(dockerfile, "\n") {
+			if strings.Contains(line, "chown") && strings.Contains(line, "kids:kids") && strings.Contains(line, "kids-docker-init") {
+				t.Fatal("Dockerfile gives the entrypoint to the panel user")
+			}
+		}
 	}
 	for _, needle := range []string{"# kids-docker-init", "--reuid=kids", "bootstrap-admin-password", "chmod 600"} {
 		if !strings.Contains(initScript, needle) {

@@ -51,6 +51,7 @@ write_init() {
 # kids-docker-init
 # Fix volume ownership, then run the panel as the unprivileged kids user.
 # The long-running process is the program exec'd by panel-start.sh, not this file.
+# This file is the Docker entrypoint. Keep it root-owned and outside the kids tree.
 set -eu
 mkdir -p /var/lib/nft /usr/local/lib/kids
 if id kids >/dev/null 2>&1; then
@@ -140,19 +141,20 @@ RUN apt-get update \
 COPY nft-server /usr/local/lib/kids/nft-server
 COPY panel-start.sh /usr/local/lib/kids/panel-start.sh
 COPY nft-upgrade /usr/local/sbin/nft-upgrade
-COPY docker-init.sh /usr/local/lib/kids/docker-init.sh
-RUN sed -i 's/\r$//' /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-upgrade /usr/local/lib/kids/docker-init.sh \
+COPY docker-init.sh /usr/local/sbin/kids-docker-init
+RUN sed -i 's/\r$//' /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-upgrade /usr/local/sbin/kids-docker-init \
  && cp /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-server \
- && chmod 755 /usr/local/lib/kids/nft-server /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-server /usr/local/sbin/nft-upgrade /usr/local/lib/kids/docker-init.sh \
+ && chmod 755 /usr/local/lib/kids/nft-server /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-server /usr/local/sbin/nft-upgrade /usr/local/sbin/kids-docker-init \
+ && chown root:root /usr/local/sbin/kids-docker-init \
  && printf '%s\n' /usr/local/lib/kids/nft-server > /var/lib/nft/nft-server.live \
- && chown kids:kids /usr/local/lib/kids/nft-server /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-server /usr/local/sbin/nft-upgrade /usr/local/lib/kids/docker-init.sh /var/lib/nft/nft-server.live \
+ && chown kids:kids /usr/local/lib/kids/nft-server /usr/local/lib/kids/panel-start.sh /usr/local/sbin/nft-server /usr/local/sbin/nft-upgrade /var/lib/nft/nft-server.live \
  && chown -R kids:kids /usr/local/lib/kids /var/lib/nft
 ENV TZ=Asia/Shanghai NFT_ADDR=:7788 NFT_DB=/var/lib/nft/panel.db
 EXPOSE 7788
 VOLUME ["/var/lib/nft"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD curl -fsS http://127.0.0.1:7788/healthz || exit 1
-ENTRYPOINT ["/usr/local/lib/kids/docker-init.sh"]
+ENTRYPOINT ["/usr/local/sbin/kids-docker-init"]
 EOF
 
 echo "构建镜像 $image"

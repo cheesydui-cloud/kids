@@ -2,6 +2,7 @@
 # kids-docker-init
 # Fix volume ownership, then run the panel as the unprivileged kids user.
 # The long-running process is the program exec'd by panel-start.sh, not this file.
+# This file is the Docker entrypoint. Keep it root-owned and outside the kids tree.
 set -eu
 
 mkdir -p /var/lib/nft /usr/local/lib/kids
