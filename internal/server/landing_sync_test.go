@@ -60,6 +60,9 @@ func TestLandingSyncPassBackfillsManualUsers(t *testing.T) {
 	uid, _ := loginAsUser(t, d, 10)
 	db.SetUserLandingSource(d, uid, "", "vless://u@1.2.3.4:443#HK")
 	s := newServer(t, d)
+	// New() starts a backfill pass in the background. Stop it before the
+	// assertions, or that pass can insert rows after the DELETE below.
+	s.Stop()
 
 	s.landingSyncPass(true)
 	exits, _ := db.ListUserLandingExits(d, uid)
