@@ -118,7 +118,7 @@ func adoptStagedPanel(data []byte) error {
 		return fmt.Errorf("无法替换正在运行的程序: %w", err)
 	}
 	if !panelStarterReady() {
-		return fmt.Errorf("正在运行的程序删不掉，新版本已写到 %s。入口还不是启动器，请在宿主机执行 v0.15.3 安装命令", panelNextPath())
+		return fmt.Errorf("正在运行的程序删不掉，新版本已写到 %s。入口还不是启动器，请在宿主机执行 install-container-panel.sh", panelNextPath())
 	}
 	panelReexecTarget = panelWrapperPath
 	return nil

@@ -171,7 +171,7 @@ replace_binary() {
     log "已把新程序放到 /var/lib/nft/nft-server.next，启动器会在重启时换上"
     return 0
   fi
-  die "入口还不是启动器，容器重启后不会换上新程序。请在宿主机执行 v0.15.3 安装命令"
+  die "入口还不是启动器，容器重启后不会换上新程序。请在宿主机执行 install-container-panel.sh"
 }
 
 save_cmdline() {
