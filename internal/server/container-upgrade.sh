@@ -13,7 +13,7 @@ GH_PROXY=""
 
 log() {
   mkdir -p /var/lib/nft 2>/dev/null || true
-  printf '%s\n' "$*" | tee -a "$LOG" >&2
+  printf '%s\n' "$*" >&2
 }
 
 die() {
@@ -103,6 +103,41 @@ find_panel() {
   return 1
 }
 
+replace_busy_by_dir_swap() {
+  local dest="$1" src="$2"
+  local parent base grand newdir olddir name f
+  parent="$(dirname "$dest")"
+  base="$(basename "$dest")"
+  grand="$(dirname "$parent")"
+  [[ -n "$parent" && "$parent" != "/" && -d "$parent" ]] || return 1
+  [[ -n "$grand" && "$grand" != "$parent" && -d "$grand" && -w "$grand" ]] || return 1
+  newdir="$grand/.nft-sbin-new.$$"
+  olddir="$grand/.nft-sbin-old.$$"
+  rm -rf "$newdir"
+  mkdir -p "$newdir" || return 1
+  while IFS= read -r f; do
+    name="$(basename "$f")"
+    [[ "$name" == "$base" ]] && continue
+    case "$name" in
+      .nft-server-new-*) continue ;;
+    esac
+    cp -a "$f" "$newdir/" || { rm -rf "$newdir"; return 1; }
+  done < <(find "$parent" -mindepth 1 -maxdepth 1 -print)
+  cp "$src" "$newdir/$base" || { rm -rf "$newdir"; return 1; }
+  chmod 755 "$newdir/$base" || true
+  if ! mv "$parent" "$olddir"; then
+    rm -rf "$newdir"
+    return 1
+  fi
+  if ! mv "$newdir" "$parent"; then
+    mv "$olddir" "$parent" 2>/dev/null || true
+    rm -rf "$newdir"
+    return 1
+  fi
+  rm -rf "$olddir" 2>/dev/null || true
+  return 0
+}
+
 replace_binary() {
   local dest="$1" src="$2" dir tmp
   dir="$(dirname "$dest")"
@@ -110,20 +145,24 @@ replace_binary() {
   tmp="$(mktemp "$dir/.nft-server-new.XXXXXX")" || die "无法写入新程序"
   cp "$src" "$tmp" || die "无法写入新程序"
   chmod 755 "$tmp" || die "无法写入新程序"
-  if [[ -e "$dest" || -L "$dest" ]]; then
-    cp -a "$dest" "${dest}.bak" 2>/dev/null || true
-    rm -f "$dest" || die "无法删除正在运行的程序: $dest"
-  fi
-  if ! mv "$tmp" "$dest"; then
-    if ! cp "$tmp" "$dest"; then
-      if [[ -f "${dest}.bak" ]]; then
-        mv "${dest}.bak" "$dest" 2>/dev/null || true
-      fi
-      die "无法放入新程序: $dest"
+  if rm -f "$dest" 2>/dev/null; then
+    if mv "$tmp" "$dest"; then
+      chmod 755 "$dest" || true
+      return 0
     fi
-    rm -f "$tmp"
   fi
-  chmod 755 "$dest" || true
+  # overlayfs refuses to unlink a running binary: Device or resource busy.
+  log "正在运行的程序无法直接删除，改为替换所在目录"
+  if replace_busy_by_dir_swap "$dest" "$tmp"; then
+    rm -f "$tmp" 2>/dev/null || true
+    log "已通过目录替换放入新程序"
+    return 0
+  fi
+  if mount --bind "$tmp" "$dest" 2>/dev/null; then
+    log "已用 bind mount 盖住旧程序"
+    return 0
+  fi
+  die "无法替换正在运行的程序: $dest"
 }
 
 save_cmdline() {
@@ -187,7 +226,7 @@ download_one() {
     log "SHA256SUMS 中没有 $name"
     return 1
   fi
-  if ! curl -fL --retry 5 --retry-delay 2 --connect-timeout 20 --max-time 180 \
+  if ! curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 20 --max-time 180 \
     -o "$tmp/nft-server" "$base/$name"; then
     log "下载 $name 失败"
     return 1
@@ -244,6 +283,14 @@ do_update() {
   log "新程序已放好，即将重启。若页面没有回来，在宿主机执行 docker start 对应容器"
   exit 0
 }
+
+if [[ -z "${NFT_UPGRADE_REEXEC:-}" && -n "${0:-}" && -f "$0" ]]; then
+  if cp "$0" /tmp/nft-upgrade-run 2>/dev/null; then
+    chmod 755 /tmp/nft-upgrade-run
+    export NFT_UPGRADE_REEXEC=1
+    exec /bin/bash /tmp/nft-upgrade-run "$@"
+  fi
+fi
 
 mode=""
 release=""

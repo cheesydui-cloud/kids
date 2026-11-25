@@ -170,9 +170,10 @@ func httpGetLimited(url string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-// replaceExecutable writes data over dest. A running binary cannot be renamed
-// over on overlayfs (ETXTBSY, "device or resource busy"), so the path is
-// unlinked first. The running process keeps the old inode until it re-execs.
+// replaceExecutable writes data over dest. A running binary on overlayfs often
+// cannot be unlinked ("device or resource busy" / "text file busy"). The
+// running process keeps the old inode either way. When unlink fails, the
+// parent directory is swapped so the original path points at the new file.
 func replaceExecutable(dest string, data []byte) error {
 	dir := filepath.Dir(dest)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -201,15 +202,147 @@ func replaceExecutable(dest string, data []byte) error {
 		return fmt.Errorf("无法写入新程序: %w", err)
 	}
 	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("无法替换正在运行的程序: %w", err)
+		if !replaceErrBusy(err) {
+			return fmt.Errorf("无法替换正在运行的程序: %w", err)
+		}
+		if serr := replaceByDirectorySwap(dest, tmpName); serr != nil {
+			return fmt.Errorf("无法替换正在运行的程序: %w", serr)
+		}
+		return nil
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
+		if replaceErrBusy(err) {
+			if serr := replaceByDirectorySwap(dest, tmpName); serr != nil {
+				return fmt.Errorf("无法替换正在运行的程序: %w", serr)
+			}
+			return nil
+		}
 		if werr := os.WriteFile(dest, data, 0o755); werr != nil {
 			return fmt.Errorf("替换失败且无法写回程序: %v / %w", err, werr)
 		}
 		return nil
 	}
 	cleanup = false
+	return nil
+}
+
+func replaceErrBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "device or resource busy") || strings.Contains(s, "text file busy")
+}
+
+// replaceByDirectorySwap puts src at dest's path without unlinking dest.
+// Overlayfs returns EBUSY when the running binary is removed, but renaming
+// the parent directory is allowed. The running process keeps the old inode.
+func replaceByDirectorySwap(dest, src string) error {
+	parent := filepath.Dir(dest)
+	base := filepath.Base(dest)
+	grand := filepath.Dir(parent)
+	if parent == "" || parent == "." || parent == string(filepath.Separator) || grand == parent {
+		return fmt.Errorf("无法移动目录 %s", parent)
+	}
+	newDir, err := os.MkdirTemp(grand, ".nft-sbin-new-")
+	if err != nil {
+		return err
+	}
+	moved := false
+	defer func() {
+		if !moved {
+			_ = os.RemoveAll(newDir)
+		}
+	}()
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Name() == base || strings.HasPrefix(e.Name(), ".nft-server-new-") {
+			continue
+		}
+		if err := copyDirEntry(filepath.Join(parent, e.Name()), filepath.Join(newDir, e.Name())); err != nil {
+			return err
+		}
+	}
+	if err := copyFileMode(src, filepath.Join(newDir, base), 0o755); err != nil {
+		return err
+	}
+	oldHold, err := os.MkdirTemp(grand, ".nft-sbin-old-")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(oldHold); err != nil {
+		return err
+	}
+	if err := os.Rename(parent, oldHold); err != nil {
+		return err
+	}
+	if err := os.Rename(newDir, parent); err != nil {
+		_ = os.Rename(oldHold, parent)
+		return err
+	}
+	moved = true
+	_ = os.RemoveAll(oldHold)
+	return nil
+}
+
+func copyFileMode(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Chmod(mode); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+func copyDirEntry(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, dst)
+	}
+	if info.IsDir() {
+		return copyDirRecursive(src, dst, info.Mode().Perm())
+	}
+	return copyFileMode(src, dst, info.Mode().Perm())
+}
+
+func copyDirRecursive(src, dst string, mode os.FileMode) error {
+	if mode == 0 {
+		mode = 0o755
+	}
+	if err := os.MkdirAll(dst, mode); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := copyDirEntry(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

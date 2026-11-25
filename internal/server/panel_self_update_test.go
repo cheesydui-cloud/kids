@@ -34,6 +34,62 @@ func TestReplaceExecutableWritesNewBytes(t *testing.T) {
 	}
 }
 
+func TestReplaceErrBusy(t *testing.T) {
+	if replaceErrBusy(nil) {
+		t.Fatal("nil is not busy")
+	}
+	if replaceErrBusy(errString("permission denied")) {
+		t.Fatal("permission denied is not busy")
+	}
+	if !replaceErrBusy(errString("remove nft-server: device or resource busy")) {
+		t.Fatal("expected device or resource busy")
+	}
+	if !replaceErrBusy(errString("text file busy")) {
+		t.Fatal("expected text file busy")
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
+
+func TestReplaceByDirectorySwapKeepsSiblings(t *testing.T) {
+	grand := t.TempDir()
+	parent := filepath.Join(grand, "sbin")
+	if err := os.Mkdir(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(parent, "nft-server")
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sib := filepath.Join(parent, "nft-upgrade")
+	if err := os.WriteFile(sib, []byte("script"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(grand, "newbin")
+	if err := os.WriteFile(src, []byte("new-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceByDirectorySwap(dest, src); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(grand, "sbin", "nft-server"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new-binary" {
+		t.Fatalf("binary = %q", got)
+	}
+	sibGot, err := os.ReadFile(filepath.Join(grand, "sbin", "nft-upgrade"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(sibGot) != "script" {
+		t.Fatalf("sibling = %q", sibGot)
+	}
+}
+
 func TestDownloadPanelReleaseBinaryVerifiesSHA(t *testing.T) {
 	payload := make([]byte, 1<<20+8)
 	copy(payload, []byte{0x7f, 'E', 'L', 'F'})
