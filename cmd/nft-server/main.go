@@ -20,6 +20,7 @@ import (
 
 	"nft/internal/db"
 	"nft/internal/server"
+	_ "nft/internal/tlsfallback"
 )
 
 func main() {

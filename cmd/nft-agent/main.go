@@ -15,6 +15,7 @@ import (
 	"nft/internal/daemonclient"
 	"nft/internal/nft"
 	"nft/internal/sysdeps"
+	_ "nft/internal/tlsfallback"
 	"nft/internal/tui"
 )
 

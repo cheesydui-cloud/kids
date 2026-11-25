@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -109,7 +110,7 @@ func (s *Server) apiImportMigrate(w http.ResponseWriter, r *http.Request) {
 			"users":   man.Users,
 			"nodes":   man.Nodes,
 			"rules":   man.Rules,
-			"message": "数据已就绪，但自动重启失败，请 SSH 执行 systemctl restart nft-server",
+			"message": "数据已就绪，但自动重启失败。容器执行 docker restart，系统服务执行 systemctl restart nft-server",
 		})
 		return
 	}
@@ -123,14 +124,39 @@ func (s *Server) apiImportMigrate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// panelRestartMode is systemd when this host already runs nft-server as a
+// unit. Containers and other installs have no unit; restarting them with a
+// systemctl script exits 0 and leaves the staged migrate unapplied.
+func panelRestartMode() string {
+	if panelSystemdUnitPresent() {
+		return "systemd"
+	}
+	return "reexec"
+}
+
+func panelSystemdUnitPresent() bool {
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		return false
+	}
+	return exec.Command("systemctl", "cat", "nft-server.service").Run() == nil
+}
+
 func restartPanelDefault() error {
+	if panelRestartMode() == "systemd" {
+		return startSystemdPanelRestart()
+	}
+	return schedulePanelReexec()
+}
+
+func startSystemdPanelRestart() error {
 	script := `#!/usr/bin/env bash
 set -e
 sleep 2
-if command -v systemctl >/dev/null 2>&1; then
+if command -v systemctl >/dev/null 2>&1 && systemctl cat nft-server.service >/dev/null 2>&1; then
   systemctl restart nft-server.service
   exit 0
 fi
+exit 1
 `
 	tmp, err := os.CreateTemp("", "kids-migrate-restart-*.sh")
 	if err != nil {
@@ -159,6 +185,28 @@ fi
 		return fmt.Errorf("无法重启面板: %w", err)
 	}
 	go func() { _ = cmd.Wait(); _ = os.Remove(path) }()
+	return nil
+}
+
+// schedulePanelReexec replaces this process after the HTTP response is sent.
+// The new process applies migrate-incoming before it opens the database.
+// Re-exec keeps the same PID, so a container whose entrypoint is nft-server
+// stays up without a Docker restart policy.
+func schedulePanelReexec() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("无法定位面板程序: %w", err)
+	}
+	args := append([]string{exe}, os.Args[1:]...)
+	env := os.Environ()
+	go func() {
+		time.Sleep(2 * time.Second)
+		log.Printf("migrate: no systemd unit, re-exec %s", exe)
+		if err := syscall.Exec(exe, args, env); err != nil {
+			log.Printf("migrate: re-exec failed: %v", err)
+			os.Exit(1)
+		}
+	}()
 	return nil
 }
 

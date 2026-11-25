@@ -1,0 +1,45 @@
+# kids 面板。只跑 nft-server，不要把 nft-agent 放进这个容器。
+# 在本目录执行: docker compose up -d --build
+# 国内构建访问不了 GitHub 时，把 GH_PROXY 改成你平时用的前缀。
+# 或者把官方 nft-server 放到本目录 local/nft-server，构建时就不再下载。
+
+services:
+  kids-panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: latest
+        GH_PROXY: ""
+    image: kids-panel:latest
+    container_name: kids-panel
+    restart: unless-stopped
+    ports:
+      # 只绑本机，公网访问走 1Panel 网站反代。
+      - "127.0.0.1:7788:7788"
+    environment:
+      TZ: Asia/Shanghai
+      NFT_ADDR: ":7788"
+      NFT_DB: /var/lib/nft/panel.db
+      # 首次启动写入管理员密码。不填则密码打印在容器日志里，用户名 admin。
+      # NFT_BOOTSTRAP_ADMIN_PASSWORD: "请改成你的密码"
+    volumes:
+      # panel.db 和 sub_token.key 必须在同一个目录。删掉这个卷，订阅链接会全部失效。
+      - kids-data:/var/lib/nft
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7788/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # OpenResty 访问不到 127.0.0.1 时，取消下面两行和文件底部的 networks。
+    # 网站反代改填 http://kids-panel:7788
+    # networks:
+    #   - 1panel-network
+
+volumes:
+  kids-data:
+
+# networks:
+#   1panel-network:
+#     external: true
