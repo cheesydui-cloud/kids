@@ -106,23 +106,51 @@ ensure_running() {
   fi
 }
 
+bash_works() {
+  docker exec "$name" sh -c 'if test -x /bin/bash; then /bin/bash -c "exit 0"; elif test -x /usr/bin/bash; then /usr/bin/bash -c "exit 0"; else exit 1; fi'
+}
+
+extract_bash_binary() {
+  # bash.prerm is itself a bash script. If the binary is already gone, apt-get
+  # reinstall cannot run that script. Unpack the .deb and copy the binary.
+  docker exec "$name" sh -c 'set -eu
+    cd /tmp
+    rm -rf bash-root
+    rm -f bash_*.deb
+    apt-get download bash
+    mkdir -p bash-root
+    dpkg-deb -x bash_*.deb bash-root
+    if [ -f bash-root/usr/bin/bash ]; then
+      cp bash-root/usr/bin/bash /usr/bin/bash
+      chmod 755 /usr/bin/bash
+    fi
+    if [ -f bash-root/bin/bash ]; then
+      cp bash-root/bin/bash /bin/bash
+      chmod 755 /bin/bash
+    fi
+    if [ ! -x /bin/bash ] && [ -x /usr/bin/bash ]; then
+      ln -sf /usr/bin/bash /bin/bash 2>/dev/null || cp /usr/bin/bash /bin/bash
+      chmod 755 /bin/bash 2>/dev/null || true
+    fi
+    test -x /bin/bash || test -x /usr/bin/bash
+  '
+}
+
 ensure_bash() {
-  if docker exec "$name" sh -c 'test -x /bin/bash || test -x /usr/bin/bash'; then
+  if bash_works; then
     return 0
   fi
   echo "容器里没有 bash，正在安装"
   docker exec "$name" sh -c 'command -v apt-get >/dev/null' || fail "容器里没有 bash，也没有 apt-get"
-  local n ok=0
-  for n in 1 2 3; do
-    if docker exec "$name" sh -c 'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall --no-install-recommends bash'; then
-      ok=1
-      break
+  docker exec "$name" sh -c 'DEBIAN_FRONTEND=noninteractive apt-get update -qq' || fail "apt-get update 失败"
+  if docker exec "$name" sh -c 'dpkg -s bash >/dev/null 2>&1'; then
+    extract_bash_binary || fail "安装 bash 失败"
+  else
+    if ! docker exec "$name" sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bash'; then
+      extract_bash_binary || fail "安装 bash 失败"
     fi
-    echo "安装 bash 失败，重试 $n"
-    sleep 3
-  done
-  [[ "$ok" -eq 1 ]] || fail "安装 bash 失败"
-  docker exec "$name" sh -c 'test -x /bin/bash || test -x /usr/bin/bash' || fail "安装 bash 后仍然找不到 /bin/bash"
+  fi
+  bash_works || fail "安装 bash 后仍然找不到 /bin/bash"
 }
 
 copy_free_paths() {

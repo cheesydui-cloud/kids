@@ -6,7 +6,7 @@
 set -euo pipefail
 
 if [[ "$(id -u)" -ne 0 ]]; then
-  exec sudo -n -E bash "$(readlink -f "$0")" "$@"
+  exec sudo -n bash "$(readlink -f "$0")" "$@"
 fi
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
