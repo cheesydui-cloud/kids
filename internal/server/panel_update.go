@@ -23,13 +23,15 @@ const (
 	panelUpdateLogName    = "panel-update.log"
 	panelUpdateScriptName = "panel-self-update.sh"
 	panelUpdateInstallSH  = "panel-self-update-install.sh"
-	nftUpgradePath        = "/usr/local/sbin/nft-upgrade"
 	ghProxyFile           = "/etc/nft/gh-proxy"
 	panelUpdateStaleAfter = 20 * time.Minute
 	latestReleaseCacheFor = 45 * time.Second
 	maxReleaseNotes       = 4000
 	maxUpdateLogTail      = 8 << 10
 )
+
+// nftUpgradePath is the installer copied in by install.sh. Tests point it at a temp file.
+var nftUpgradePath = "/usr/local/sbin/nft-upgrade"
 
 // panelUpdateDir is where the self-update status/log live. Tests override it.
 var panelUpdateDir = "/var/lib/nft"
@@ -353,10 +355,10 @@ func startPanelUpgradeDetached(target, current string) error {
 
 	useLocal := looksLikeInstallerFn(nftUpgradePath)
 	if !useLocal {
-		// Do not execute a mutable GitHub branch as root. The installer is
-		// installed locally together with the panel and its update command is
-		// the only trusted upgrade entry point.
-		return fmt.Errorf("本机升级器不存在或内容未通过校验: %s", nftUpgradePath)
+		// Containers installed without install.sh have no nft-upgrade and no
+		// systemd unit. The panel downloads the release itself, replaces its
+		// own binary, and re-execs. Do not fetch a mutable GitHub branch.
+		return startBuiltinPanelUpgrade(target, current)
 	}
 
 	upgradeLine := "bash " + shellQuote(installSH) + " update --release " + shellQuote(target)

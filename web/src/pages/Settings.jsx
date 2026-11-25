@@ -875,7 +875,7 @@ function PanelUpdate({ upd, version, busy, err, onCheck, onUpgrade }) {
         <label className="w-[110px] flex-shrink-0 text-[14px] text-ink-soft pt-1">当前版本</label>
         <div className="flex-1 min-w-0">
           <div className="text-[15px] font-semibold text-ink font-mono">{current}</div>
-          <p className="text-[12px] text-ink-mut mt-1.5 m-0">面板本机版本。升级只换本机二进制，不动数据库和节点。</p>
+          <p className="text-[12px] text-ink-mut mt-1.5 m-0">面板本机版本。升级只换本机二进制，不动数据库和节点。没有 systemd 的容器也可以直接点升级，面板会自己换上新程序并重新启动。</p>
         </div>
       </div>
       <div className="flex items-start gap-6 mb-[22px]">
