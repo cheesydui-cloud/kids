@@ -130,14 +130,12 @@ func downloadPanelReleaseBinary(tag string) ([]byte, string, error) {
 			continue
 		}
 		if len(data) < 1<<20 || len(data) < 4 || string(data[:4]) != "\x7fELF" {
-			last = fmt.Errorf("%s 不是面板程序", name)
-			continue
+			return nil, "", fmt.Errorf("下载 %s 失败: %s 不是面板程序", tag, name)
 		}
 		sum := sha256.Sum256(data)
 		got := hex.EncodeToString(sum[:])
 		if !strings.EqualFold(got, want) {
-			last = fmt.Errorf("%s sha256 校验失败", name)
-			continue
+			return nil, "", fmt.Errorf("下载 %s 失败: %s sha256 校验失败", tag, name)
 		}
 		return data, name, nil
 	}
