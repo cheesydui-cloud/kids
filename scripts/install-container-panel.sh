@@ -529,6 +529,9 @@ echo "当前入口 $ENTRY_PATH"
 if starter_is_entrypoint; then
   switch_via_next
 elif [[ "$NFT_FORCE_RECREATE" == "1" ]]; then
+  # docker commit only keeps files already in the container.
+  ensure_bash
+  copy_free_paths
   recreate_container
 else
   case "$ENTRY_PATH" in
