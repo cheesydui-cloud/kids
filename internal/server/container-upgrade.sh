@@ -162,7 +162,16 @@ replace_binary() {
     log "已用 bind mount 盖住旧程序"
     return 0
   fi
-  die "无法替换正在运行的程序: $dest"
+  log "无法删除或移走正在运行的程序，改为写到旁边"
+  mkdir -p /var/lib/nft /usr/local/lib/kids
+  cp "$src" /var/lib/nft/nft-server.next || die "无法写入 /var/lib/nft/nft-server.next"
+  chmod 755 /var/lib/nft/nft-server.next || true
+  rm -f "$tmp" 2>/dev/null || true
+  if grep -q '# kids-panel-start' /usr/local/sbin/nft-server 2>/dev/null; then
+    log "已把新程序放到 /var/lib/nft/nft-server.next，启动器会在重启时换上"
+    return 0
+  fi
+  die "入口还不是启动器，容器重启后不会换上新程序。请在宿主机执行 v0.15.3 安装命令"
 }
 
 save_cmdline() {

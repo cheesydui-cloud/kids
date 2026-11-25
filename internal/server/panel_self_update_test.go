@@ -238,6 +238,91 @@ func TestBuiltinUpgradeRecordsDownloadError(t *testing.T) {
 
 var errTestDownload = stringError("下载失败")
 
+func TestStagePanelNextAndReexecUsesStarter(t *testing.T) {
+	prevDir := panelUpdateDir
+	prevWrap := panelWrapperPath
+	prevTarget := panelReexecTarget
+	dir := t.TempDir()
+	panelUpdateDir = dir
+	wrapper := filepath.Join(dir, "nft-server")
+	if err := os.WriteFile(wrapper, []byte("#!/bin/bash\n# kids-panel-start\nexec /bin/true\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	panelWrapperPath = wrapper
+	panelReexecTarget = ""
+	t.Cleanup(func() {
+		panelUpdateDir = prevDir
+		panelWrapperPath = prevWrap
+		panelReexecTarget = prevTarget
+	})
+
+	if err := adoptStagedPanel([]byte("new-elf")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "nft-server.next"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new-elf" {
+		t.Fatalf("next = %q", got)
+	}
+	reexec, err := panelReexecPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reexec != wrapper {
+		t.Fatalf("reexec = %s, want starter", reexec)
+	}
+}
+
+func TestAdoptStagedPanelWithoutStarter(t *testing.T) {
+	prevDir := panelUpdateDir
+	prevWrap := panelWrapperPath
+	prevTarget := panelReexecTarget
+	dir := t.TempDir()
+	panelUpdateDir = dir
+	panelWrapperPath = filepath.Join(dir, "missing-starter")
+	panelReexecTarget = ""
+	t.Cleanup(func() {
+		panelUpdateDir = prevDir
+		panelWrapperPath = prevWrap
+		panelReexecTarget = prevTarget
+	})
+	err := adoptStagedPanel([]byte("new-elf"))
+	if err == nil || !strings.Contains(err.Error(), "入口还不是启动器") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "nft-server.next")); statErr != nil {
+		t.Fatal(statErr)
+	}
+}
+
+func TestReplaceErrCrossDevice(t *testing.T) {
+	if replaceErrCrossDevice(nil) {
+		t.Fatal("nil")
+	}
+	if !replaceErrCrossDevice(errString("rename sbin: invalid cross-device link")) {
+		t.Fatal("expected cross-device")
+	}
+}
+
+func TestPanelStartScriptHasMarker(t *testing.T) {
+	script := string(panelStartScriptBytes())
+	if !strings.Contains(script, "# kids-panel-start") {
+		t.Fatal("missing starter marker")
+	}
+	if !strings.Contains(script, "/var/lib/nft/nft-server.next") {
+		t.Fatal("missing next path")
+	}
+	if strings.Contains(script, "\r\n") {
+		t.Fatal("starter script must be LF")
+	}
+	upgrade := string(containerUpgradeScriptBytes())
+	if !strings.Contains(upgrade, "/var/lib/nft/nft-server.next") || !strings.Contains(upgrade, "# kids-panel-start") {
+		t.Fatal("container upgrader does not stage beside the running binary")
+	}
+}
+
 type stringError string
 
 func (e stringError) Error() string { return string(e) }

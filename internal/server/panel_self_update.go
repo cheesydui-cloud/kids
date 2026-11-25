@@ -70,7 +70,11 @@ func startBuiltinPanelUpgrade(target, current string) error {
 			_ = writePanelUpdateStatus(st)
 			return
 		}
-		appendUpdateLog("二进制已替换，正在重新执行面板\n")
+		if panelReexecTarget != "" {
+			appendUpdateLog("新程序已放到旁边，正在通过启动器切换\n")
+		} else {
+			appendUpdateLog("二进制已替换，正在重新执行面板\n")
+		}
 		if err := reexecPanelFn(); err != nil {
 			msg := "二进制已替换，但重新执行失败。请重启面板进程: " + err.Error()
 			appendUpdateLog(msg + "\n")
@@ -175,6 +179,7 @@ func httpGetLimited(url string, limit int64) ([]byte, error) {
 // running process keeps the old inode either way. When unlink fails, the
 // parent directory is swapped so the original path points at the new file.
 func replaceExecutable(dest string, data []byte) error {
+	panelReexecTarget = ""
 	dir := filepath.Dir(dest)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("无法写入新程序: %w", err)
@@ -205,17 +210,11 @@ func replaceExecutable(dest string, data []byte) error {
 		if !replaceErrBusy(err) {
 			return fmt.Errorf("无法替换正在运行的程序: %w", err)
 		}
-		if serr := replaceByDirectorySwap(dest, tmpName); serr != nil {
-			return fmt.Errorf("无法替换正在运行的程序: %w", serr)
-		}
-		return nil
+		return replaceAfterBusy(dest, tmpName, data)
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
-		if replaceErrBusy(err) {
-			if serr := replaceByDirectorySwap(dest, tmpName); serr != nil {
-				return fmt.Errorf("无法替换正在运行的程序: %w", serr)
-			}
-			return nil
+		if replaceErrBusy(err) || replaceErrCrossDevice(err) {
+			return replaceAfterBusy(dest, tmpName, data)
 		}
 		if werr := os.WriteFile(dest, data, 0o755); werr != nil {
 			return fmt.Errorf("替换失败且无法写回程序: %v / %w", err, werr)
@@ -226,12 +225,34 @@ func replaceExecutable(dest string, data []byte) error {
 	return nil
 }
 
+func replaceAfterBusy(dest, tmpName string, data []byte) error {
+	if serr := replaceByDirectorySwap(dest, tmpName); serr == nil {
+		return nil
+	} else {
+		appendUpdateLog("目录替换失败: " + serr.Error() + "\n")
+	}
+	if xerr := replaceByExchange(dest, tmpName); xerr == nil {
+		appendUpdateLog("已交换程序文件名\n")
+		return nil
+	}
+	appendUpdateLog("正在运行的程序无法删除，改为写到旁边\n")
+	return adoptStagedPanel(data)
+}
+
 func replaceErrBusy(err error) bool {
 	if err == nil {
 		return false
 	}
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "device or resource busy") || strings.Contains(s, "text file busy")
+}
+
+func replaceErrCrossDevice(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "cross-device") || strings.Contains(s, "cross device")
 }
 
 // replaceByDirectorySwap puts src at dest's path without unlinking dest.

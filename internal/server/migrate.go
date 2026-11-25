@@ -193,15 +193,15 @@ exit 1
 // Re-exec keeps the same PID, so a container whose entrypoint is nft-server
 // stays up without a Docker restart policy.
 func schedulePanelReexec() error {
-	exe, err := os.Executable()
+	exe, err := panelReexecPath()
 	if err != nil {
-		return fmt.Errorf("无法定位面板程序: %w", err)
+		return err
 	}
 	args := append([]string{exe}, os.Args[1:]...)
 	env := os.Environ()
 	go func() {
 		time.Sleep(2 * time.Second)
-		log.Printf("migrate: no systemd unit, re-exec %s", exe)
+		log.Printf("panel: re-exec %s", exe)
 		if err := syscall.Exec(exe, args, env); err != nil {
 			log.Printf("migrate: re-exec failed: %v", err)
 			os.Exit(1)
