@@ -268,17 +268,19 @@ func (s *Server) landingExpiryEnforcer() {
 // It waits for both the periodic enforcers and any in-flight async dispatches
 // to finish, so it must be called before closing the database connection.
 func (s *Server) Stop() {
-	if s.Hub != nil {
-		s.Hub.Close()
-	}
-	close(s.stopExpiry)
-	close(s.stopCycle)
-	close(s.stopLandingSync)
-	close(s.stopLandingExpiry)
-	close(s.stopAlerts)
-	s.enforcerWg.Wait()
-	s.stopOnce.Do(func() { close(s.stopAll) })
-	s.asyncWg.Wait()
+	s.stopOnce.Do(func() {
+		if s.Hub != nil {
+			s.Hub.Close()
+		}
+		close(s.stopExpiry)
+		close(s.stopCycle)
+		close(s.stopLandingSync)
+		close(s.stopLandingExpiry)
+		close(s.stopAlerts)
+		s.enforcerWg.Wait()
+		close(s.stopAll)
+		s.asyncWg.Wait()
+	})
 }
 
 // goAsync starts fn in a goroutine unless the server is already stopped.
